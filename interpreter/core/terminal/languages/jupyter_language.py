@@ -14,7 +14,11 @@ import time
 import traceback
 
 os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] = "True"
-import litellm
+# Nothing in this module calls litellm any more (the stdin-guessing heartbeat
+# that did was removed), but the import stays: it pins the order of the env var
+# above against litellm's first import in the process, which is what makes the
+# local cost map take effect.
+import litellm  # noqa: F401
 from jupyter_client import KernelManager
 
 from ..base_language import BaseLanguage
@@ -130,9 +134,6 @@ ip.display_formatter.active_types = ['text/markdown', 'text/plain']
         while not self.kc.is_alive():
             time.sleep(0.1)
 
-        self.last_output_time = time.time()
-        self.last_output_message_time = time.time()
-
         ################################################################
         ### OFFICIAL OPEN INTERPRETER GOVERNMENT ISSUE SKILL LIBRARY ###
         ################################################################
@@ -210,57 +211,7 @@ ip.display_formatter.active_types = ['text/markdown', 'text/plain']
                     self.finish_flag = True
                     return
                 try:
-                    input_patience = int(
-                        os.environ.get("INTERPRETER_TERMINAL_INPUT_PATIENCE", 15)
-                    )
-                    if (
-                        time.time() - self.last_output_time > input_patience
-                        and time.time() - self.last_output_message_time > input_patience
-                    ):
-                        self.last_output_message_time = time.time()
-
-                        text = f"{self.interpreter.messages}\n\nThe program above has been running for over 15 seconds. It might require user input. Are there keystrokes that the user should type in, to proceed after the last command?"
-
-                        messages = [
-                            {
-                                "role": "system",
-                                "type": "message",
-                                "content": "You are an expert programming assistant. You will help the user determine if they should enter input into the terminal, per the user's requests. If you think the user would want you to type something into stdin, enclose it in <input></input> XML tags, like <input>y</input> to type 'y'.",
-                            },
-                            {"role": "user", "type": "message", "content": text},
-                        ]
-                        params = {
-                            "messages": messages,
-                            "model": self.interpreter.llm.model,
-                            "stream": True,
-                            "temperature": 0,
-                        }
-                        if self.interpreter.llm.api_key:
-                            params["api_key"] = self.interpreter.llm.api_key
-                        # Use the same provider endpoint config as the active interpreter model.
-                        # Without this, routed models (e.g., dashscope-us/* rewritten as openai/*)
-                        # can accidentally call OpenAI with a non-OpenAI key in this side-channel.
-                        if self.interpreter.llm.api_base:
-                            params["api_base"] = self.interpreter.llm.api_base
-                        if self.interpreter.llm.api_version:
-                            params["api_version"] = self.interpreter.llm.api_version
-
-                        response = ""
-                        for chunk in litellm.completion(**params):
-                            content = chunk.choices[0].delta.content
-                            if type(content) == str:
-                                response += content
-
-                        # Parse the response for input tags
-                        input_match = re.search(r"<input>(.*?)</input>", response)
-                        if input_match:
-                            user_input = input_match.group(1)
-                            # Do not automatically send CTRL-C - only send user-provided input
-                            if user_input.upper() != "CTRL-C":
-                                self.kc.input(user_input)
-
                     msg = self.kc.iopub_channel.get_msg(timeout=0.05)
-                    self.last_output_time = time.time()
                 except queue.Empty:
                     continue
                 except Exception as e:
