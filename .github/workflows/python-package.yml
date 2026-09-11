@@ -14,13 +14,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
       - name: Ruff
         run: |
-          pip install ruff
-          ruff check interpreter tests scripts
+          uv sync --group dev --python 3.12
+          uv run ruff check interpreter tests scripts
 
   test:
     runs-on: ubuntu-latest
@@ -30,13 +28,8 @@ jobs:
         python-version: ["3.12", "3.14"]
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
+      - uses: astral-sh/setup-uv@v6
       - name: Install
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[server]"
-          pip install pytest websockets requests
+        run: uv sync --group dev --extra server --python ${{ matrix.python-version }}
       - name: Test
-        run: pytest -m "not integration" -q
+        run: uv run pytest -m "not integration" -q
