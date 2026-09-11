@@ -1,7 +1,6 @@
 import os
 from enum import Enum
 
-import litellm
 from openai import OpenAI
 from pydantic import BaseModel, Field, create_model
 
@@ -101,6 +100,8 @@ class Ai2:
     """
 
     def __init__(self, toolbox=None, default_model: str = None, temperature: float = 0.0, computer=None):
+        import litellm
+
         # Backward compatibility: allow computer parameter
         if toolbox is None and computer is not None:
             toolbox = computer
@@ -286,6 +287,8 @@ class Ai2:
         "Natural language to code."
 
         """
+        import litellm
+
         messages = [
             {"role": "system", "content": instruction},
             {"role": "user", "content": content},

@@ -1,23 +1,16 @@
 import os
 
 os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] = "True"
-import sys
-
 # Note: litellm in DEV mode will load .env files from the current directory
 # and all parent directories. This can lead to unexpected API keys being loaded
 # if there are .env files in parent folders.
-import litellm
-
-litellm.suppress_debug_info = True
-litellm.REPEATED_STREAMING_CHUNK_LIMIT = 99999999
-
 import json
 import logging
 import re
+import sys
 import uuid
 
 import requests
-import tokentrim as tt
 from rich import print as rich_print
 from rich.markdown import Markdown
 from rich.panel import Panel
@@ -82,6 +75,15 @@ class SuppressDebugFilter(logging.Filter):
         if "cost map" in record.getMessage():
             return False  # Suppress this log message
         return True  # Allow all other messages
+
+
+def _litellm():
+    """Import litellm on first use: it costs over a second and most CLI paths never need it."""
+    import litellm
+
+    litellm.suppress_debug_info = True
+    litellm.REPEATED_STREAMING_CHUNK_LIMIT = 99999999
+    return litellm
 
 
 class Llm:
@@ -158,6 +160,8 @@ class Llm:
         auxiliary_title_request: one-off naming completion — text path only, tight max_tokens,
         no reasoning request, LiteLLM timeout, and no code-execution system suffix on the prompt.
         """
+        litellm = _litellm()
+        import tokentrim as tt
 
         if not self._is_loaded:
             self.load()
@@ -630,6 +634,8 @@ Continuing...
         return "image" in modalities
 
     def load(self):
+        litellm = _litellm()
+
         if self._is_loaded:
             return
 
@@ -742,6 +748,7 @@ def fixed_litellm_completions(**params):
     Just uses a dummy API key, since we use litellm without an API key sometimes.
     Hopefully they will fix this!
     """
+    litellm = _litellm()
 
     if "local" in params.get("model"):
         # Kinda hacky, but this helps sometimes

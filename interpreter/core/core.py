@@ -10,7 +10,6 @@ import threading
 import time
 from datetime import datetime
 
-from ..terminal_interface.local_setup import local_setup
 from ..terminal_interface.terminal_interface import terminal_interface
 from ..terminal_interface.utils.display_markdown_message import display_markdown_message
 from ..terminal_interface.utils.local_storage_path import get_storage_path
@@ -239,6 +238,8 @@ class OpenInterpreter:
         """
         Opens a wizard that lets terminal users pick a local model.
         """
+        from ..terminal_interface.local_setup import local_setup
+
         self = local_setup(self)
 
     def wait(self):

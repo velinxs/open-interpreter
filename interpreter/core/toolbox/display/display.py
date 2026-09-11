@@ -35,7 +35,6 @@ except:
     pyautogui = None
 
 np = lazy_import("numpy")
-plt = lazy_import("matplotlib.pyplot")
 screeninfo = lazy_import("screeninfo")
 pywinctl = lazy_import("pywinctl")
 

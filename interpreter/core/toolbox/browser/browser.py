@@ -3,11 +3,6 @@ import time
 
 import html2text
 import requests
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
-from webdriver_manager.chrome import ChromeDriverManager
 
 
 class Browser:
@@ -81,6 +76,10 @@ class Browser:
         Returns:
             None
         """
+        from selenium import webdriver
+        from selenium.webdriver.chrome.service import Service
+        from webdriver_manager.chrome import ChromeDriverManager
+
         try:
             self.service = Service(ChromeDriverManager().install())
             self.options = webdriver.ChromeOptions()
@@ -101,6 +100,9 @@ class Browser:
 
     def search_google(self, query, delays=True):
         """Perform a Google search"""
+        from selenium.webdriver.common.by import By
+        from selenium.webdriver.common.keys import Keys
+
         self.driver.get("https://www.perplexity.ai")
         # search_box = self.driver.find_element(By.NAME, 'q')
         # search_box.send_keys(query)
@@ -116,6 +118,8 @@ class Browser:
 
     def analyze_page(self, intent):
         """Extract HTML, list interactive elements, and analyze with AI"""
+        from selenium.webdriver.common.by import By
+
         html_content = self.driver.page_source
         text_content = html2text.html2text(html_content)
 

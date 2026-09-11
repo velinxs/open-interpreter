@@ -1,11 +1,11 @@
 import re
 
-import tiktoken
-
 _TS_RE = re.compile(r"^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2})\]")
 
 
 def _get_encoding(model):
+    import tiktoken
+
     try:
         return tiktoken.encoding_for_model(model) if model else tiktoken.get_encoding("cl100k_base")
     except KeyError:

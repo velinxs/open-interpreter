@@ -1,9 +1,9 @@
 from concurrent.futures import ThreadPoolExecutor
 
-import tiktoken
-
 
 def split_into_chunks(text, tokens, llm, overlap):
+    import tiktoken
+
     try:
         encoding = tiktoken.encoding_for_model(llm.model)
         tokenized_text = encoding.encode(text)
@@ -20,6 +20,8 @@ def split_into_chunks(text, tokens, llm, overlap):
 
 
 def chunk_responses(responses, tokens, llm):
+    import tiktoken
+
     try:
         encoding = tiktoken.encoding_for_model(llm.model)
         chunked_responses = []

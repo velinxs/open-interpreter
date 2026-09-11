@@ -7,7 +7,6 @@ import traceback
 
 os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] = "True"
 import html2text
-import litellm
 import openai
 from rich import print as rich_print
 from rich.markdown import Markdown
@@ -23,11 +22,15 @@ from .utils.prompt_choice import (
     stdin_is_interactive,
 )
 
-_LITELLM_OPTIONAL_API_EXCEPTIONS = tuple(
-    getattr(litellm.exceptions, name)
-    for name in ("ServiceUnavailableError", "InternalServerError")
-    if hasattr(litellm.exceptions, name)
-)
+
+def _litellm_optional_api_exceptions():
+    import litellm
+
+    return tuple(
+        getattr(litellm.exceptions, name)
+        for name in ("ServiceUnavailableError", "InternalServerError")
+        if hasattr(litellm.exceptions, name)
+    )
 
 
 def _html_error_to_renderable(error_str):
@@ -113,6 +116,7 @@ def respond(interpreter):
     Yields chunks.
     Responds until it decides not to run any more code or say anything else.
     """
+    import litellm
 
     last_unsupported_code = ""
     insert_loop_message = False
@@ -199,7 +203,7 @@ def respond(interpreter):
                         litellm.exceptions.RateLimitError,
                         litellm.exceptions.AuthenticationError,
                         getattr(litellm.exceptions, "APIConnectionError", Exception),
-                        *_LITELLM_OPTIONAL_API_EXCEPTIONS,
+                        *_litellm_optional_api_exceptions(),
                         # OpenAI Python client variants (defensive, in case they leak through)
                         getattr(openai, "APIError", Exception),
                         getattr(openai, "OpenAIError", Exception),

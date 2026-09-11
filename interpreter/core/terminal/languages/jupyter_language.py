@@ -14,11 +14,9 @@ import time
 import traceback
 
 os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] = "True"
-# Nothing in this module calls litellm any more (the stdin-guessing heartbeat
-# that did was removed), but the import stays: it pins the order of the env var
-# above against litellm's first import in the process, which is what makes the
-# local cost map take effect.
-import litellm  # noqa: F401
+# litellm reads this at its first import. The package imports litellm lazily,
+# at the first model call, so setting it here (when the language loads) is early
+# enough for the local cost map to take effect.
 from jupyter_client import KernelManager
 
 from ..base_language import BaseLanguage

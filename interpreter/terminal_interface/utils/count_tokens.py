@@ -1,16 +1,10 @@
-try:
-    import tiktoken
-    from litellm import cost_per_token
-except:
-    # Non-essential feature
-    pass
-
-
 def count_tokens(text="", model="gpt-4"):
     """
     Count the number of tokens in a string
     """
     try:
+        import tiktoken  # at point of use: this module loads with the CLI, tiktoken costs startup time
+
         # Fix bug where models starting with openai/ for example can't find tokenizer
         if "/" in model:
             model = model.split("/")[-1]
@@ -34,6 +28,8 @@ def token_cost(tokens=0, model="gpt-4"):
     """
 
     try:
+        from litellm import cost_per_token
+
         (prompt_cost, _) = cost_per_token(model=model, prompt_tokens=tokens)
 
         return round(prompt_cost, 6)

@@ -14,7 +14,13 @@ except:
     cv2 = None  # Fixes colab error
 np = lazy_import("numpy")
 pyautogui = lazy_import("pyautogui")
-plt = lazy_import("matplotlib.pyplot")
+
+
+def _plt():
+    """matplotlib only when a debug screenshot is shown; importing it costs startup time."""
+    import matplotlib.pyplot as plt
+
+    return plt
 
 
 class Mouse:
@@ -71,10 +77,10 @@ class Mouse:
                 return self.move(icon=text)  # Is this a better solution?
 
                 if self.toolbox.emit_images:
-                    plt.imshow(np.array(screenshot))
+                    _plt().imshow(np.array(screenshot))
                     with warnings.catch_warnings():
                         warnings.simplefilter("ignore")
-                        plt.show()
+                        _plt().show()
                 raise ValueError(
                     f"@@@HIDE_TRACEBACK@@@Your text ('{text}') was not found on the screen. Please try again. If you're 100% sure the text should be there, consider using `toolbox.mouse.scroll(-10)` to scroll down.\n\nYou can use `toolbox.display.get_text_as_list_of_lists()` to see all the text on the screen."
                 )
@@ -181,10 +187,10 @@ class Mouse:
                             cv2.LINE_AA,
                         )
 
-                    plt.imshow(img_draw)
+                    _plt().imshow(img_draw)
                     with warnings.catch_warnings():
                         warnings.simplefilter("ignore")
-                        plt.show()
+                        _plt().show()
 
                 coordinates = [
                     f"{i}: {int(item[0] * self.toolbox.display.width)}, {int(item[1] * self.toolbox.display.height)}"
@@ -221,10 +227,10 @@ class Mouse:
             # Draw a solid blue circle around the place we're clicking
             cv2.circle(img_draw, (drawing_x, drawing_y), 20, (0, 0, 255), -1)
 
-            plt.imshow(img_draw)
+            _plt().imshow(img_draw)
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-                plt.show()
+                _plt().show()
 
         # pyautogui.moveTo(x, y, duration=0.5)
         smooth_move_to(x, y)
