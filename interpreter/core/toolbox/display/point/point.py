@@ -444,12 +444,12 @@ def find_icon(description, screenshot=None, debug=False, hashes=None):
 # torch.set_num_threads(4)
 
 fast_model = True
+# Where the fine-tuned ViT weights are cached when fast_model is off.
+model_path = os.path.join(oi_dir, "point_vit_siglip.pth")
 
 # First, we load the respective CLIP model
 model = SentenceTransformer("clip-ViT-B-32")
 
-
-import os
 
 import timm
 
