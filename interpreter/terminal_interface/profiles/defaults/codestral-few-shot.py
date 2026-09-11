@@ -21,7 +21,7 @@ try:
 except Exception as e:
     print(str(e))
     interpreter.display_message(
-        f"> Ollama not found\n\nPlease download Ollama from [ollama.com](https://ollama.com/) to use `codestral`.\n"
+        "> Ollama not found\n\nPlease download Ollama from [ollama.com](https://ollama.com/) to use `codestral`.\n"
     )
     exit()
 
@@ -234,7 +234,8 @@ interpreter.auto_run = True
 # Set offline for all local models
 interpreter.offline = True
 
-import os, platform
+import os
+import platform
 
 # Get the current user's login name
 username = os.getlogin()

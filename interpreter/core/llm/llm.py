@@ -957,8 +957,8 @@ def fixed_litellm_completions(**params):
             # the outgoing messages (reasoning status per message) to a file for debugging.
             if "reasoning_content" in str(e):
                 try:
-                    import os as _os
                     import datetime as _dt
+                    import os as _os
                     dump_dir = _os.path.expanduser("~/.config/open-interpreter/logs")
                     _os.makedirs(dump_dir, exist_ok=True)
                     dump_path = _os.path.join(

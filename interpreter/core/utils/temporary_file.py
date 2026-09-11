@@ -16,7 +16,7 @@ def cleanup_temporary_file(temp_file_name, verbose=False):
             print("---")
 
     except Exception as e:
-        print(f"Could not clean up temporary file.")
+        print("Could not clean up temporary file.")
         print(e)
         print("")
 
@@ -42,6 +42,6 @@ def create_temporary_file(contents, extension=None, verbose=False):
         return temp_file_name
 
     except Exception as e:
-        print(f"Could not create temporary file.")
+        print("Could not create temporary file.")
         print(e)
         print("")

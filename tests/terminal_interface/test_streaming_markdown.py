@@ -3,7 +3,6 @@ from interpreter.terminal_interface.utils.streaming_markdown import (
     textify_markdown_code_blocks,
 )
 
-
 LIST_WITH_INDENTED_FENCE = """1. **First**
 
 2. **Second**

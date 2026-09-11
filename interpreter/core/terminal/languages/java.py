@@ -5,7 +5,9 @@ import subprocess
 import threading
 import time
 import traceback
+
 from .subprocess_language import SubprocessLanguage
+
 
 class Java(SubprocessLanguage):
     file_extension = "java"

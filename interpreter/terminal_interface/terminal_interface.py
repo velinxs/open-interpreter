@@ -10,9 +10,9 @@ except ImportError:
 
 import os
 import platform
-import shutil
 import random
 import re
+import shutil
 import subprocess
 import tempfile
 import time
@@ -963,7 +963,7 @@ def terminal_interface(interpreter, message):
                                 elif action.startswith("toolbox.keyboard.press("):
                                     description = f"Pressing {arguments}."
                                 elif action == "toolbox.os.get_selected_text()":
-                                    description = f"Getting selected text."
+                                    description = "Getting selected text."
 
                                 if description:
                                     interpreter.toolbox.os.notify(description)

@@ -42,12 +42,13 @@ if "--os" in sys.argv:
             print("")
 
     from importlib.metadata import version
+
     import requests
     from packaging import version
 
     def check_for_update():
         # Fetch the latest version from the PyPI API
-        response = requests.get(f"https://pypi.org/pypi/open-interpreter/json")
+        response = requests.get("https://pypi.org/pypi/open-interpreter/json")
         latest_version = response.json()["info"]["version"]
 
         # Get the current version using importlib.metadata
@@ -72,8 +73,8 @@ if "--os" in sys.argv:
 _FAST_EXIT_FLAGS = {"--help", "-h", "--version"}
 if not _FAST_EXIT_FLAGS.intersection(sys.argv):
     from .core.async_core import AsyncInterpreter
-    from .core.terminal.base_language import BaseLanguage
     from .core.core import OpenInterpreter
+    from .core.terminal.base_language import BaseLanguage
 
     interpreter = OpenInterpreter()
     toolbox = interpreter.toolbox

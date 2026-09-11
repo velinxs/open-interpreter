@@ -1,10 +1,12 @@
+import json
 import os
 import unittest
-import json
 from unittest.mock import MagicMock, patch
 
-from interpreter.core.toolbox.web.web import Web, StructuredOutputResult, WebToolboxError
 import pytest
+
+from interpreter.core.toolbox.web.web import StructuredOutputResult, Web, WebToolboxError
+
 
 class TestWebToolbox(unittest.TestCase):
     def setUp(self):
@@ -19,7 +21,7 @@ class TestWebToolbox(unittest.TestCase):
             # Mock LinkupClient
             with patch("linkup.LinkupClient") as MockClient:
                 mock_instance = MockClient.return_value
-                
+
                 # Mock successful response
                 mock_response = MagicMock()
                 mock_response.structured_output = {
@@ -31,7 +33,7 @@ class TestWebToolbox(unittest.TestCase):
                     {"title": "Paper on arXiv", "url": "https://arxiv.org/abs/1706.03762", "snippet": "We propose a new simple network architecture..."}
                 ]
                 mock_instance.search.return_value = mock_response
-                
+
                 # Define schema
                 schema = {
                     "type": "object",
@@ -41,10 +43,10 @@ class TestWebToolbox(unittest.TestCase):
                         "title": {"type": "string"}
                     }
                 }
-                
+
                 # Call the method
                 result = self.web.structured_output("Attention is All You Need", schema=schema)
-                
+
                 # Verify call parameters
                 MockClient.assert_called_once_with(api_key="fake_key")
                 mock_instance.search.assert_called_once()
@@ -52,7 +54,7 @@ class TestWebToolbox(unittest.TestCase):
                 self.assertEqual(call_kwargs["output_type"], "structured")
                 # Backend receives JSON string for dict schemas
                 self.assertEqual(call_kwargs["structured_output_schema"], json.dumps(schema))
-                
+
                 # Verify result structure
                 self.assertIsInstance(result, StructuredOutputResult)
                 self.assertEqual(result["structured_output"]["author_last_name"], "Vaswani")
@@ -78,14 +80,14 @@ class TestWebToolbox(unittest.TestCase):
                     def model_json_schema():
                         return {"type": "object", "properties": {"test": {"type": "string"}}}
                 original_schema = MockModel
-            
+
             with patch("linkup.LinkupClient") as MockClient:
                 mock_instance = MockClient.return_value
                 mock_instance.search.return_value = MagicMock(structured_output={"test": "val"}, sources=[])
-                
+
                 # Call with pydantic-like object
                 result = self.web.structured_output("query", schema=original_schema)
-                
+
                 # Verify call parameters - Linkup SDK receives the class itself
                 call_kwargs = mock_instance.search.call_args.kwargs
                 self.assertEqual(call_kwargs["structured_output_schema"], original_schema)
@@ -100,7 +102,7 @@ class TestWebToolbox(unittest.TestCase):
             # It might raise the specific ApiKeyError message or the aggregate No backends message
             err_msg = str(context.exception)
             self.assertTrue(
-                "No structured output backends are working" in err_msg or 
+                "No structured output backends are working" in err_msg or
                 "LINKUP_API_KEY" in err_msg
             )
 

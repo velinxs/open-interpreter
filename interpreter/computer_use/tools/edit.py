@@ -51,7 +51,7 @@ class EditTool(BaseAnthropicTool):
         **kwargs,
     ):
         # Ask for user permission before executing the command
-        print(f"Do you want to execute the following command?")
+        print("Do you want to execute the following command?")
         print(f"Command: {command}")
         print(f"Path: {path}")
         if file_text:

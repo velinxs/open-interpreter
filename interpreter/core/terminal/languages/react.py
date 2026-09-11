@@ -1,7 +1,7 @@
 import re
 
-from ..utils.html_to_png_base64 import html_to_png_base64
 from ..base_language import BaseLanguage
+from ..utils.html_to_png_base64 import html_to_png_base64
 
 template = """<!DOCTYPE html>
 <html>

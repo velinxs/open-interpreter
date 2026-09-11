@@ -4,7 +4,6 @@ import subprocess
 
 from ..utils.run_applescript import run_applescript, run_applescript_capture
 
-
 makeDateFunction = """
 on makeDate(yr, mon, day, hour, min, sec)
 	set theDate to current date

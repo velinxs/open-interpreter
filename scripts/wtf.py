@@ -57,7 +57,7 @@ CWD: {os.getcwd()}
 
 """
 
-CUSTOM_MESSAGE_SYSTEM_MESSAGE = f"""
+CUSTOM_MESSAGE_SYSTEM_MESSAGE = rf"""
 
 You are a fast, efficient AI assistant for terminal and coding tasks. When summoned, you will:
 
@@ -81,7 +81,7 @@ CWD: {os.getcwd()}
 
 """
 
-LOCAL_SYSTEM_MESSAGE = f"""
+LOCAL_SYSTEM_MESSAGE = rf"""
 You're a fast AI assistant for terminal issues. You must:
 
 1. Scan terminal history

@@ -1,6 +1,7 @@
 import os
 import re
 from pathlib import Path
+
 from .subprocess_language import SubprocessLanguage
 
 
@@ -10,12 +11,12 @@ class Ruby(SubprocessLanguage):
 
     def __init__(self):
         super().__init__()
-        self.start_cmd = ["irb"] 
+        self.start_cmd = ["irb"]
 
     def preprocess_code(self, code):
         """
         Add active line markers
-        Wrap in a tryCatch for better error handling 
+        Wrap in a tryCatch for better error handling
         Add end of execution marker
         """
 

@@ -6,8 +6,9 @@ Please set the CEREBRAS_API_KEY environment variable.
 See https://inference-docs.cerebras.ai/introduction for more information.
 """
 
-from interpreter import interpreter
 import os
+
+from interpreter import interpreter
 
 # LLM settings
 interpreter.llm.api_base = "https://api.cerebras.ai/v1"
@@ -27,6 +28,6 @@ interpreter.offline = False
 interpreter.auto_run = False
 
 # Custom Instructions
-interpreter.custom_instructions = f"""
+interpreter.custom_instructions = """
 
     """

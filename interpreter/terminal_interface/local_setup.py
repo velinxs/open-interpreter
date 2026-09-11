@@ -12,8 +12,8 @@ import openai
 import psutil
 import requests
 import wget
-from rich.panel import Panel
 from rich import print as rich_print
+from rich.panel import Panel
 
 
 def local_setup(interpreter, provider=None, model=None):
@@ -33,19 +33,19 @@ def local_setup(interpreter, provider=None, model=None):
 
         if total_ram < 10:
             interpreter.display_message(
-                f"\nYour computer realistically can only run smaller models less than 4GB, Phi-2 might be the best model for your computer.\n"
+                "\nYour computer realistically can only run smaller models less than 4GB, Phi-2 might be the best model for your computer.\n"
             )
         elif 10 <= total_ram < 30:
             interpreter.display_message(
-                f"\nYour computer could handle a mid-sized model (4-10GB), Mistral-7B might be the best model for your computer.\n"
+                "\nYour computer could handle a mid-sized model (4-10GB), Mistral-7B might be the best model for your computer.\n"
             )
         else:
             interpreter.display_message(
-                f"\nYour computer should have enough RAM to run any model below.\n"
+                "\nYour computer should have enough RAM to run any model below.\n"
             )
 
         interpreter.display_message(
-            f"In general, the larger the model, the better the performance, but choose a model that best fits your computer's hardware. \nOnly models you have the storage space to download are shown:\n"
+            "In general, the larger the model, the better the performance, but choose a model that best fits your computer's hardware. \nOnly models you have the storage space to download are shown:\n"
         )
 
         try:
@@ -327,7 +327,7 @@ def local_setup(interpreter, provider=None, model=None):
             print("Ollama is not installed or not recognized as a command.")
             time.sleep(1)
             interpreter.display_message(
-                f"\nPlease visit [https://ollama.com/](https://ollama.com/) to download Ollama and try again.\n"
+                "\nPlease visit [https://ollama.com/](https://ollama.com/) to download Ollama and try again.\n"
             )
             time.sleep(2)
             sys.exit(1)

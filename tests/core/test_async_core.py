@@ -7,8 +7,8 @@ from interpreter.core.async_core import (
     Server,
     _format_openai_console_output,
     _is_openai_auxiliary_title_request,
-    _normalize_openai_code_approval_reply,
     _new_openai_completion_id,
+    _normalize_openai_code_approval_reply,
     _openai_messages_to_lmc,
     _openai_sse_chunk,
 )

@@ -1,9 +1,9 @@
 import os
 
-import pytest
-
 import litellm
+import pytest
 import requests
+
 import interpreter.core.llm.llm as llm_mod
 from interpreter.core.core import OpenInterpreter
 

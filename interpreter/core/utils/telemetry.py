@@ -15,8 +15,8 @@ import json
 import os
 import threading
 import uuid
+from importlib.metadata import PackageNotFoundError, version
 
-from importlib.metadata import version, PackageNotFoundError
 import requests
 
 

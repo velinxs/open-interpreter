@@ -242,7 +242,7 @@ class ComputerTool(BaseAnthropicTool):
             base64_image = base64.b64encode(path.read_bytes()).decode()
             path.unlink()  # Remove the temporary file
             return ToolResult(base64_image=base64_image)
-        raise ToolError(f"Failed to take screenshot")
+        raise ToolError("Failed to take screenshot")
 
     async def shell(self, command: str, take_screenshot=True) -> ToolResult:
         """Run a shell command and return the output, error, and optionally a screenshot."""

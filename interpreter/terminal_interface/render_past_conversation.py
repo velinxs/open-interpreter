@@ -2,12 +2,13 @@
 This is all messed up.... Uses the old streaming structure.
 """
 
-from rich.console import Group
 from rich import print as rich_print
 from rich.box import ROUNDED
+from rich.console import Group
 from rich.markdown import Markdown
 from rich.padding import Padding
 from rich.panel import Panel
+
 from .utils.display_constants import PADDING_PANEL
 from .utils.display_markdown_message import display_markdown_message
 

@@ -3,21 +3,21 @@ import re
 import shutil
 
 from rich.box import MINIMAL, ROUNDED
+from rich.console import Group
 from rich.markdown import Markdown
+from rich.padding import Padding
 from rich.panel import Panel
 from rich.text import Text
-from rich.console import Group
-from rich.padding import Padding
 
-from .base_block import BaseBlock
 from ..utils.display_constants import PADDING_MESSAGE, PADDING_PANEL
 from ..utils.streaming_markdown import (
-    detect_complete_block,
     calculate_window_size,
-    create_sliding_window_display,
     create_live_display,
+    create_sliding_window_display,
+    detect_complete_block,
     textify_markdown_code_blocks,
 )
+from .base_block import BaseBlock
 
 
 class MessageBlock(BaseBlock):
@@ -78,13 +78,13 @@ class MessageBlock(BaseBlock):
 
             # Render the complete block directly to console (above the Live viewport)
             markdown = Markdown(content.strip())
-            
+
             was_started = self.live.is_started
             if was_started:
                 self.live.update("")
                 self.live.refresh()
                 self.live.stop()
-                
+
             if self.debug:
                 # In debug mode, still use panel for visual distinction
                 panel = Panel(markdown, box=ROUNDED, border_style="green")
@@ -93,7 +93,7 @@ class MessageBlock(BaseBlock):
                 # Print markdown directly with horizontal padding only (2 chars left/right)
                 padded_markdown = Padding(markdown, PADDING_MESSAGE)
                 self.live.console.print(padded_markdown)
-                
+
             if was_started:
                 self.live = create_live_display(self.live.console)
                 self.live.start()

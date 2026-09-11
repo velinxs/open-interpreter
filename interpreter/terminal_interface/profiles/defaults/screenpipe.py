@@ -4,8 +4,9 @@ It leverages Llama 3.1 70b served by Groq and requires the environment variable 
 """
 
 # Configure Open Interpreter
-from interpreter import interpreter
 from datetime import datetime, timezone
+
+from interpreter import interpreter
 
 interpreter.llm.model = "groq/llama-3.3-70b-versatile"
 interpreter.toolbox.import_toolbox_api = False

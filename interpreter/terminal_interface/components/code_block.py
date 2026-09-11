@@ -1,22 +1,23 @@
+import os
+import shutil
+
 from rich.box import MINIMAL
 from rich.console import Group
 from rich.markup import escape
-from rich.panel import Panel
 from rich.padding import Padding
+from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
-import shutil
-import os
 
-from .base_block import BaseBlock
 from ..utils.display_constants import PADDING_PANEL
-from ..utils.target_file_lexer import syntax_lang_for_target_path
 from ..utils.streaming_markdown import (
     calculate_window_size,
-    create_sliding_window_display,
     create_live_display,
+    create_sliding_window_display,
 )
+from ..utils.target_file_lexer import syntax_lang_for_target_path
+from .base_block import BaseBlock
 
 
 class CodeBlock(BaseBlock):
@@ -150,15 +151,15 @@ class CodeBlock(BaseBlock):
             group_items.append(Text(self.target_path, style="dim"))
 
         group_items.append(panel)
-        
+
         was_started = self.live.is_started
         if was_started:
             self.live.update("")
             self.live.refresh()
             self.live.stop()
-            
+
         self.live.console.print(Padding(Group(*group_items), PADDING_PANEL))
-        
+
         if was_started:
             from ..utils.streaming_markdown import create_live_display
             self.live = create_live_display(self.live.console)
@@ -271,19 +272,19 @@ class CodeBlock(BaseBlock):
                 viewport_lines = calculate_window_size(self.live.console, self.viewport_fraction)
                 viewport_lines = max(viewport_lines, 3)
                 output_lines = self.output.strip().split('\n')
-                
+
                 formatted_output = create_sliding_window_display(
                     self.live.console, output_lines, viewport_lines, width_offset=6)
-                
+
                 # Escape so Rich does not interpret [brackets] as markup
                 output_panel = Panel(formatted_output, box=MINIMAL, style="#FFFFFF on #3b3b37")
                 group_items.append(output_panel)
-                
+
             if self.margin_top:
                 # This adds some space at the top. Just looks good!
                 group_items = [""] + group_items
                 self.margin_top = False
-                
+
             # Create a group with the code table and output panel
             group = Group(*group_items)
             padded = Padding(group, PADDING_PANEL)
@@ -330,7 +331,7 @@ class CodeBlock(BaseBlock):
             style="on #272722",
             title=self._code_panel_title(),
         )
-        
+
         group_items = []
         if self.margin_top:
             group_items.append("")
@@ -338,7 +339,7 @@ class CodeBlock(BaseBlock):
 
         if self.target_path:
             group_items.append(Text(self.target_path, style="dim"))
-            
+
         group_items.append(streaming_panel)
         # Update the live display
         self.live.update(Padding(Group(*group_items), PADDING_PANEL))

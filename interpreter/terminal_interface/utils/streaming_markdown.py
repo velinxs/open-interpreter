@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import textwrap
+
 from markdown_it import MarkdownIt
 from rich.align import Align
 from rich.console import Console, Group
@@ -14,6 +15,7 @@ from rich.live import Live
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.text import Text
+
 # Initialize MarkdownIt once at module level for efficiency
 # This enables the same features as Rich's markdown parser
 _MD_PARSER = MarkdownIt().enable("strikethrough").enable("table")

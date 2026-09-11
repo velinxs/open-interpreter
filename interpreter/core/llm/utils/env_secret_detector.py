@@ -9,7 +9,6 @@ from typing import Generator
 
 from detect_secrets.plugins.base import BasePlugin
 
-
 # Env var name suffixes that indicate the value is a secret (convention-based).
 ENV_SECRET_SUFFIXES = (
     "_KEY",

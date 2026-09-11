@@ -1,24 +1,24 @@
+import getpass
 import json
 import os
 import platform
-import time
 import subprocess
-import getpass
+import time
 
 from ..utils.recipient_utils import parse_for_recipient
 from .languages.applescript import AppleScript
+from .languages.augeas import Augeas
 from .languages.bash import Bash
 from .languages.cmd import Cmd
 from .languages.html import HTML
 from .languages.java import Java
 from .languages.javascript import JavaScript
+from .languages.perl import Perl
 from .languages.powershell import PowerShell
 from .languages.python import Python
 from .languages.r import R
 from .languages.react import React
 from .languages.ruby import Ruby
-from .languages.perl import Perl
-from .languages.augeas import Augeas
 
 # Languages whose console output is buffered until completion (reduces UI flicker).
 _BUFFERED_CONSOLE_LANGUAGES = frozenset({"cmd", "bash"})

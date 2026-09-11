@@ -1,9 +1,9 @@
 import json
 import os
 import time
+from importlib.metadata import PackageNotFoundError, version
 from typing import List, TypedDict
 
-from importlib.metadata import version, PackageNotFoundError
 import requests
 
 from interpreter.terminal_interface.profiles.profiles import write_key_to_profile
@@ -31,7 +31,7 @@ Want to contribute? Run `interpreter --model i` to use our free, hosted model. C
 
 def display_contributing_current_message():
     display_markdown_message(
-        f"""
+        """
 ---
 > This conversation will be used to train Open Interpreter's open-source language model.
 """

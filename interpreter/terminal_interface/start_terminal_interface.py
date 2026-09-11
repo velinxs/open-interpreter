@@ -9,8 +9,7 @@ if sys.platform == "win32":
 
 import time
 import traceback
-
-from importlib.metadata import version, PackageNotFoundError
+from importlib.metadata import PackageNotFoundError, version
 
 from .profiles.profiles import open_storage_dir, profile, reset_profile
 from .utils.check_for_update import check_for_update
@@ -466,11 +465,12 @@ Use """ to write multi-line messages.
 
     # Deferred: these import litellm (directly or transitively). Placed after all
     # quick-exit flags so --help / --version / --profiles etc. never load them.
+    from interpreter.core.utils.prompt_choice import prompt_choice
     from interpreter.terminal_interface.contributing_conversations import (
         contribute_conversation_launch_logic,
         contribute_conversations,
     )
-    from interpreter.core.utils.prompt_choice import prompt_choice
+
     from .conversation_navigator import conversation_navigator
     from .validate_llm_settings import validate_llm_settings
 
@@ -690,8 +690,8 @@ def main():
         raise SystemExit(1)
     except KeyboardInterrupt:
         try:
-            from interpreter.terminal_interface.contributing_conversations import contribute_conversations
             from interpreter.core.utils.prompt_choice import NoInteractiveInput, prompt_choice
+            from interpreter.terminal_interface.contributing_conversations import contribute_conversations
             interpreter.terminal.terminate()
 
             if not interpreter.offline and not interpreter.disable_telemetry:

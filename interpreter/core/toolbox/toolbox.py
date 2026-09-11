@@ -15,10 +15,10 @@ from .keyboard.keyboard import Keyboard
 from .mail.mail import Mail
 from .mouse.mouse import Mouse
 from .os.os import Os
-from .web.web import Web
 from .skills.skills import Skills
 from .sms.sms import SMS
 from .vision.vision import Vision
+from .web.web import Web
 
 
 class Toolbox:

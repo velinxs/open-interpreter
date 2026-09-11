@@ -100,28 +100,20 @@ packages = ["interpreter", "scripts"]
 [tool.ruff]
 line-length = 120
 target-version = "py312"
-exclude = ["examples"]
+exclude = ["examples", "docs"]
 
 [tool.ruff.lint]
-select = ["E4", "E7", "E9", "F"]
+select = ["E4", "E7", "E9", "F", "W", "I", "UP"]
 ignore = [
-    "E401",
-    "E402",
+    "E402",  # imports mid-file are deliberate in several modules (kernel setup, lazy heavy deps)
+    "E722",  # bare except: cleaned per module in Phase 2
+    "E731",
+    "E741",
+    "F401",  # unused imports: cleaned per module in Phase 2 (some are re-exports)
+    "F811",
+    "F841",
     "E711",
     "E712",
     "E713",
     "E721",
-    "E722",
-    "E741",
-    "F401",
-    "F541",
-    "F811",
-    "F841",
 ]
-
-[tool.ruff.lint.per-file-ignores]
-"interpreter/core/computer/display/display.py" = ["F821"]
-"interpreter/core/computer/display/point/point.py" = ["F821"]
-"interpreter/core/llm/utils/convert_to_openai_messages.py" = ["F821"]
-"interpreter/core/respond.py" = ["F821"]
-"tests/test_interpreter.py" = ["F821"]

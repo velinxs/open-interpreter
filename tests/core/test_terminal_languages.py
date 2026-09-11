@@ -6,28 +6,27 @@ import unittest
 from unittest.mock import patch
 
 from interpreter.core.terminal.base_language import format_execute_language_description
+from interpreter.core.terminal.languages.applescript import AppleScript
 from interpreter.core.terminal.languages.bash import Bash
 from interpreter.core.terminal.languages.cwd_tracking import CwdTrackingMixin
+from interpreter.core.terminal.languages.java import preprocess_java
+from interpreter.core.terminal.languages.javascript import preprocess_javascript
 from interpreter.core.terminal.languages.jupyter_language import (
     JupyterLanguage,
     strip_redundant_imports,
 )
-from interpreter.core.terminal.languages.resolve_bash import resolve_bash_executable
-from interpreter.core.terminal.languages.applescript import AppleScript
-from interpreter.core.terminal.languages.java import preprocess_java
-from interpreter.core.terminal.languages.javascript import preprocess_javascript
 from interpreter.core.terminal.languages.powershell import PowerShell, has_multiline_constructs
 from interpreter.core.terminal.languages.r import R
-from interpreter.core.terminal.languages.ruby import Ruby
+from interpreter.core.terminal.languages.resolve_bash import resolve_bash_executable
 from interpreter.core.terminal.languages.resolve_powershell import (
     powershell_startup_args,
     resolve_powershell_executable,
 )
+from interpreter.core.terminal.languages.ruby import Ruby
 from interpreter.core.terminal.terminal import (
     _default_terminal_languages,
     _sync_active_line_detection_env,
 )
-
 
 _HAS_PWSH = bool(shutil.which("pwsh") or os.environ.get("INTERPRETER_POWERSHELL"))
 

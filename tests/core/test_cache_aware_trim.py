@@ -3,7 +3,6 @@ from interpreter.core.llm.utils.cache_aware_trim import (
     cache_aware_trim,
 )
 
-
 SYSTEM = "You are a helpful assistant."
 
 

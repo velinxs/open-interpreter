@@ -4,8 +4,10 @@ import os
 import pytest
 
 from interpreter import OpenInterpreter
-from interpreter.core.core import _CONVERSATION_TITLE_TRANSCRIPT_OMITTED_MARKER
-from interpreter.core.core import _conversation_title_transcript_trim_to_cap
+from interpreter.core.core import (
+    _CONVERSATION_TITLE_TRANSCRIPT_OMITTED_MARKER,
+    _conversation_title_transcript_trim_to_cap,
+)
 
 
 @pytest.fixture

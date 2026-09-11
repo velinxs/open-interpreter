@@ -17,11 +17,11 @@ Supported backends:
 
 from __future__ import annotations
 
-import os
 import json
-import requests
-from typing import Optional, Dict, Any
+import os
+from typing import Any, Dict, Optional
 
+import requests
 from babel import Locale
 from babel.core import UnknownLocaleError
 
@@ -1323,7 +1323,7 @@ class Web:
                 print(f"- {source['title']}: {source['url']}")
         """
         if "?" not in question:
-            print(f"⚠️  web.answer() AI expects a question ending in '?', not search terms.\n")
+            print("⚠️  web.answer() AI expects a question ending in '?', not search terms.\n")
 
         if backend:
             backend = backend.lower()
