@@ -42,9 +42,6 @@ class AsyncInterpreter(OpenInterpreter):
         except ImportError:
             self.server = None
 
-        # For the 01. This lets the OAI compatible server accumulate context before responding.
-        self.context_mode = False
-
         # No terminal to answer view_image prompts; websocket clients typically do not reply.
         # OpenInterpreter() in CLI uses terminal_interface for approval instead.
         self._view_image_approval = "y"

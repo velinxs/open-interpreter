@@ -27,8 +27,6 @@ except ImportError:  # server extras not installed
     APIRouter = None
     StreamingResponse = None
 
-last_start_time = 0
-
 # Blank line before the closing --- so Chatbox does not treat it as a setext heading.
 OPENAI_CODE_APPROVAL_PROMPT = (
     "\n\n---\n"
@@ -372,36 +370,6 @@ def create_openai_router(async_interpreter):
 
         pending_lang = _pending_code_language(async_interpreter)
 
-        if not run_code and async_interpreter.context_mode:
-            # 01 / context-mode clients: legacy nudge loop when the model stays silent.
-            made_chunk = False
-            for message in [
-                ".",
-                "Just say something, anything.",
-                "Hello? Answer please.",
-                "Are you there?",
-                "Can you respond?",
-                "Please reply.",
-            ]:
-                async for chunk in iterate_in_threadpool(
-                    async_interpreter.chat(message=message, stream=True, display=False)
-                ):
-                    made_chunk = True
-                    output_content = _lmc_chunk_to_openai_delta(
-                        chunk,
-                        async_interpreter,
-                        pending_code_language=pending_lang,
-                    )
-                    if output_content:
-                        yield await emit_delta(output_content)
-                    if async_interpreter.stop_event.is_set():
-                        break
-                if made_chunk:
-                    break
-            yield _openai_sse_chunk(completion_id, created, finish_reason="stop")
-            yield "data: [DONE]\n\n"
-            return
-
         if run_code:
             print("Running code.\n")
 
@@ -436,8 +404,6 @@ def create_openai_router(async_interpreter):
 
     @router.post("/openai/chat/completions")
     async def chat_completion(request: ChatCompletionRequest):
-        global last_start_time
-
         # Convert to LMC
         last_message = request.messages[-1]
 
@@ -449,14 +415,6 @@ def create_openai_router(async_interpreter):
             async_interpreter.stop_event.set()
             await asyncio.sleep(5)
             async_interpreter.stop_event.clear()
-            return
-
-        if last_message.content in ["{CONTEXT_MODE_ON}", "{REQUIRE_START_ON}"]:
-            async_interpreter.context_mode = True
-            return
-
-        if last_message.content in ["{CONTEXT_MODE_OFF}", "{REQUIRE_START_OFF}"]:
-            async_interpreter.context_mode = False
             return
 
         if last_message.content == "{AUTO_RUN_ON}":
@@ -541,20 +499,6 @@ def create_openai_router(async_interpreter):
             if isinstance(last_message.content, (str, list)):
                 _openai_apply_request_messages(async_interpreter, request, last_message)
                 print(">", content_str or last_message.content)
-            elif async_interpreter.context_mode:
-                if last_message.content == "{START}":
-                    if async_interpreter.messages[-1]["content"] == "{START}":
-                        async_interpreter.messages = async_interpreter.messages[:-1]
-                    last_start_time = time.time()
-                    if async_interpreter.messages and async_interpreter.messages[-1].get("role") != "user":
-                        return
-                else:
-                    current_time = time.time()
-                    if current_time - last_start_time > 6:
-                        return
-            elif last_message.content == "{START}":
-                async_interpreter.messages = async_interpreter.messages[:-1]
-                return
 
         async_interpreter.stop_event.set()
         await asyncio.sleep(0.1)

@@ -221,3 +221,22 @@ def test_streaming_turn_does_not_block_the_event_loop(server):
             text += json.loads(line[len("data: ") :])["choices"][0].get("delta", {}).get("content") or ""
     assert "slow reply here" in text
     assert latency < 0.2, f"heartbeat waited {latency:.2f}s behind the streaming turn"
+
+
+def test_the_server_never_speaks_as_the_user(server):
+    """Every user message in the conversation is one the client actually sent.
+
+    Context mode answered by feeding the model a synthetic "." and, when the
+    model stayed silent, five more prods, each appended to the conversation as
+    though the user had typed it. Those then rode along in the prompt of every
+    later request.
+    """
+    ai, client = server
+    install_fake_llm(ai, ["Noted.", "Hi there."])
+    ai.auto_run = True
+
+    _chat(client, "{CONTEXT_MODE_ON}")
+    _sse_content(_chat(client, "hello", stream=True))  # the nudge loop lived on the streaming path
+
+    sent = [m["content"] for m in ai.messages if m.get("role") == "user" and m.get("type") == "message"]
+    assert sent == ["{CONTEXT_MODE_ON}", "hello"], sent
