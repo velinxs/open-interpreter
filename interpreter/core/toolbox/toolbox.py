@@ -1,6 +1,7 @@
 import inspect
 import json
 import platform
+import re
 
 from .ai.ai import Ai
 from .ai2 import Ai2
@@ -199,9 +200,6 @@ Use help(toolbox.module.method) to see detailed documentation, parameters, and e
                     # Get the method description (first line only)
                     method_description = self._get_first_line(attr.__doc__)
                     # Get return format information if available
-                    return_format = self._extract_return_format(attr.__doc__)
-                    if return_format:
-                        method_description += f" Returns: {return_format}"
                     # Append the method details
                     tool_info["methods"].append(
                         {
@@ -226,9 +224,6 @@ Use help(toolbox.module.method) to see detailed documentation, parameters, and e
                 # Get the method description (first line only)
                 method_description = self._get_first_line(method.__doc__)
                 # Get return format information if available
-                return_format = self._extract_return_format(method.__doc__)
-                if return_format:
-                    method_description += f" Returns: {return_format}"
                 # Append the method details
                 tool_info["methods"].append(
                     {
@@ -245,9 +240,6 @@ Use help(toolbox.module.method) to see detailed documentation, parameters, and e
                 full_signature = f"toolbox.{tool.__class__.__name__.lower()}.{attr_name}"
                 prop_doc = self._get_first_line(attr_value.fget.__doc__)
                 # Get return format information if available
-                return_format = self._extract_return_format(attr_value.fget.__doc__)
-                if return_format:
-                    prop_doc += f" Returns: {return_format}"
                 tool_info["methods"].append(
                     {
                         "signature": full_signature,
@@ -257,12 +249,15 @@ Use help(toolbox.module.method) to see detailed documentation, parameters, and e
         return tool_info
 
     def _get_first_line(self, docstring):
-        """Extract the first line of a docstring for concise documentation."""
+        """One short sentence for the API listing; help() has the rest."""
         if not docstring:
             return ""
-        # Split on double newline (paragraph break) or single newline
         first_line = docstring.strip().split("\n\n")[0].split("\n")[0].strip()
-        return first_line
+        # The listing is re-sent with every request, so keep it to the first
+        # sentence. Anything further (parameters, return shape, examples) is a
+        # help(toolbox.module.method) away, which the prompt tells the model to use.
+        sentence = re.split(r"(?<=[.!?])\s", first_line)[0]
+        return sentence if len(sentence) >= 12 else first_line
 
     def _extract_return_format(self, docstring):
         """Extract return format information from docstring Returns: section."""
