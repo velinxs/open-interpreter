@@ -1,9 +1,11 @@
+import atexit
 import getpass
 import json
 import os
 import platform
 import subprocess
 import time
+import weakref
 
 from ..utils.recipient_utils import parse_for_recipient
 from .languages.applescript import AppleScript
@@ -58,11 +60,28 @@ def _default_terminal_languages():
     return languages
 
 
+# Every live Terminal, so the process can shut their kernels and shells down at
+# exit. A WeakSet keeps this registry from extending any Terminal's lifetime.
+_LIVE_TERMINALS = weakref.WeakSet()
+
+
+def _terminate_live_terminals():
+    for terminal in list(_LIVE_TERMINALS):
+        try:
+            terminal.terminate()
+        except Exception:
+            pass  # exit must never fail because a runtime was already gone
+
+
+atexit.register(_terminate_live_terminals)
+
+
 class Terminal:
     def __init__(self, interpreter):
         self.interpreter = interpreter
         self.languages = _default_terminal_languages()
         self._active_languages = {}
+        _LIVE_TERMINALS.add(self)
 
     def sudo_install(self, package):
         try:
