@@ -25,3 +25,21 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(skip_integration)
         if "network" in item.keywords and not os.environ.get("RUN_NETWORK_TESTS"):
             item.add_marker(skip_network)
+
+
+@pytest.fixture
+def offline_interpreter():
+    """An OpenInterpreter that never talks to a provider or telemetry."""
+    from interpreter.core.core import OpenInterpreter
+    from tests.support.fake_llm import install_fake_llm
+
+    interp = OpenInterpreter()
+    interp.offline = True
+    interp.disable_telemetry = True
+    interp.auto_run = True
+    interp.script = lambda replies: install_fake_llm(interp, replies)
+    yield interp
+    try:
+        interp.terminal.stop()
+    except Exception:
+        pass
