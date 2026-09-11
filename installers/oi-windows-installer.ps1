@@ -31,7 +31,8 @@ if (!(Get-Command rustc -ErrorAction SilentlyContinue)) {
 
 # Turn on this Python and install OI
 $env:PYENV_VERSION="3.11.7"
-& pip install open-interpreter
+if (-not (Get-Command uv -ErrorAction SilentlyContinue)) { powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex" }
+& uv tool install "open-interpreter[server] @ git+https://github.com/velinxs/open-interpreter.git@integration"
 
 # Get us out of this vers of Python (which was just used to setup OI, which should stay in that vers of Python...?)
 Remove-Item Env:\PYENV_VERSION

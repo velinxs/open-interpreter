@@ -27,7 +27,8 @@ $pyenv_root init
 $pyenv_root install $python_version --skip-existing
 $pyenv_root shell $python_version
 
-$pyenv_root exec pip install open-interpreter --break-system-packages
+command -v uv >/dev/null 2>&1 || curl -LsSf https://astral.sh/uv/install.sh | sh
+uv tool install --python "$pyenv_root/versions/$python_version/bin/python" "open-interpreter[server] @ git+https://github.com/velinxs/open-interpreter.git@integration"
 # Unset the Python version
 $pyenv_root shell --unset
 

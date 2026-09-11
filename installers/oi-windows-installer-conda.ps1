@@ -4,7 +4,7 @@ $condaInstallerPath = "$env:TEMP\Miniconda3-latest-Windows-x86_64.exe"
 $condaPath = "$env:USERPROFILE\Miniconda3"
 $envName = "oi"
 $pythonVersion = "3.11.7"
-$packageName = "open-interpreter litellm openai"
+$packageName = "open-interpreter[server] @ git+https://github.com/velinxs/open-interpreter.git@integration"
 $desktopPath = [System.IO.Path]::Combine([System.Environment]::GetFolderPath('Desktop'), 'Open Interpreter.lnk')
 $condaExePath = "$condaPath\Scripts\conda.exe"
 

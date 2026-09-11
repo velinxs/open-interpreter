@@ -112,7 +112,8 @@ if [[ $installed_version != *"$python_version"* ]]; then
 fi
 
 # Use the specific Python version to install open-interpreter
-$pyenv_root exec python$python_version -m pip install open-interpreter
+command -v uv >/dev/null 2>&1 || curl -LsSf https://astral.sh/uv/install.sh | sh
+uv tool install --python "$(pyenv which python$python_version)" "open-interpreter[server] @ git+https://github.com/velinxs/open-interpreter.git@integration"
 
 echo "Open Interpreter has been installed. Run the following command to use it:"
 echo "interpreter"
