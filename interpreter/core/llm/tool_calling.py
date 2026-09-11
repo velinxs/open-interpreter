@@ -1,3 +1,12 @@
+"""Running a model that calls tools, and turning the call back into LMC chunks.
+
+The stream is accumulated rather than acted on as it arrives: a provider may
+send a tool call's arguments in pieces, and partial JSON cannot be trusted to
+say which language or which file is meant. Reasoning is streamed through as it
+comes so the user sees the model think, then the completed call is handed to
+tool_dispatch, which decides what it means.
+"""
+
 import json
 import os
 import re

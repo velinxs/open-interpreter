@@ -1,3 +1,13 @@
+"""Running a model that has no tool calling, and reading code out of its prose.
+
+A text model answers in markdown, so a code block is both the thing shown to
+the user and the thing to execute. FenceParser pulls the two apart as the
+stream arrives, which is fiddly because providers split the stream on
+arbitrary token boundaries: a fence, its language tag, and the code may each
+be cut in half, and a lone backtick in prose must not be mistaken for the
+start of one.
+"""
+
 from .utils.stream_usage import record_stream_chunk_usage
 
 

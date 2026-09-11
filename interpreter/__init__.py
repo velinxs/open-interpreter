@@ -35,6 +35,9 @@ def _get_singleton():
     global _singleton, _constructing
     if _singleton is None:
         if _constructing:
+            # OpenInterpreter.__init__ imports modules that may reach back for
+            # `interpreter`; without this the recursion would build a second
+            # instance and hand out whichever finished last.
             raise RuntimeError("interpreter.interpreter was accessed while it was being constructed")
         _constructing = True
         try:

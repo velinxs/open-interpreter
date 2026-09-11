@@ -1,8 +1,19 @@
 """The OpenAI-compatible /openai/chat/completions surface.
 
-Translates OpenAI-style requests into LMC messages, streams the loop's
-chunks back as SSE deltas, and carries the yes/no code-approval protocol a
-plain chat client can drive.
+Translates OpenAI-style requests into LMC messages and streams the loop's
+chunks back as SSE deltas, so any chat client that speaks to OpenAI can speak
+to Open Interpreter.
+
+Such a client has no UI for approving code, and the loop will not run code
+without an answer, so the approval is carried in the conversation itself: the
+turn pauses with the code shown and a prompt to reply "yes" or "no", and the
+next request is read as that answer. That is why the turn is driven through
+core.session rather than iterated here — pausing and resuming around a
+confirmation is the same problem the terminal and the channels have.
+
+A turn is minutes of model and code execution, so it never runs on the event
+loop: starlette's threadpool helpers keep the server answering other requests
+(a heartbeat, a second client, the websocket) while one is in flight.
 """
 
 import asyncio
