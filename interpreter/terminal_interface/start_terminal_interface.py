@@ -647,7 +647,48 @@ def get_argument_dictionary(arguments: list[dict], key: str) -> dict:
     return {}
 
 
+def _run_computer_use_mode():
+    """`interpreter --os`: the computer-use loop, previously started from interpreter/__init__.py at import time."""
+    from rich import print as rich_print
+    from rich.markdown import Markdown
+    from rich.rule import Rule
+
+    def print_markdown(message):
+        for line in message.split("\n"):
+            line = line.strip()
+            if line == "":
+                print("")
+            elif line == "---":
+                rich_print(Rule(style="white"))
+            else:
+                try:
+                    rich_print(Markdown(line))
+                except UnicodeEncodeError:
+                    print("Error displaying line:", line)
+        if "\n" not in message and message.startswith(">"):
+            print("")
+
+    try:
+        if check_for_update():
+            print_markdown(
+                "> **A new version of Open Interpreter is available.**\n>Please run: `pip install --upgrade open-interpreter`\n\n---"
+            )
+    except Exception:
+        pass  # offline or PyPI unreachable: the check is advisory
+
+    if "--voice" in sys.argv:
+        print("Coming soon...")
+
+    from interpreter.computer_use.loop import run_async_main
+
+    run_async_main()
+
+
 def main():
+    if "--os" in sys.argv:
+        _run_computer_use_mode()
+        return
+
     # --help / -h / --version exit immediately inside start_terminal_interface
     # (argparse calls sys.exit), so skip the heavy interpreter import entirely.
     _FAST_EXIT_FLAGS = {"--help", "-h", "--version"}
