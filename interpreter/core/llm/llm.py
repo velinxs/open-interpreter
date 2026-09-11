@@ -34,15 +34,11 @@ _TOOL_CALLING_INSTRUCTIONS = (
 from .completions import _litellm, fixed_litellm_completions  # noqa: E402
 from .errors import AccessDeniedError, FunctionCallingNotSupportedError, ModelNotFoundError  # noqa: E402
 from .providers import configure, openrouter_model_entry  # noqa: E402
+from .reasoning import apply_reasoning_params  # noqa: E402
 from .tool_calling import run_tool_calling_llm
 from .utils.cache_aware_trim import cache_aware_trim
 from .utils.convert_to_openai_messages import convert_to_openai_messages
 from .utils.sanitize_secrets import sanitize_messages, should_sanitize_for_model
-
-# Models already warned about during this process (mandatory reasoning / an
-# unsupported effort value), so the note is printed once instead of every turn.
-_warned_mandatory_reasoning = set()
-_warned_unsupported_effort = set()
 
 # Create or get the logger
 logger = logging.getLogger("LiteLLM")
@@ -353,91 +349,7 @@ Continuing...
         # OpenAI-compatible: final stream chunk may include usage (prompt/completion/cached breakdown).
         stream_options = {"include_usage": True}
 
-        # Reasoning tokens: Some models support separate reasoning content
-        # Set to {"exclude": True} to disable, or remove this line to allow reasoning tokens
-        # params["reasoning"] = {"exclude": True}
-
-        # OpenRouter provider preferences: Ensure consistent behavior across providers
-        # For OpenRouter models, require providers to support all parameters to avoid inconsistency
-        if model.startswith("deepseek/"):
-            # LiteLLM maps include_reasoning / reasoning_effort to DeepSeek's thinking API.
-            if getattr(litellm, "supports_reasoning", None) and litellm.supports_reasoning(model=model or self.model):
-                if self.include_reasoning is not False:
-                    params["include_reasoning"] = True if self.include_reasoning is None else self.include_reasoning
-                    stream_options["include_reasoning"] = params["include_reasoning"]
-
-        if model.startswith("openrouter/"):
-            params["provider"] = {
-                "require_parameters": True,  # Only use providers that support all request parameters
-                "allow_fallbacks": False,  # Disable fallbacks to maintain consistency
-            }
-            # Request streaming reasoning when the model supports it, so LiteLLM forwards
-            # delta.reasoning_content from OpenRouter. Requires LiteLLM v1.63.5+ (BerriAI/litellm#8631).
-            # Only set for models that support reasoning to avoid 400 on non-reasoning OpenRouter models.
-            if getattr(litellm, "supports_reasoning", None) and litellm.supports_reasoning(model=model or self.model):
-                # We use extra_body to pass reasoning parameters for OpenRouter models.
-                # This ensures the tokens are requested via both legacy and modern API formats.
-                params["extra_body"] = params.get("extra_body", {})
-                params["extra_body"]["include_reasoning"] = True
-                params["extra_body"]["reasoning"] = {"enabled": True}
-
-                # Also set standard params for LiteLLM to handle unified mapping
-                params["include_reasoning"] = True
-                stream_options["include_reasoning"] = True
-
-        # Override reasoning settings if explicitly set on interpreter.llm
-        if self.include_reasoning is not None:
-            # Some OpenRouter endpoints (e.g. z-ai/glm-5.3-flash) mandate reasoning:
-            # sending reasoning.enabled:false there returns 400 "Reasoning is
-            # mandatory for this endpoint and cannot be disabled". OpenRouter's
-            # model metadata flags this, so refuse to send the disable rather than
-            # fail the request. The model then uses its default effort (max for GLM).
-            _reasoning_mandatory = False
-            if model.startswith("openrouter/"):
-                _reasoning_mandatory = bool(
-                    ((self._openrouter_model_entry(model) or {}).get("reasoning") or {}).get("mandatory")
-                )
-            if self.include_reasoning is False and _reasoning_mandatory:
-                if model not in _warned_mandatory_reasoning:
-                    self.interpreter.display_message(
-                        f"> **Note:** `{model}` always reasons and cannot have reasoning "
-                        "disabled, so `include_reasoning: false` is being ignored."
-                    )
-                    _warned_mandatory_reasoning.add(model)
-            else:
-                params["include_reasoning"] = self.include_reasoning
-                stream_options["include_reasoning"] = self.include_reasoning
-                if model.startswith("openrouter/"):
-                    params["extra_body"] = params.get("extra_body", {})
-                    params["extra_body"]["include_reasoning"] = self.include_reasoning
-                    params["extra_body"]["reasoning"] = {"enabled": self.include_reasoning}
-
-        # A reasoning_effort only makes sense when reasoning is enabled; sending
-        # one alongside include_reasoning=false is contradictory and some backends
-        # reject it, so skip it whenever the caller disabled reasoning explicitly.
-        if self.reasoning_effort and self.include_reasoning is not False:
-            # Guard against sending an unsupported effort level. GLM 5.3 only
-            # accepts low/high/max and 400s on anything else (including "medium").
-            _effort_ok = True
-            if model.startswith("openrouter/"):
-                _supported = ((self._openrouter_model_entry(model) or {}).get("reasoning") or {}).get(
-                    "supported_efforts"
-                )
-                if _supported and self.reasoning_effort not in _supported:
-                    _effort_ok = False
-                    if model not in _warned_unsupported_effort:
-                        self.interpreter.display_message(
-                            f"> **Note:** `{model}` only supports reasoning_effort "
-                            f"{_supported}, so `{self.reasoning_effort}` is being ignored."
-                        )
-                        _warned_unsupported_effort.add(model)
-            if _effort_ok:
-                params["reasoning_effort"] = self.reasoning_effort
-                if model.startswith("openrouter/"):
-                    params["extra_body"] = params.get("extra_body", {})
-                    if "reasoning" not in params["extra_body"]:
-                        params["extra_body"]["reasoning"] = {}
-                    params["extra_body"]["reasoning"]["effort"] = self.reasoning_effort
+        apply_reasoning_params(self, params, stream_options, model)
 
         params["stream_options"] = stream_options
 

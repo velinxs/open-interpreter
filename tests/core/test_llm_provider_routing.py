@@ -107,6 +107,8 @@ def stub_openrouter_registry(monkeypatch):
 
 
 def _run_one_turn(interpreter):
+    # run() reads the llm's flag; the tool-calling path is not stubbed here.
+    interpreter.llm.supports_functions = False
     messages = [
         {"role": "system", "type": "message", "content": "You are helpful."},
         {"role": "user", "type": "message", "content": "hi"},
@@ -114,7 +116,6 @@ def _run_one_turn(interpreter):
     next(interpreter.llm.run(messages))
 
 
-@pytest.mark.network
 def test_openrouter_qwen37_vision_detected_when_registry_stale(interpreter, stub_openrouter_registry):
     stub_openrouter_registry.setattr(
         requests,
@@ -131,7 +132,6 @@ def test_openrouter_qwen37_vision_detected_when_registry_stale(interpreter, stub
     assert interpreter.llm.supports_vision is True
 
 
-@pytest.mark.network
 def test_openrouter_qwen37_text_only_not_vision(interpreter, stub_openrouter_registry):
     stub_openrouter_registry.setattr(
         requests,
@@ -148,7 +148,6 @@ def test_openrouter_qwen37_text_only_not_vision(interpreter, stub_openrouter_reg
     assert interpreter.llm.supports_vision is False
 
 
-@pytest.mark.network
 def test_openrouter_vision_helper_skips_non_openrouter_models(interpreter, stub_openrouter_registry):
     interpreter.llm.model = "deepseek/deepseek-v4-flash"
     interpreter.llm.supports_vision = None

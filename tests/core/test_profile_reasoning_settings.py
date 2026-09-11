@@ -1,7 +1,9 @@
+import litellm
 import pytest
 
 import interpreter.core.llm.llm as llm_mod
 import interpreter.core.llm.providers as providers_mod
+import interpreter.core.llm.reasoning as reasoning_mod
 from interpreter.core.core import OpenInterpreter
 from interpreter.terminal_interface.profiles import profiles
 
@@ -38,9 +40,13 @@ def stub_openrouter_entry(monkeypatch):
         return state["entry"]
 
     monkeypatch.setattr(llm_mod.Llm, "_openrouter_model_entry", fake_entry)
+    # The premise of these tests: litellm's registry does not know the model
+    # reasons, OpenRouter's metadata does. Pin that so registry updates cannot
+    # flip the outcome.
+    monkeypatch.setattr(litellm, "supports_reasoning", lambda model=None, **kwargs: False)
     monkeypatch.setattr(providers_mod, "_openrouter_model_entries", {})
-    monkeypatch.setattr(llm_mod, "_warned_mandatory_reasoning", set())
-    monkeypatch.setattr(llm_mod, "_warned_unsupported_effort", set())
+    monkeypatch.setattr(reasoning_mod, "_warned_mandatory_reasoning", set())
+    monkeypatch.setattr(reasoning_mod, "_warned_unsupported_effort", set())
     return state
 
 
@@ -63,7 +69,7 @@ def test_profile_reasoning_effort_flows_to_request(capture_text_params, stub_ope
     thinking at its default (often high) effort.
     """
     interpreter = OpenInterpreter()
-    interpreter.supports_functions = False
+    interpreter.llm.supports_functions = False  # run() reads the llm's flag; the tool-calling path is not stubbed
     interpreter.llm.supports_vision = False
     profile = {
         "version": profiles.OI_VERSION,
@@ -91,7 +97,7 @@ def test_profile_include_reasoning_false_disables_effort(capture_text_params, st
     contradictory and some backends reject it.
     """
     interpreter = OpenInterpreter()
-    interpreter.supports_functions = False
+    interpreter.llm.supports_functions = False  # run() reads the llm's flag; the tool-calling path is not stubbed
     interpreter.llm.supports_vision = False
     profile = {
         "version": profiles.OI_VERSION,
@@ -113,7 +119,6 @@ def test_profile_include_reasoning_false_disables_effort(capture_text_params, st
     assert "effort" not in params["extra_body"]["reasoning"]
 
 
-@pytest.mark.network
 def test_mandatory_reasoning_ignores_include_reasoning_false(capture_text_params, stub_openrouter_entry):
     """Endpoints with mandatory reasoning never receive reasoning.enabled:false.
 
@@ -136,7 +141,7 @@ def test_mandatory_reasoning_ignores_include_reasoning_false(capture_text_params
     }
 
     interpreter = OpenInterpreter()
-    interpreter.supports_functions = False
+    interpreter.llm.supports_functions = False  # run() reads the llm's flag; the tool-calling path is not stubbed
     interpreter.llm.supports_vision = False
     profile = {
         "version": profiles.OI_VERSION,
@@ -159,7 +164,6 @@ def test_mandatory_reasoning_ignores_include_reasoning_false(capture_text_params
     assert reasoning is None or reasoning.get("enabled") is not False
 
 
-@pytest.mark.network
 def test_mandatory_reasoning_still_sends_supported_effort(capture_text_params, stub_openrouter_entry):
     """On a mandatory-reasoning endpoint, a supported effort is still forwarded.
 
@@ -179,7 +183,7 @@ def test_mandatory_reasoning_still_sends_supported_effort(capture_text_params, s
     }
 
     interpreter = OpenInterpreter()
-    interpreter.supports_functions = False
+    interpreter.llm.supports_functions = False  # run() reads the llm's flag; the tool-calling path is not stubbed
     interpreter.llm.supports_vision = False
     profile = {
         "version": profiles.OI_VERSION,
@@ -198,7 +202,6 @@ def test_mandatory_reasoning_still_sends_supported_effort(capture_text_params, s
     assert "include_reasoning" not in params
 
 
-@pytest.mark.network
 def test_unsupported_effort_dropped_with_warning(capture_text_params, stub_openrouter_entry):
     """An effort level the model doesn't support is dropped, not sent.
 
@@ -218,7 +221,7 @@ def test_unsupported_effort_dropped_with_warning(capture_text_params, stub_openr
     }
 
     interpreter = OpenInterpreter()
-    interpreter.supports_functions = False
+    interpreter.llm.supports_functions = False  # run() reads the llm's flag; the tool-calling path is not stubbed
     interpreter.llm.supports_vision = False
     profile = {
         "version": profiles.OI_VERSION,
