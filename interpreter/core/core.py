@@ -25,6 +25,7 @@ from .utils.execution_allowlist import (
     normalize_auto_run_mode,
     should_require_execution_confirmation,
 )
+from .utils.prompt_choice import prompt_choice
 from .utils.telemetry import send_telemetry
 from .utils.truncate_output import truncate_output
 
@@ -192,6 +193,11 @@ class OpenInterpreter:
         # Loop messages
         self.loop = loop
         self.loop_message = loop_message
+        # Who answers the loop's own questions (retry a failed provider call,
+        # switch to the hosted model). prompt_choice asks the terminal and raises
+        # NoInteractiveInput when nobody can answer; a server or channel installs
+        # its own callable here.
+        self.prompter = prompt_choice
         self.loop_breakers = loop_breakers
 
         # Conversation history

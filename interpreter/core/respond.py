@@ -19,7 +19,6 @@ from .utils.assemble_system_message import assemble_system_message
 from .utils.prompt_choice import (
     NoInteractiveInput,
     prompt_choice,
-    stdin_is_interactive,
 )
 
 
@@ -67,11 +66,6 @@ def _html_error_to_renderable(error_str):
 
     # Leading newline so the first line of content is not clipped by the panel title bar
     return Markdown("\n" + md)
-
-
-# Kept as a local name so the call site below still reads the same; the
-# implementation now lives next to prompt_choice, which needs the same check.
-_stdin_is_interactive = stdin_is_interactive
 
 
 def _is_temporary_provider_error(error):
@@ -305,21 +299,23 @@ def respond(interpreter):
                         time.sleep(2)
                         continue
 
-                    if _stdin_is_interactive():
-                        retry_choice = prompt_choice(
+                    try:
+                        retry_choice = interpreter.prompter(
                             "  Retry? (y = retry once, a = keep retrying, n = stop)\n\n  ",
                             ("y", "a", "n"),
                         )
+                    except NoInteractiveInput:
+                        retry_choice = None  # nobody to ask: fall through and raise below
 
-                        if retry_choice == "a":
-                            always_retry_provider_errors = True
-                            interpreter.display_message("> Retrying...")
-                            time.sleep(2)
-                            continue
-                        if retry_choice == "y":
-                            interpreter.display_message("> Retrying...")
-                            time.sleep(2)
-                            continue
+                    if retry_choice == "a":
+                        always_retry_provider_errors = True
+                        interpreter.display_message("> Retrying...")
+                        time.sleep(2)
+                        continue
+                    if retry_choice == "y":
+                        interpreter.display_message("> Retrying...")
+                        time.sleep(2)
+                        continue
 
                         interpreter._stopped_retrying = True
                         return
@@ -372,7 +368,7 @@ def respond(interpreter):
                     print(provider_message)
 
                     try:
-                        response = prompt_choice("  ", ("y", "n"))
+                        response = interpreter.prompter("  ", ("y", "n"))
                     except NoInteractiveInput:
                         # Reached in server mode too, where there is no TTY.
                         # Quietly switching to a hosted model that trains on the
