@@ -9,6 +9,7 @@ console output to max_output while archiving the full text.
 import time
 
 from .respond import respond
+from .utils.compact_output import compact_console_output
 from .utils.execution_allowlist import should_require_execution_confirmation
 from .utils.truncate_output import truncate_output
 
@@ -171,6 +172,9 @@ def respond_and_store(interpreter):
 
             # Truncate output if it's console output
             if chunk["type"] == "console" and chunk["format"] == "output":
+                # Squeeze out escape codes, redrawn progress frames and repeat
+                # runs first: they are re-sent with every later request.
+                interpreter.messages[-1]["content"] = compact_console_output(interpreter.messages[-1]["content"])
                 spill_note = interpreter._record_full_output(interpreter.messages[-1], chunk["content"])
                 interpreter.messages[-1]["content"] = truncate_output(
                     interpreter.messages[-1]["content"],
