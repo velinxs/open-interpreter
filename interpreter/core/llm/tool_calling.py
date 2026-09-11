@@ -298,62 +298,6 @@ def run_tool_calling_llm(llm, request_params):
 
     request_params["messages"] = process_messages(request_params["messages"], model=llm.model)
 
-    # # This makes any role: tool have the ID of the last tool call
-    # last_tool_id = 0
-    # for i, message in enumerate(request_params["messages"]):
-    #     if "function_call" in message:
-    #         last_tool_id += 1
-    #         function = message.pop("function_call")
-    #         message["tool_calls"] = [
-    #             {
-    #                 "id": "toolu_" + str(last_tool_id),
-    #                 "type": "function",
-    #                 "function": function,
-    #             }
-    #         ]
-    #     if message["role"] == "function":
-    #         if i != 0 and request_params["messages"][i - 1]["role"] == "tool":
-    #             request_params["messages"][i]["content"] += message["content"]
-    #             message = None
-    #         else:
-    #             message["role"] = "tool"
-    #             message["tool_call_id"] = "toolu_" + str(last_tool_id)
-    # request_params["messages"] = [m for m in request_params["messages"] if m != None]
-
-    # This adds an empty tool response for any tool call without a tool response
-    # new_messages = []
-    # for i, message in enumerate(request_params["messages"]):
-    #     new_messages.append(message)
-    #     if "tool_calls" in message:
-    #         tool_call_id = message["tool_calls"][0]["id"]
-    #         if not any(
-    #             m
-    #             for m in request_params["messages"]
-    #             if m.get("role") == "tool" and m.get("tool_call_id") == tool_call_id
-    #         ):
-    #             new_messages.append(
-    #                 {"role": "tool", "tool_call_id": tool_call_id, "content": ""}
-    #             )
-    # request_params["messages"] = new_messages
-
-    # messages = request_params["messages"]
-    # for i in range(len(messages)):
-    #     if messages[i]["role"] == "user" and isinstance(messages[i]["content"], list):
-    #         # Found an image from the user
-    #         image_message = messages[i]
-    #         j = i + 1
-    #         while j < len(messages) and messages[j]["role"] == "tool":
-    #             # Move the image down until it's after all the role: tools
-    #             j += 1
-    #         messages.insert(j, image_message)
-    #         del messages[i]
-    # request_params["messages"] = messages
-
-    # Add OpenAI's recommended function message
-    # request_params["messages"][0][
-    #     "content"
-    # ] += "\nUse ONLY the function you have been provided with — 'execute(language, code)'."
-
     ## Convert output to LMC format
 
     accumulated_deltas = {}
