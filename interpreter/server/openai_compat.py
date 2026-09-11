@@ -14,6 +14,7 @@ import shortuuid
 from pydantic import BaseModel
 from starlette.concurrency import iterate_in_threadpool, run_in_threadpool
 
+from ..core import session
 from ..core.utils.execution_allowlist import (
     should_require_execution_confirmation,
     should_require_execution_confirmation_for_code,
@@ -279,6 +280,21 @@ def _lmc_chunk_to_openai_delta(chunk, interpreter, *, pending_code_language=None
     return None
 
 
+def _approve_one_block_if(run_code):
+    """Approval policy for one HTTP request: "yes" runs exactly the block that was
+    waiting; anything after it pauses again, like the terminal's y/n per block."""
+    remaining = 1 if run_code else 0
+
+    def approve(chunk):
+        nonlocal remaining
+        if remaining > 0:
+            remaining -= 1
+            return session.RUN
+        return session.PAUSE
+
+    return approve
+
+
 def _pending_code_language(async_interpreter):
     for message in reversed(async_interpreter.messages):
         if message.get("type") == "code":
@@ -356,10 +372,7 @@ def create_openai_router(async_interpreter):
 
         pending_lang = _pending_code_language(async_interpreter)
 
-        if run_code:
-            print("Running code.\n")
-            chunk_iter = async_interpreter._respond_and_store()
-        elif async_interpreter.context_mode:
+        if not run_code and async_interpreter.context_mode:
             # 01 / context-mode clients: legacy nudge loop when the model stays silent.
             made_chunk = False
             for message in [
@@ -388,33 +401,21 @@ def create_openai_router(async_interpreter):
             yield _openai_sse_chunk(completion_id, created, finish_reason="stop")
             yield "data: [DONE]\n\n"
             return
-        else:
-            async_interpreter.last_messages_count = len(async_interpreter.messages)
-            chunk_iter = async_interpreter._respond_and_store()
 
-        async for chunk in iterate_in_threadpool(chunk_iter):
+        if run_code:
+            print("Running code.\n")
+
+        async for chunk in iterate_in_threadpool(
+            session.drive(async_interpreter, None, approve=_approve_one_block_if(run_code))
+        ):
             if run_code and "content" in chunk:
                 print(chunk.get("content", ""), end="")
             if run_code and "start" in chunk:
                 print("\n")
 
             if chunk.get("type") == "confirmation":
-                # "yes" approves only the one pending block; further code in this
-                # response must prompt again (same as terminal y/n per block).
-                if run_code:
-                    run_code = False
-                    continue
-                output_content = _lmc_chunk_to_openai_delta(
-                    chunk,
-                    async_interpreter,
-                    pending_code_language=pending_lang,
-                )
-                if output_content:
-                    yield await emit_delta(output_content)
-                if should_require_execution_confirmation(async_interpreter, chunk):
-                    async_interpreter._server_awaiting_code_approval = True
-                    break
-                continue
+                # drive() paused: the block waits for the client's yes/no.
+                async_interpreter._server_awaiting_code_approval = True
 
             output_content = _lmc_chunk_to_openai_delta(
                 chunk,
@@ -570,9 +571,9 @@ def create_openai_router(async_interpreter):
 
             def collect():
                 content = ""
-                for chunk in async_interpreter._respond_and_store():
-                    if chunk.get("type") == "confirmation" and run_code:
-                        continue
+                for chunk in session.drive(async_interpreter, None, approve=_approve_one_block_if(run_code)):
+                    if chunk.get("type") == "confirmation":
+                        async_interpreter._server_awaiting_code_approval = True
                     delta = _lmc_chunk_to_openai_delta(
                         chunk,
                         async_interpreter,
@@ -580,12 +581,6 @@ def create_openai_router(async_interpreter):
                     )
                     if delta:
                         content += delta
-                    if (
-                        chunk.get("type") == "confirmation"
-                        and not run_code
-                        and should_require_execution_confirmation(async_interpreter, chunk)
-                    ):
-                        break
                 return content
 
             content = await run_in_threadpool(collect)
