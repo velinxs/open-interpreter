@@ -6,7 +6,7 @@ accidental growth fails; Phase 3 lowers it as the prompts shrink.
 
 from tests.support.scripted_session import SCRIPT, run_scripted_session
 
-TOKEN_BUDGET = 34000  # measured 32,882 after the Phase 3 prompt rewrite, plus three percent
+TOKEN_BUDGET = 35500  # measured 34,286; was 42,272 before the Phase 3 prompt work
 
 
 def test_scripted_session_stays_under_token_budget(offline_interpreter, tmp_path):
