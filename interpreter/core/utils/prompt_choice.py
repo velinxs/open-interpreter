@@ -2,6 +2,8 @@ import sys
 
 from rich import print as rich_print
 
+from ...terminal_interface import escape_watch
+
 
 class NoInteractiveInput(Exception):
     """
@@ -60,7 +62,10 @@ def prompt_choice(prompt, choices):
         raise NoInteractiveInput(prompt, choices)
     while True:
         try:
-            response = input(current_prompt).strip().lower()
+            # A command may be running with the terminal in cbreak so Escape can
+            # interrupt it; hand the terminal back while we read a line.
+            with escape_watch.paused():
+                response = input(current_prompt).strip().lower()
         except EOFError:
             # stdin closed mid-session, after isatty() was true at entry.
             raise NoInteractiveInput(prompt, choices) from None

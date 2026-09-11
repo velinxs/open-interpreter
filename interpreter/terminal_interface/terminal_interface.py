@@ -15,6 +15,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
 
 from rich.box import ROUNDED
@@ -37,6 +38,7 @@ from ..core.utils.truncate_output import truncate_output
 from .approval import NO_APPROVER_NOTICE, _prompt_or_skip, handle_confirmation
 from .components.code_block import CodeBlock
 from .components.message_block import MessageBlock
+from .escape_watch import watch_for_escape
 from .magic_commands import handle_magic_command
 from .user_input import _prepare_message, _print_mode_banner
 from .utils.check_for_package import check_for_package
@@ -116,369 +118,398 @@ def terminal_interface(interpreter, message):
                 continue
 
         try:
-            for chunk in interpreter.chat(message, display=False, stream=True):
-                yield chunk
+            # Escape stops whatever is running and keeps what it printed, without
+            # unwinding the turn the way Ctrl-C does. The watcher wraps the whole
+            # stream rather than just the execution: a silent command blocks inside
+            # the generator, so a flag checked between chunks would never be read.
+            # Prompts suspend the watcher themselves, inside prompt_choice.
+            escaped = threading.Event()
 
-                # Is this for thine eyes?
-                if "recipient" in chunk and chunk["recipient"] != "user":
-                    continue
+            def _interrupt():
+                # Both halves are needed. The flag ends a streaming reply, which
+                # the loop notices on its next chunk; terminal.stop() ends a
+                # command producing nothing, where there is no next chunk to wait
+                # for.
+                escaped.set()
+                interpreter.terminal.stop()
 
-                if interpreter.verbose:
-                    print("Chunk in `terminal_interface`:", chunk)
-
-                # Comply with PyAutoGUI fail-safe for OS mode
-                # so people can turn it off by moving their mouse to a corner
-                if interpreter.os:
-                    if chunk.get("format") == "output" and "failsafeexception" in chunk["content"].lower():
-                        print("Fail-safe triggered (mouse in one of the four corners).")
+            with watch_for_escape(_interrupt):
+                for chunk in interpreter.chat(message, display=False, stream=True):
+                    if escaped.is_set():
                         break
 
-                if chunk["type"] == "review" and chunk.get("content"):
-                    # Specialized models can emit a code review.
-                    print(chunk.get("content"), end="", flush=True)
+                    yield chunk
 
-                # view_image_approval: AI wants to show image(s); prompt and store result for run_tool_calling_llm
-                if chunk.get("type") == "view_image_approval":
-                    paths = chunk.get("paths") or []
-                    if paths:
-                        max_len = 72
+                    # Is this for thine eyes?
+                    if "recipient" in chunk and chunk["recipient"] != "user":
+                        continue
 
-                        def _truncate(p):
-                            return (
-                                p if len(p) <= max_len else p[: (max_len // 2) - 2] + "..." + p[-(max_len // 2) + 1 :]
-                            )
+                    if interpreter.verbose:
+                        print("Chunk in `terminal_interface`:", chunk)
 
-                        _console = RichConsole(emoji=False)
-                        _content = RichText()
-                        for p in paths:
-                            _content.append(_truncate(p) + "\n")
-                        _large = any(image_path_exceeds_shrink_threshold(p) for p in paths)
-                        if _large:
-                            _content.append("\nf = show full resolution\nr = show with resize if large\nn = don't show")
-                            _panel = Panel(_content, title="View Image Request", box=ROUNDED, padding=(0, 1))
-                            _console.print(RichPadding(_panel, PADDING_PANEL))
-                            response = _prompt_or_skip("  ", ("f", "r", "n"))
-                        else:
-                            _content.append("\ny = show image\nn = don't show")
-                            _panel = Panel(_content, title="View Image Request", box=ROUNDED, padding=(0, 1))
-                            _console.print(RichPadding(_panel, PADDING_PANEL))
-                            response = _prompt_or_skip("  ", ("y", "n"))
-                        interpreter._view_image_approval = response
-                    else:
-                        interpreter._view_image_approval = "n"
+                    # Comply with PyAutoGUI fail-safe for OS mode
+                    # so people can turn it off by moving their mouse to a corner
+                    if interpreter.os:
+                        if chunk.get("format") == "output" and "failsafeexception" in chunk["content"].lower():
+                            print("Fail-safe triggered (mouse in one of the four corners).")
+                            break
 
-                # Execution notice
-                if chunk["type"] == "confirmation":
-                    active_block, outcome = handle_confirmation(interpreter, chunk, active_block)
-                    if outcome == "break":
-                        break
-                    continue
+                    if chunk["type"] == "review" and chunk.get("content"):
+                        # Specialized models can emit a code review.
+                        print(chunk.get("content"), end="", flush=True)
 
-                # Plain text mode
-                if interpreter.plain_text_display:
-                    if chunk.get("format") == "reasoning":
-                        # Reasoning blocks get [Thinking]/[/Thinking] delimiters so the
-                        # user can distinguish thinking from the actual response.
-                        # Content tokens are streamed immediately (end="") so the output
-                        # is live.  The replace chunk (yielded by run_tool_calling_llm
-                        # after streaming completes) is skipped — it exists only to
-                        # update the rich-mode display and stored message with clean
-                        # blockquote formatting; the streamed tokens were already printed.
-                        if "start" in chunk:
-                            print("\n[Thinking]", flush=True)
-                        elif chunk.get("replace"):
-                            pass  # already printed via streaming above
-                        elif "content" in chunk:
-                            print(chunk["content"], end="", flush=True)
-                        elif "end" in chunk:
-                            # Leading \n ensures we're on a new line even if the last
-                            # streamed token had no trailing newline.  print()'s default
-                            # end="\n" plus the message-start print("") that follows gives
-                            # exactly one blank line between the footer and the response.
-                            print("\n[/Thinking]", flush=True)
-                    else:
-                        if chunk.get("replace"):
-                            continue  # Replace chunk only updates display/storage; raw content was already printed
-                        if "start" in chunk or "end" in chunk:
-                            print("")
-                        if chunk["type"] in ["code", "console"] and "format" in chunk:
-                            if "start" in chunk:
-                                print("```" + chunk["format"], flush=True)
-                            if "end" in chunk:
-                                print("```", flush=True)
-                        if chunk.get("format") != "active_line":
-                            print(chunk.get("content", ""), end="", flush=True)
-                    continue
+                    # view_image_approval: AI wants to show image(s); prompt and store result for run_tool_calling_llm
+                    if chunk.get("type") == "view_image_approval":
+                        paths = chunk.get("paths") or []
+                        if paths:
+                            max_len = 72
 
-                # Handle special chunk to stop Live display before error panel
-                if chunk.get("type") == "stop_live_display":
-                    if active_block and hasattr(active_block, "live") and active_block.live.is_started:
-                        active_block.live.stop()
-                    continue
+                            def _truncate(p):
+                                return (
+                                    p
+                                    if len(p) <= max_len
+                                    else p[: (max_len // 2) - 2] + "..." + p[-(max_len // 2) + 1 :]
+                                )
 
-                if "end" in chunk and active_block:
-                    if chunk["type"] == "code" and hasattr(active_block, "code"):
-                        # respond() may have stripped redundant boilerplate
-                        # (already-imported modules, redundant cd) from the
-                        # stored message before emitting this end flag. Sync the
-                        # displayed block so it prints exactly what will run —
-                        # otherwise the original code is finalized here and the
-                        # stripped version is printed again at the confirmation.
-                        stored = interpreter.messages[-1] if interpreter.messages else None
-                        if (
-                            stored
-                            and stored.get("role") == "assistant"
-                            and stored.get("type") == "code"
-                            and isinstance(stored.get("content"), str)
-                        ):
-                            active_block.sync_stored_code(stored["content"])
-
-                    if hasattr(active_block, "finalize"):
-                        active_block.finalize()
-                    else:
-                        active_block.refresh(cursor=False)
-
-                    if chunk["type"] in [
-                        "message",
-                        "console",
-                    ]:  # We don't stop on code's end — code + console output are actually one block.
-                        active_block.end()
-                        active_block = None
-
-                # Assistant message blocks
-                if chunk["type"] == "message":
-                    if "start" in chunk:
-                        active_block = MessageBlock()
-                        # Enable debug mode if environment variable is set
-                        active_block.debug = os.environ.get("OI_DEBUG_MARKDOWN", "").lower() in ("1", "true", "yes")
-                        if chunk.get("format") == "reasoning":
-                            active_block.reasoning_mode = True
-                        render_cursor = True
-
-                    if "content" in chunk:
-                        if active_block:
-                            if chunk.get("replace") and hasattr(active_block, "replace_content"):
-                                active_block.replace_content(chunk["content"])
-                            elif not chunk.get("replace"):
-                                active_block.add_content(chunk["content"])
-
-                    if "end" in chunk and interpreter.os:
-                        last_message = interpreter.messages[-1]["content"]
-
-                        # Remove markdown lists and the line above markdown lists
-                        lines = last_message.split("\n")
-                        i = 0
-                        while i < len(lines):
-                            # Match markdown lists starting with hyphen, asterisk or number
-                            if re.match(r"^\s*([-*]|\d+\.)\s", lines[i]):
-                                del lines[i]
-                                if i > 0:
-                                    del lines[i - 1]
-                                    i -= 1
+                            _console = RichConsole(emoji=False)
+                            _content = RichText()
+                            for p in paths:
+                                _content.append(_truncate(p) + "\n")
+                            _large = any(image_path_exceeds_shrink_threshold(p) for p in paths)
+                            if _large:
+                                _content.append(
+                                    "\nf = show full resolution\nr = show with resize if large\nn = don't show"
+                                )
+                                _panel = Panel(_content, title="View Image Request", box=ROUNDED, padding=(0, 1))
+                                _console.print(RichPadding(_panel, PADDING_PANEL))
+                                response = _prompt_or_skip("  ", ("f", "r", "n"))
                             else:
-                                i += 1
-                        message = "\n".join(lines)
-                        # Replace newlines with spaces, escape double quotes and backslashes
-                        sanitized_message = message.replace("\\", "\\\\").replace("\n", " ").replace('"', '\\"')
-
-                        # Display notification in OS mode
-                        interpreter.toolbox.os.notify(sanitized_message)
-
-                        # Speak message aloud
-                        if platform.system() == "Darwin" and interpreter.speak_messages:
-                            if voice_subprocess:
-                                voice_subprocess.terminate()
-                            voice_subprocess = subprocess.Popen(
-                                [
-                                    "osascript",
-                                    "-e",
-                                    f'say "{sanitized_message}" using "Fred"',
-                                ]
-                            )
+                                _content.append("\ny = show image\nn = don't show")
+                                _panel = Panel(_content, title="View Image Request", box=ROUNDED, padding=(0, 1))
+                                _console.print(RichPadding(_panel, PADDING_PANEL))
+                                response = _prompt_or_skip("  ", ("y", "n"))
+                            interpreter._view_image_approval = response
                         else:
-                            pass
-                            # User isn't on a Mac, so we can't do this. You should tell them something about that when they first set this up.
-                            # Or use a universal TTS library.
+                            interpreter._view_image_approval = "n"
 
-                # Assistant code blocks
-                elif chunk["role"] == "assistant" and chunk["type"] == "code":
-                    if "start" in chunk:
-                        active_block = CodeBlock(interpreter)
-                        active_block.language = chunk["format"]
-                        render_cursor = True
-
-                    if "content" in chunk:
-                        active_block.code += chunk["content"]
-
-                # Assistant edit blocks (edit tool: sed/gawk/jq/write/…)
-                elif chunk["role"] == "assistant" and chunk["type"] == "edit":
-                    if "start" in chunk:
-                        active_block = CodeBlock(interpreter)
-                        active_block.language = chunk["format"]
-                        active_block.target_path = chunk.get("target", "")
-                        render_cursor = True
-
-                    if "content" in chunk:
-                        # start chunk has no target; it arrives on the content chunk.
-                        if chunk.get("target"):
-                            active_block.target_path = chunk["target"]
-                        active_block.code += chunk["content"]
-
-                # Toolbox can display visual types to user,
-                # Which sometimes creates more toolbox output (e.g. HTML errors, eventually)
-                if (
-                    chunk["role"] == "computer"
-                    and "content" in chunk
-                    and (
-                        chunk["type"] == "image"
-                        or ("format" in chunk and chunk["format"] == "html")
-                        or ("format" in chunk and chunk["format"] == "javascript")
-                    )
-                ):
-                    if (interpreter.os == True) and (interpreter.verbose == False):
-                        # We don't display things to the user in OS control mode, since we use vision to communicate the screen to the LLM so much.
-                        # But if verbose is true, we do display it!
+                    # Execution notice
+                    if chunk["type"] == "confirmation":
+                        active_block, outcome = handle_confirmation(interpreter, chunk, active_block)
+                        if outcome == "break":
+                            break
                         continue
 
-                    # Never display HTML/JS in browser, just show as plain text
-                    if "format" in chunk and (chunk["format"] == "html" or chunk["format"] == "javascript"):
-                        print(chunk["content"])
+                    # Plain text mode
+                    if interpreter.plain_text_display:
+                        if chunk.get("format") == "reasoning":
+                            # Reasoning blocks get [Thinking]/[/Thinking] delimiters so the
+                            # user can distinguish thinking from the actual response.
+                            # Content tokens are streamed immediately (end="") so the output
+                            # is live.  The replace chunk (yielded by run_tool_calling_llm
+                            # after streaming completes) is skipped — it exists only to
+                            # update the rich-mode display and stored message with clean
+                            # blockquote formatting; the streamed tokens were already printed.
+                            if "start" in chunk:
+                                print("\n[Thinking]", flush=True)
+                            elif chunk.get("replace"):
+                                pass  # already printed via streaming above
+                            elif "content" in chunk:
+                                print(chunk["content"], end="", flush=True)
+                            elif "end" in chunk:
+                                # Leading \n ensures we're on a new line even if the last
+                                # streamed token had no trailing newline.  print()'s default
+                                # end="\n" plus the message-start print("") that follows gives
+                                # exactly one blank line between the footer and the response.
+                                print("\n[/Thinking]", flush=True)
+                        else:
+                            if chunk.get("replace"):
+                                continue  # Replace chunk only updates display/storage; raw content was already printed
+                            if "start" in chunk or "end" in chunk:
+                                print("")
+                            if chunk["type"] in ["code", "console"] and "format" in chunk:
+                                if "start" in chunk:
+                                    print("```" + chunk["format"], flush=True)
+                                if "end" in chunk:
+                                    print("```", flush=True)
+                            if chunk.get("format") != "active_line":
+                                print(chunk.get("content", ""), end="", flush=True)
                         continue
 
-                    assistant_code_blocks = [
-                        m for m in interpreter.messages if m.get("role") == "assistant" and m.get("type") == "code"
-                    ]
-                    if assistant_code_blocks:
-                        code = assistant_code_blocks[-1].get("content")
-                        if any(
-                            text in code
-                            for text in [
-                                "toolbox.display.view",
-                                "toolbox.display.screenshot",
-                                "toolbox.view",
-                                "toolbox.screenshot",
-                            ]
-                        ):
-                            # If the last line of the code is a toolbox.view command, don't display it.
-                            # The LLM is going to see it, the user doesn't need to.
+                    # Handle special chunk to stop Live display before error panel
+                    if chunk.get("type") == "stop_live_display":
+                        if active_block and hasattr(active_block, "live") and active_block.live.is_started:
+                            active_block.live.stop()
+                        continue
+
+                    if "end" in chunk and active_block:
+                        if chunk["type"] == "code" and hasattr(active_block, "code"):
+                            # respond() may have stripped redundant boilerplate
+                            # (already-imported modules, redundant cd) from the
+                            # stored message before emitting this end flag. Sync the
+                            # displayed block so it prints exactly what will run —
+                            # otherwise the original code is finalized here and the
+                            # stripped version is printed again at the confirmation.
+                            stored = interpreter.messages[-1] if interpreter.messages else None
+                            if (
+                                stored
+                                and stored.get("role") == "assistant"
+                                and stored.get("type") == "code"
+                                and isinstance(stored.get("content"), str)
+                            ):
+                                active_block.sync_stored_code(stored["content"])
+
+                        if hasattr(active_block, "finalize"):
+                            active_block.finalize()
+                        else:
+                            active_block.refresh(cursor=False)
+
+                        if chunk["type"] in [
+                            "message",
+                            "console",
+                        ]:  # We don't stop on code's end — code + console output are actually one block.
+                            active_block.end()
+                            active_block = None
+
+                    # Assistant message blocks
+                    if chunk["type"] == "message":
+                        if "start" in chunk:
+                            active_block = MessageBlock()
+                            # Enable debug mode if environment variable is set
+                            active_block.debug = os.environ.get("OI_DEBUG_MARKDOWN", "").lower() in ("1", "true", "yes")
+                            if chunk.get("format") == "reasoning":
+                                active_block.reasoning_mode = True
+                            render_cursor = True
+
+                        if "content" in chunk:
+                            if active_block:
+                                if chunk.get("replace") and hasattr(active_block, "replace_content"):
+                                    active_block.replace_content(chunk["content"])
+                                elif not chunk.get("replace"):
+                                    active_block.add_content(chunk["content"])
+
+                        if "end" in chunk and interpreter.os:
+                            last_message = interpreter.messages[-1]["content"]
+
+                            # Remove markdown lists and the line above markdown lists
+                            lines = last_message.split("\n")
+                            i = 0
+                            while i < len(lines):
+                                # Match markdown lists starting with hyphen, asterisk or number
+                                if re.match(r"^\s*([-*]|\d+\.)\s", lines[i]):
+                                    del lines[i]
+                                    if i > 0:
+                                        del lines[i - 1]
+                                        i -= 1
+                                else:
+                                    i += 1
+                            message = "\n".join(lines)
+                            # Replace newlines with spaces, escape double quotes and backslashes
+                            sanitized_message = message.replace("\\", "\\\\").replace("\n", " ").replace('"', '\\"')
+
+                            # Display notification in OS mode
+                            interpreter.toolbox.os.notify(sanitized_message)
+
+                            # Speak message aloud
+                            if platform.system() == "Darwin" and interpreter.speak_messages:
+                                if voice_subprocess:
+                                    voice_subprocess.terminate()
+                                voice_subprocess = subprocess.Popen(
+                                    [
+                                        "osascript",
+                                        "-e",
+                                        f'say "{sanitized_message}" using "Fred"',
+                                    ]
+                                )
+                            else:
+                                pass
+                                # User isn't on a Mac, so we can't do this. You should tell them something about that when they first set this up.
+                                # Or use a universal TTS library.
+
+                    # Assistant code blocks
+                    elif chunk["role"] == "assistant" and chunk["type"] == "code":
+                        if "start" in chunk:
+                            active_block = CodeBlock(interpreter)
+                            active_block.language = chunk["format"]
+                            render_cursor = True
+
+                        if "content" in chunk:
+                            active_block.code += chunk["content"]
+
+                    # Assistant edit blocks (edit tool: sed/gawk/jq/write/…)
+                    elif chunk["role"] == "assistant" and chunk["type"] == "edit":
+                        if "start" in chunk:
+                            active_block = CodeBlock(interpreter)
+                            active_block.language = chunk["format"]
+                            active_block.target_path = chunk.get("target", "")
+                            render_cursor = True
+
+                        if "content" in chunk:
+                            # start chunk has no target; it arrives on the content chunk.
+                            if chunk.get("target"):
+                                active_block.target_path = chunk["target"]
+                            active_block.code += chunk["content"]
+
+                    # Toolbox can display visual types to user,
+                    # Which sometimes creates more toolbox output (e.g. HTML errors, eventually)
+                    if (
+                        chunk["role"] == "computer"
+                        and "content" in chunk
+                        and (
+                            chunk["type"] == "image"
+                            or ("format" in chunk and chunk["format"] == "html")
+                            or ("format" in chunk and chunk["format"] == "javascript")
+                        )
+                    ):
+                        if (interpreter.os == True) and (interpreter.verbose == False):
+                            # We don't display things to the user in OS control mode, since we use vision to communicate the screen to the LLM so much.
+                            # But if verbose is true, we do display it!
                             continue
 
-                    # Display and give extra output back to the LLM
-                    extra_computer_output = display_output(chunk)
+                        # Never display HTML/JS in browser, just show as plain text
+                        if "format" in chunk and (chunk["format"] == "html" or chunk["format"] == "javascript"):
+                            print(chunk["content"])
+                            continue
 
-                    # We're going to just add it to the messages directly, not changing `recipient` here.
-                    # Mind you, the way we're doing this, this would make it appear to the user if they look at their conversation history,
-                    # because we're not adding "recipient: assistant" to this block. But this is a good simple solution IMO.
-                    # we just might want to change it in the future, once we're sure that a bunch of adjacent type:console blocks will be rendered normally to text-only LLMs
-                    # and that if we made a new block here with "recipient: assistant" it wouldn't add new console outputs to that block (thus hiding them from the user)
+                        assistant_code_blocks = [
+                            m for m in interpreter.messages if m.get("role") == "assistant" and m.get("type") == "code"
+                        ]
+                        if assistant_code_blocks:
+                            code = assistant_code_blocks[-1].get("content")
+                            if any(
+                                text in code
+                                for text in [
+                                    "toolbox.display.view",
+                                    "toolbox.display.screenshot",
+                                    "toolbox.view",
+                                    "toolbox.screenshot",
+                                ]
+                            ):
+                                # If the last line of the code is a toolbox.view command, don't display it.
+                                # The LLM is going to see it, the user doesn't need to.
+                                continue
 
-                    if (
-                        interpreter.messages[-1].get("format") != "output"
-                        or interpreter.messages[-1]["role"] != "computer"
-                        or interpreter.messages[-1]["type"] != "console"
-                    ):
-                        # If the last message isn't a console output, make a new block
-                        interpreter.messages.append(
-                            {
-                                "role": "computer",
-                                "type": "console",
-                                "format": "output",
-                                "content": extra_computer_output,
-                            }
-                        )
-                    else:
-                        # If the last message is a console output, simply append the extra output to it
-                        interpreter.messages[-1]["content"] += "\n" + extra_computer_output
-                        interpreter.messages[-1]["content"] = interpreter.messages[-1]["content"].strip()
+                        # Display and give extra output back to the LLM
+                        extra_computer_output = display_output(chunk)
 
-                # Console
-                if chunk["type"] == "console":
-                    render_cursor = False
-                    if "format" in chunk and chunk["format"] == "output":
-                        active_block.output += "\n" + chunk["content"]
-                        active_block.output = active_block.output.strip()  # ^ Aesthetic choice
+                        # We're going to just add it to the messages directly, not changing `recipient` here.
+                        # Mind you, the way we're doing this, this would make it appear to the user if they look at their conversation history,
+                        # because we're not adding "recipient: assistant" to this block. But this is a good simple solution IMO.
+                        # we just might want to change it in the future, once we're sure that a bunch of adjacent type:console blocks will be rendered normally to text-only LLMs
+                        # and that if we made a new block here with "recipient: assistant" it wouldn't add new console outputs to that block (thus hiding them from the user)
 
-                        # Truncate output
-                        active_block.output = truncate_output(
-                            active_block.output,
-                            interpreter.max_output,
-                        )  # Display copy only: no spill path, the model never reads this one
-                    if "format" in chunk and chunk["format"] == "active_line":
-                        active_block.active_line = chunk["content"]
+                        if (
+                            interpreter.messages[-1].get("format") != "output"
+                            or interpreter.messages[-1]["role"] != "computer"
+                            or interpreter.messages[-1]["type"] != "console"
+                        ):
+                            # If the last message isn't a console output, make a new block
+                            interpreter.messages.append(
+                                {
+                                    "role": "computer",
+                                    "type": "console",
+                                    "format": "output",
+                                    "content": extra_computer_output,
+                                }
+                            )
+                        else:
+                            # If the last message is a console output, simply append the extra output to it
+                            interpreter.messages[-1]["content"] += "\n" + extra_computer_output
+                            interpreter.messages[-1]["content"] = interpreter.messages[-1]["content"].strip()
 
-                        # Display action notifications if we're in OS mode
-                        if interpreter.os and active_block.active_line != None:
-                            action = ""
+                    # Console
+                    if chunk["type"] == "console":
+                        render_cursor = False
+                        if "format" in chunk and chunk["format"] == "output":
+                            active_block.output += "\n" + chunk["content"]
+                            active_block.output = active_block.output.strip()  # ^ Aesthetic choice
 
-                            code_lines = active_block.code.split("\n")
-                            if active_block.active_line < len(code_lines):
-                                action = code_lines[active_block.active_line].strip()
+                            # Truncate output
+                            active_block.output = truncate_output(
+                                active_block.output,
+                                interpreter.max_output,
+                            )  # Display copy only: no spill path, the model never reads this one
+                        if "format" in chunk and chunk["format"] == "active_line":
+                            active_block.active_line = chunk["content"]
 
-                            if action.startswith("toolbox") or action.startswith("computer"):
-                                description = None
+                            # Display action notifications if we're in OS mode
+                            if interpreter.os and active_block.active_line != None:
+                                action = ""
 
-                                # Extract arguments from the action
-                                start_index = action.find("(")
-                                end_index = action.rfind(")")
-                                if start_index != -1 and end_index != -1:
-                                    # (If we found both)
-                                    arguments = action[start_index + 1 : end_index]
-                                else:
-                                    arguments = None
+                                code_lines = active_block.code.split("\n")
+                                if active_block.active_line < len(code_lines):
+                                    action = code_lines[active_block.active_line].strip()
 
-                                # NOTE: Do not put the text you're clicking on screen
-                                # (unless we figure out how to do this AFTER taking the screenshot)
-                                # otherwise it will try to click this notification!
+                                if action.startswith("toolbox") or action.startswith("computer"):
+                                    description = None
 
-                                if any(
-                                    action.startswith(text)
-                                    for text in [
-                                        "toolbox.screenshot",
-                                        "toolbox.display.screenshot",
-                                        "toolbox.display.view",
-                                        "toolbox.view",
-                                    ]
-                                ):
-                                    description = "Viewing screen..."
-                                elif action == "toolbox.mouse.click()":
-                                    description = "Clicking..."
-                                elif action.startswith("toolbox.mouse.click("):
-                                    if "icon=" in arguments:
-                                        text_or_icon = "icon"
+                                    # Extract arguments from the action
+                                    start_index = action.find("(")
+                                    end_index = action.rfind(")")
+                                    if start_index != -1 and end_index != -1:
+                                        # (If we found both)
+                                        arguments = action[start_index + 1 : end_index]
                                     else:
-                                        text_or_icon = "text"
-                                    description = f"Clicking {text_or_icon}..."
-                                elif action.startswith("toolbox.mouse.move("):
-                                    if "icon=" in arguments:
-                                        text_or_icon = "icon"
-                                    else:
-                                        text_or_icon = "text"
-                                    if "click" in active_block.code:  # This could be better
+                                        arguments = None
+
+                                    # NOTE: Do not put the text you're clicking on screen
+                                    # (unless we figure out how to do this AFTER taking the screenshot)
+                                    # otherwise it will try to click this notification!
+
+                                    if any(
+                                        action.startswith(text)
+                                        for text in [
+                                            "toolbox.screenshot",
+                                            "toolbox.display.screenshot",
+                                            "toolbox.display.view",
+                                            "toolbox.view",
+                                        ]
+                                    ):
+                                        description = "Viewing screen..."
+                                    elif action == "toolbox.mouse.click()":
+                                        description = "Clicking..."
+                                    elif action.startswith("toolbox.mouse.click("):
+                                        if "icon=" in arguments:
+                                            text_or_icon = "icon"
+                                        else:
+                                            text_or_icon = "text"
                                         description = f"Clicking {text_or_icon}..."
-                                    else:
-                                        description = f"Mousing over {text_or_icon}..."
-                                elif action.startswith("toolbox.keyboard.write("):
-                                    description = f"Typing {arguments}."
-                                elif action.startswith("toolbox.keyboard.hotkey("):
-                                    description = f"Pressing {arguments}."
-                                elif action.startswith("toolbox.keyboard.press("):
-                                    description = f"Pressing {arguments}."
-                                elif action == "toolbox.os.get_selected_text()":
-                                    description = "Getting selected text."
+                                    elif action.startswith("toolbox.mouse.move("):
+                                        if "icon=" in arguments:
+                                            text_or_icon = "icon"
+                                        else:
+                                            text_or_icon = "text"
+                                        if "click" in active_block.code:  # This could be better
+                                            description = f"Clicking {text_or_icon}..."
+                                        else:
+                                            description = f"Mousing over {text_or_icon}..."
+                                    elif action.startswith("toolbox.keyboard.write("):
+                                        description = f"Typing {arguments}."
+                                    elif action.startswith("toolbox.keyboard.hotkey("):
+                                        description = f"Pressing {arguments}."
+                                    elif action.startswith("toolbox.keyboard.press("):
+                                        description = f"Pressing {arguments}."
+                                    elif action == "toolbox.os.get_selected_text()":
+                                        description = "Getting selected text."
 
-                                if description:
-                                    interpreter.toolbox.os.notify(description)
+                                    if description:
+                                        interpreter.toolbox.os.notify(description)
 
-                    if "start" in chunk:
-                        # We need to make a code block if we pushed out an HTML block first, which would have closed our code block.
-                        if not isinstance(active_block, CodeBlock):
-                            if active_block:
-                                active_block.end()
-                            active_block = CodeBlock()
+                        if "start" in chunk:
+                            # We need to make a code block if we pushed out an HTML block first, which would have closed our code block.
+                            if not isinstance(active_block, CodeBlock):
+                                if active_block:
+                                    active_block.end()
+                                active_block = CodeBlock()
 
-                if active_block and not isinstance(active_block, MessageBlock):
-                    # MessageBlock handles its own refresh internally
-                    active_block.refresh(cursor=render_cursor)
+                    if active_block and not isinstance(active_block, MessageBlock):
+                        # MessageBlock handles its own refresh internally
+                        active_block.refresh(cursor=render_cursor)
+
+            if escaped.is_set():
+                if active_block:
+                    active_block.end()
+                    active_block = None
+                interpreter.display_message("> Stopped. Everything above was kept.")
 
             # (Sometimes -- like if they CTRL-C quickly -- active_block is still None here)
             if "active_block" in locals():
