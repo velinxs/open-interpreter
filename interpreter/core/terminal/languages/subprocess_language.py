@@ -6,6 +6,9 @@ import subprocess
 import threading
 import time
 import traceback
+from queue import (
+    Empty as _QueueEmpty,  # bound here: module globals can be cleared before a generator is finalised at exit
+)
 
 from ..base_language import BaseLanguage
 
@@ -252,7 +255,7 @@ class SubprocessLanguage(BaseLanguage):
                 output = self.output_queue.get(timeout=0.3)  # Waits for 0.3 seconds
                 yield output
                 last_output_at = time.time()
-            except queue.Empty:
+            except _QueueEmpty:
                 if self.done.is_set():
                     # Try to yank 3 more times from it... maybe there's something in there...
                     # (I don't know if this actually helps. Maybe we just need to yank 1 more time)
