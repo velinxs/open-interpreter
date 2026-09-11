@@ -166,3 +166,58 @@ def test_websocket_round_trip(server):
     )
     assert "Hello from the fake." in text
     assert received[-1]["content"] == "complete"
+
+
+def test_streaming_turn_does_not_block_the_event_loop(server):
+    """A heartbeat answered while a turn is streaming proves the loop is free.
+
+    The turn generator used to be iterated inside the async handler, so every
+    other request waited for the model and the code to finish.
+    """
+    import asyncio
+    import time as _time
+
+    import httpx
+
+    ai, _ = server
+
+    class SlowFake:
+        def __init__(self):
+            self.calls = []
+
+        def __call__(self, **params):
+            self.calls.append(params)
+            for piece in ("slow ", "reply ", "here"):
+                _time.sleep(0.3)
+                yield {"choices": [{"delta": {"content": piece}}]}
+            yield {"choices": [{"delta": {}}]}
+
+    install_fake_llm(ai, [])
+    ai.llm.completions = SlowFake()
+    ai.auto_run = True
+
+    async def scenario():
+        transport = httpx.ASGITransport(app=ai.server.app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            body = {"model": "fake", "stream": True, "messages": [{"role": "user", "content": "hi"}]}
+
+            async def stream():
+                async with client.stream("POST", "/openai/chat/completions", json=body) as r:
+                    return "".join([chunk async for chunk in r.aiter_text()])
+
+            task = asyncio.create_task(stream())
+            await asyncio.sleep(0.15)  # the turn is now inside its first slow chunk
+            t0 = _time.monotonic()
+            hb = await client.get("/heartbeat")
+            heartbeat_latency = _time.monotonic() - t0
+            text = await task
+            return hb.json(), heartbeat_latency, text
+
+    hb, latency, raw = asyncio.run(scenario())
+    assert hb == {"status": "alive"}
+    text = ""
+    for line in raw.splitlines():
+        if line.startswith("data: ") and line != "data: [DONE]":
+            text += json.loads(line[len("data: ") :])["choices"][0].get("delta", {}).get("content") or ""
+    assert "slow reply here" in text
+    assert latency < 0.2, f"heartbeat waited {latency:.2f}s behind the streaming turn"

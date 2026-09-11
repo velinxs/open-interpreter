@@ -12,6 +12,7 @@ from typing import Any
 
 import shortuuid
 from pydantic import BaseModel
+from starlette.concurrency import iterate_in_threadpool, run_in_threadpool
 
 from ..core.utils.execution_allowlist import (
     should_require_execution_confirmation,
@@ -331,11 +332,12 @@ def create_openai_router(async_interpreter):
             },
             {"role": "user", "type": "message", "content": content_str},
         ]
-        for chunk in async_interpreter.llm.run(title_messages, auxiliary_title_request=True):
+        async for chunk in iterate_in_threadpool(
+            async_interpreter.llm.run(title_messages, auxiliary_title_request=True)
+        ):
             if chunk.get("format") == "reasoning":
                 continue
             if chunk.get("type") == "message" and chunk.get("content"):
-                await asyncio.sleep(0)
                 yield _openai_sse_chunk(completion_id, created, delta_content=chunk["content"])
         yield _openai_sse_chunk(completion_id, created, finish_reason="stop")
         yield "data: [DONE]\n\n"
@@ -350,7 +352,6 @@ def create_openai_router(async_interpreter):
             role = "assistant" if not sent_role else None
             if role:
                 sent_role = True
-            await asyncio.sleep(0)
             return _openai_sse_chunk(completion_id, created, delta_content=text, role=role)
 
         pending_lang = _pending_code_language(async_interpreter)
@@ -369,8 +370,9 @@ def create_openai_router(async_interpreter):
                 "Can you respond?",
                 "Please reply.",
             ]:
-                for chunk in async_interpreter.chat(message=message, stream=True, display=False):
-                    await asyncio.sleep(0)
+                async for chunk in iterate_in_threadpool(
+                    async_interpreter.chat(message=message, stream=True, display=False)
+                ):
                     made_chunk = True
                     output_content = _lmc_chunk_to_openai_delta(
                         chunk,
@@ -390,7 +392,7 @@ def create_openai_router(async_interpreter):
             async_interpreter.last_messages_count = len(async_interpreter.messages)
             chunk_iter = async_interpreter._respond_and_store()
 
-        for chunk in chunk_iter:
+        async for chunk in iterate_in_threadpool(chunk_iter):
             if run_code and "content" in chunk:
                 print(chunk.get("content", ""), end="")
             if run_code and "start" in chunk:
@@ -444,7 +446,7 @@ def create_openai_router(async_interpreter):
         if last_message.content == "{STOP}":
             # Handle special STOP token
             async_interpreter.stop_event.set()
-            time.sleep(5)
+            await asyncio.sleep(5)
             async_interpreter.stop_event.clear()
             return
 
@@ -480,12 +482,17 @@ def create_openai_router(async_interpreter):
                 },
                 {"role": "user", "type": "message", "content": content_str},
             ]
-            content = ""
-            for chunk in async_interpreter.llm.run(title_messages, auxiliary_title_request=True):
-                if chunk.get("format") == "reasoning":
-                    continue
-                if chunk.get("type") == "message" and chunk.get("content"):
-                    content += chunk["content"]
+
+            def collect_title():
+                content = ""
+                for chunk in async_interpreter.llm.run(title_messages, auxiliary_title_request=True):
+                    if chunk.get("format") == "reasoning":
+                        continue
+                    if chunk.get("type") == "message" and chunk.get("content"):
+                        content += chunk["content"]
+                return content
+
+            content = await run_in_threadpool(collect_title)
             completion_id = _new_openai_completion_id()
             return {
                 "id": completion_id,
@@ -549,7 +556,7 @@ def create_openai_router(async_interpreter):
                 return
 
         async_interpreter.stop_event.set()
-        time.sleep(0.1)
+        await asyncio.sleep(0.1)
         async_interpreter.stop_event.clear()
 
         if request.stream:
@@ -559,24 +566,29 @@ def create_openai_router(async_interpreter):
             )
         else:
             async_interpreter.last_messages_count = len(async_interpreter.messages)
-            content = ""
             pending_lang = _pending_code_language(async_interpreter)
-            for chunk in async_interpreter._respond_and_store():
-                if chunk.get("type") == "confirmation" and run_code:
-                    continue
-                delta = _lmc_chunk_to_openai_delta(
-                    chunk,
-                    async_interpreter,
-                    pending_code_language=pending_lang,
-                )
-                if delta:
-                    content += delta
-                if (
-                    chunk.get("type") == "confirmation"
-                    and not run_code
-                    and should_require_execution_confirmation(async_interpreter, chunk)
-                ):
-                    break
+
+            def collect():
+                content = ""
+                for chunk in async_interpreter._respond_and_store():
+                    if chunk.get("type") == "confirmation" and run_code:
+                        continue
+                    delta = _lmc_chunk_to_openai_delta(
+                        chunk,
+                        async_interpreter,
+                        pending_code_language=pending_lang,
+                    )
+                    if delta:
+                        content += delta
+                    if (
+                        chunk.get("type") == "confirmation"
+                        and not run_code
+                        and should_require_execution_confirmation(async_interpreter, chunk)
+                    ):
+                        break
+                return content
+
+            content = await run_in_threadpool(collect)
             completion_id = _new_openai_completion_id()
             return {
                 "id": completion_id,
