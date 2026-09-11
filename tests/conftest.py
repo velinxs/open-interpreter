@@ -40,6 +40,6 @@ def offline_interpreter():
     interp.script = lambda replies: install_fake_llm(interp, replies)
     yield interp
     try:
-        interp.terminal.stop()
+        interp.terminal.terminate()  # stop() only halts running code; terminate() kills the kernels
     except Exception:
         pass
