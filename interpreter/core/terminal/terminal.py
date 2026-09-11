@@ -22,9 +22,6 @@ from .languages.r import R
 from .languages.react import React
 from .languages.ruby import Ruby
 
-# Languages whose console output is buffered until completion (reduces UI flicker).
-_BUFFERED_CONSOLE_LANGUAGES = frozenset({"cmd", "bash"})
-
 
 def _sync_active_line_detection_env(interpreter):
     """
@@ -244,8 +241,6 @@ print("__TOOLBOX_API_IMPORTED__")
             else:
                 self._active_languages[language] = lang_class()
         try:
-            buffered_output = ""
-
             for chunk in self._active_languages[language].run(code):
                 # self.format_to_recipient can format some messages as having a certain recipient.
                 # Here we add that to the LMC messages:
@@ -265,36 +260,14 @@ print("__TOOLBOX_API_IMPORTED__")
                     if "@@@HIDE_TRACEBACK@@@" in content:
                         chunk["content"] = "Stopping execution.\n\n" + content.split("@@@HIDE_TRACEBACK@@@")[-1].strip()
 
-                    if language in _BUFFERED_CONSOLE_LANGUAGES:
-                        if not buffered_output:
-                            yield {
-                                "type": "console",
-                                "format": "output",
-                                "content": "Note: Shell command output will be shown after completion.\n\n",
-                            }
-                        buffered_output += chunk["content"]
-                        continue
-
                     yield chunk
 
-                    if (
-                        display
-                        and chunk.get("format") != "active_line"
-                        and chunk.get("content")
-                        and language not in _BUFFERED_CONSOLE_LANGUAGES
-                    ):
+                    if display and chunk.get("format") != "active_line" and chunk.get("content"):
                         print(chunk["content"], end="")
 
                 else:
                     yield chunk
 
-            if buffered_output:
-                elapsed = round(time.time() - start_time, 2)
-                yield {
-                    "type": "console",
-                    "format": "output",
-                    "content": f"{buffered_output.strip()}\n\nTime elapsed: {elapsed}s",
-                }
 
         except GeneratorExit:
             self.stop()
