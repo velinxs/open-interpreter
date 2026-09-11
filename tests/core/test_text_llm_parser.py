@@ -7,7 +7,7 @@ produce the same message and code chunks whatever the boundaries are.
 
 import pytest
 
-from interpreter.core.llm.run_text_llm import stream_to_lmc
+from interpreter.core.llm.text import stream_to_lmc
 
 
 def _collect(pieces, default_language="python"):

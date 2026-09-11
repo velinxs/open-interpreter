@@ -15,7 +15,7 @@ from rich import print as rich_print
 from rich.markdown import Markdown
 from rich.panel import Panel
 
-from .run_text_llm import run_text_llm
+from .text import run_text_llm
 
 # Appended to the system message in tool-calling mode. Tool names, parameters, languages,
 # and execution modes live only in request.tools JSON — not duplicated here.
@@ -31,7 +31,7 @@ _TOOL_CALLING_INSTRUCTIONS = (
 )
 
 # from .run_function_calling_llm import run_function_calling_llm
-from .run_tool_calling_llm import run_tool_calling_llm
+from .tool_calling import run_tool_calling_llm
 from .utils.cache_aware_trim import cache_aware_trim
 from .utils.convert_to_openai_messages import convert_to_openai_messages
 from .utils.sanitize_secrets import sanitize_messages, should_sanitize_for_model

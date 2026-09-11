@@ -86,7 +86,7 @@ def _format_info_sections(sections):
 
 def _llm_prompt_sections_for_info(interpreter):
     """Full system prompt and tools payload as sent (or would be sent) to the model."""
-    from ..llm.run_tool_calling_llm import build_request_tools
+    from ..llm.tool_calling import build_request_tools
 
     base = assemble_system_message(interpreter)
     sections = []
