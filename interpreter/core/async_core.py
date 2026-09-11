@@ -8,7 +8,7 @@ import time
 import traceback
 from collections import deque
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Optional, Union
 
 import shortuuid
 from pydantic import BaseModel
@@ -922,7 +922,7 @@ def create_router(async_interpreter):
 
     # TODO
     @router.post("/")
-    async def post_input(payload: Dict[str, Any]):
+    async def post_input(payload: dict[str, Any]):
         try:
             async_interpreter.input(payload)
             return {"status": "success"}
@@ -930,7 +930,7 @@ def create_router(async_interpreter):
             return {"error": str(e)}, 500
 
     @router.post("/settings")
-    async def set_settings(payload: Dict[str, Any]):
+    async def set_settings(payload: dict[str, Any]):
         for key, value in payload.items():
             print("Updating settings...")
             # print(f"Updating settings: {key} = {value}")
@@ -970,7 +970,7 @@ def create_router(async_interpreter):
     if os.getenv("INTERPRETER_INSECURE_ROUTES", "").lower() == "true":
 
         @router.post("/run")
-        async def run_code(payload: Dict[str, Any]):
+        async def run_code(payload: dict[str, Any]):
             language, code = payload.get("language"), payload.get("code")
             if not (language and code):
                 return {"error": "Both 'language' and 'code' are required."}, 400
@@ -1004,14 +1004,14 @@ def create_router(async_interpreter):
 
     class ChatMessage(BaseModel):
         role: str
-        content: Union[str, List[Dict[str, Any]]]
+        content: str | list[dict[str, Any]]
 
     class ChatCompletionRequest(BaseModel):
         model: str = "default-model"
-        messages: List[ChatMessage]
-        max_tokens: Optional[int] = None
-        temperature: Optional[float] = None
-        stream: Optional[bool] = False
+        messages: list[ChatMessage]
+        max_tokens: int | None = None
+        temperature: float | None = None
+        stream: bool | None = False
 
     async def _stream_openai_assistant_text(text):
         completion_id = _new_openai_completion_id()

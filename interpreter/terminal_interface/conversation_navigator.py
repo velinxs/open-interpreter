@@ -113,7 +113,7 @@ def conversation_navigator(interpreter):
     selected_filename = readable_names_and_filenames[answers["name"]]
 
     # Open the selected file and load the JSON data
-    with open(os.path.join(conversations_dir, selected_filename), "r") as f:
+    with open(os.path.join(conversations_dir, selected_filename)) as f:
         messages = json.load(f)
 
     # Pass the data into render_past_conversation

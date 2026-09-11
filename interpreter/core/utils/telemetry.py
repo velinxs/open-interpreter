@@ -30,7 +30,7 @@ def get_or_create_uuid():
         )  # Ensure the directory exists
 
         if os.path.exists(uuid_file_path):
-            with open(uuid_file_path, "r") as file:
+            with open(uuid_file_path) as file:
                 return file.read()
         else:
             new_uuid = str(uuid.uuid4())

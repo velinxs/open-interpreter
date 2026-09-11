@@ -252,7 +252,7 @@ def handle_load_message(self, json_path):
         json_path = "messages.json"
     if not json_path.endswith(".json"):
         json_path += ".json"
-    with open(json_path, "r") as f:
+    with open(json_path) as f:
         self.messages = json.load(f)
 
     resume_idxs = [
@@ -294,9 +294,9 @@ def handle_count_tokens(self, prompt):
         )
 
     outputs.append(
-        (
+
             f"> Tokens sent with next request as context: {conversation_tokens} (Estimated Cost: ${conversation_cost})"
-        )
+
     )
 
     if prompt:

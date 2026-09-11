@@ -5,7 +5,7 @@ Used so os.environ / .env dumps are sanitized even when format-specific
 detectors miss.
 """
 import re
-from typing import Generator
+from collections.abc import Generator
 
 from detect_secrets.plugins.base import BasePlugin
 

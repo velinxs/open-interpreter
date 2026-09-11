@@ -4,7 +4,7 @@ It leverages Llama 3.1 70b served by Groq and requires the environment variable 
 """
 
 # Configure Open Interpreter
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 
 from interpreter import interpreter
 
@@ -16,7 +16,7 @@ interpreter.llm.context_window = 100000
 interpreter.llm.max_tokens = 4096
 
 # Add the current date and time in UTC
-current_datetime = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+current_datetime = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
 
 custom_tool = """
 import requests

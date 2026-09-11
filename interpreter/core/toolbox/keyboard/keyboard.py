@@ -112,7 +112,7 @@ class Keyboard:
             """
 
             # Execute the AppleScript
-            os.system("osascript -e '{}'".format(script))
+            os.system(f"osascript -e '{script}'")
         else:
             pyautogui.hotkey(*args, interval=interval)
         time.sleep(0.15)

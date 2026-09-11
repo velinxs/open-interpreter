@@ -94,7 +94,7 @@ class _BashSession:
                         # strip the sentinel and break
                         output = output[: output.index(self._sentinel)]
                         break
-        except asyncio.TimeoutError:
+        except TimeoutError:
             self._timed_out = True
             raise ToolError(
                 f"timed out: bash has not returned in {self._timeout} seconds and must be restarted",

@@ -30,7 +30,7 @@ class TextFileReader:
     def __init__(self, file_path, encoding='auto'):
         self.file_path = file_path
         self.encoding = encoding if encoding != 'auto' else self._detect_encoding()
-        with open(file_path, 'r', encoding=self.encoding) as file:
+        with open(file_path, encoding=self.encoding) as file:
             self.content = file.readlines()
 
     def _detect_encoding(self):
@@ -63,7 +63,7 @@ class TextFileReader:
     def read_characters(self, from_char, to_char, show_line_numbers=False):
         """Read characters from `from_char` to `to_char` (0-based index).
         Prints characters immediately and returns them."""
-        with open(self.file_path, 'r', encoding=self.encoding) as file:
+        with open(self.file_path, encoding=self.encoding) as file:
             content = file.read()
         content_chunk = content[from_char:to_char]
 
@@ -230,7 +230,7 @@ class Files:
         Returns:
             None
         """
-        with open(path, "r") as file:
+        with open(path) as file:
             filedata = file.read()
 
         if original_text not in filedata:

@@ -17,7 +17,7 @@ try:
 except ImportError:  # 3.10 compatibility
     from enum import Enum as StrEnum
 
-from typing import Any, List, cast
+from typing import Any, cast
 
 import requests
 from anthropic import Anthropic, AnthropicBedrock, AnthropicVertex, APIResponse
@@ -39,7 +39,7 @@ from .tools import BashTool, ComputerTool, EditTool, ToolCollection, ToolResult
 
 BETA_FLAG = "computer-use-2024-10-22"
 
-from typing import List, Optional
+from typing import Optional
 
 import uvicorn
 from fastapi import FastAPI
@@ -50,7 +50,7 @@ from rich.markdown import Markdown
 from rich.rule import Rule
 
 # Add this near the top of the file, with other imports and global variables
-messages: List[BetaMessageParam] = []
+messages: list[BetaMessageParam] = []
 
 
 def print_markdown(message):
@@ -329,7 +329,7 @@ def _maybe_prepend_system_tool_result(result: ToolResult, result_text: str):
 
 async def main():
     global exit_flag
-    messages: List[BetaMessageParam] = []
+    messages: list[BetaMessageParam] = []
     model = PROVIDER_TO_DEFAULT_MODEL_NAME[APIProvider.ANTHROPIC]
     provider = APIProvider.ANTHROPIC
     system_prompt_suffix = ""
@@ -569,5 +569,5 @@ class ChatMessage(BaseModel):
 
 
 class ChatCompletionRequest(BaseModel):
-    messages: List[ChatMessage]
-    stream: Optional[bool] = False
+    messages: list[ChatMessage]
+    stream: bool | None = False

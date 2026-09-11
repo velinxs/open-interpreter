@@ -1,6 +1,5 @@
 import os
 from enum import Enum
-from typing import Dict, List
 
 import litellm
 from openai import OpenAI
@@ -146,7 +145,7 @@ class Ai2:
             # Get available models from LiteLLM
             models_response = litellm.model_list()
             # Extract model IDs from the response
-            self._available_models: List[str] = [model.get("id", model.get("model_name", "")) for model in models_response if model.get("id") or model.get("model_name")]
+            self._available_models: list[str] = [model.get("id", model.get("model_name", "")) for model in models_response if model.get("id") or model.get("model_name")]
         except Exception:
             # Swallow errors (network issues, permissions) – callers can still
             # pass any valid model ID even if pre-fetch failed.
@@ -392,7 +391,7 @@ class Ai2:
         self,
         instruction: str,
         content: str,
-        choices: List[str],
+        choices: list[str],
         **kwargs,
     ) -> str:
         """Return one item from *choices* using Structured Outputs.
@@ -462,8 +461,8 @@ class Ai2:
     # Read-only properties exposed for tool discovery
     # ------------------------------------------------------------------
     @property
-    def available_models(self) -> List[str]:
-        """List[str]: Cached list of model IDs returned when Ai2 was instantiated."""
+    def available_models(self) -> list[str]:
+        """list[str]: Cached list of model IDs returned when Ai2 was instantiated."""
         return self._available_models
 
     @property

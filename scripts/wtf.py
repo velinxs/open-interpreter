@@ -335,7 +335,7 @@ def main():
     def get_lines_from_file(filename, line_number):
         lines = []
         try:
-            with open(filename, "r") as file:
+            with open(filename) as file:
                 all_lines = file.readlines()
                 start_line = max(0, line_number - 3)  # Preceding lines
                 end_line = min(len(all_lines), line_number + 2)  # Following lines
@@ -368,7 +368,7 @@ def main():
     )
 
     try:
-        with open(default_profile_path, "r") as file:
+        with open(default_profile_path) as file:
             profile = yaml.safe_load(file)
             wtf_model = profile.get("wtf", {}).get("model")
             if wtf_model:

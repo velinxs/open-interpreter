@@ -300,7 +300,7 @@ async def wait_for_websocket_complete(websocket, timeout=180.0):
             }:
                 print("Received expected message from server")
                 return accumulated_content
-        except asyncio.TimeoutError:
+        except TimeoutError:
             break
         except Exception as e:
             print(f"WebSocket receive failed: {e}")

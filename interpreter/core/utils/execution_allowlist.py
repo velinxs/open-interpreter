@@ -139,7 +139,7 @@ def _load_rules_from_file(path):
     path = _expand_path(path)
     if not os.path.isfile(path):
         return []
-    with open(path, "r", encoding="utf-8") as file:
+    with open(path, encoding="utf-8") as file:
         data = yaml.safe_load(file) or {}
     if not isinstance(data, dict):
         raise ValueError(f"Rule file must be a YAML mapping: {path}")

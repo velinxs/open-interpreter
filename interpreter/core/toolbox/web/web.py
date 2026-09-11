@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 import requests
 from babel import Locale
@@ -85,7 +85,7 @@ class WebToolboxError(Exception):
 
 
 class SearchResult(dict):
-    """Dict subclass for web search results. Has a compact repr to avoid flooding the context window."""
+    """dict subclass for web search results. Has a compact repr to avoid flooding the context window."""
 
     def __init__(self, data, web=None):
         super().__init__(data)
@@ -128,7 +128,7 @@ class SearchResult(dict):
 
 
 class FetchResult(dict):
-    """Dict subclass for web fetch results. Has a compact repr to avoid flooding the context window."""
+    """dict subclass for web fetch results. Has a compact repr to avoid flooding the context window."""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -225,7 +225,7 @@ class FetchResult(dict):
 
 
 class AnswerResult(dict):
-    """Dict subclass for web answer results. Has a compact repr to avoid flooding the context window."""
+    """dict subclass for web answer results. Has a compact repr to avoid flooding the context window."""
 
     def __init__(self, data, web=None):
         super().__init__(data)
@@ -262,7 +262,7 @@ class AnswerResult(dict):
 
 
 class StructuredOutputResult(dict):
-    """Dict subclass for web search results with structured output (JSON)."""
+    """dict subclass for web search results with structured output (JSON)."""
 
     def __init__(self, data, web=None):
         super().__init__(data)
@@ -336,7 +336,7 @@ class Web:
         self._default_country = (_loc.territory or "US").upper()
         # Session-scoped cache: keyed by URL. Web page content doesn't change
         # mid-session, so re-fetching the same URL is always wasteful.
-        self._fetch_cache: Dict[str, "FetchResult"] = {}
+        self._fetch_cache: dict[str, FetchResult] = {}
 
     def _get_locale_defaults(self, country_code=None, language_code=None, country_case="lower"):
         """
@@ -918,7 +918,7 @@ class Web:
         kind_label = f"{kind} " if kind else ""
         return f"No {kind_label}backends are working. " + ". ".join(f"{b}: {msg}" for b, msg in reasons)
 
-    def search(self, query: str, backend: Optional[str] = None, country_code: Optional[str] = None, language_code: Optional[str] = None, **kwargs) -> SearchResult:
+    def search(self, query: str, backend: str | None = None, country_code: str | None = None, language_code: str | None = None, **kwargs) -> SearchResult:
         """
         Search the web for links and snippets.
 
@@ -946,8 +946,8 @@ class Web:
                 TAVILY:
                     - max_results (int): Number of results to return (default: 10)
                     - search_depth (str): "basic" or "advanced" (default: "basic")
-                    - include_domains (list): List of domains to include (e.g., ["example.com"])
-                    - exclude_domains (list): List of domains to exclude
+                    - include_domains (list): list of domains to include (e.g., ["example.com"])
+                    - exclude_domains (list): list of domains to exclude
                     - include_raw_content (bool): Include full HTML content (default: False)
                     - include_images (bool): Include images in results (default: False)
                     - topic (str): "general" or "news" (default: "general")
@@ -1244,7 +1244,7 @@ class Web:
 
         Args:
             query: The search query
-            structured_output_schema: Dict representing JSON schema
+            structured_output_schema: dict representing JSON schema
             depth: "standard" or "deep" (default: "standard")
             **kwargs: Additional LinkUp search parameters
 
@@ -1298,7 +1298,7 @@ class Web:
 
         return normalized
 
-    def answer(self, question: str, backend: Optional[str] = None, **kwargs) -> AnswerResult:
+    def answer(self, question: str, backend: str | None = None, **kwargs) -> AnswerResult:
         """
         AI-synthesized answer from web sources. PREFERRED for direct questions about current events
 
@@ -1364,7 +1364,7 @@ class Web:
         )
         raise WebToolboxError(message)
 
-    def structured_output(self, query: str, schema: Any, backend: Optional[str] = "linkup", **kwargs) -> StructuredOutputResult:
+    def structured_output(self, query: str, schema: Any, backend: str | None = "linkup", **kwargs) -> StructuredOutputResult:
         """
         Search and extract specific fields defined by schema (dict or Pydantic). PREFERRED for data extraction.
 
@@ -1674,7 +1674,7 @@ class Web:
 
         return normalized
 
-    def fetch(self, url: str, backend: Optional[str] = None, render_js: bool = False, extract_depth: Optional[str] = None, **kwargs) -> FetchResult:
+    def fetch(self, url: str, backend: str | None = None, render_js: bool = False, extract_depth: str | None = None, **kwargs) -> FetchResult:
         """
         Fetch web page content from a URL as markdown.
 
@@ -1696,7 +1696,7 @@ class Web:
                     - Other LinkUp fetch parameters (output is always markdown)
 
                 TAVILY:
-                    - urls (list): List of URLs to fetch (max 20). If provided, overrides url parameter.
+                    - urls (list): list of URLs to fetch (max 20). If provided, overrides url parameter.
                     - include_images (bool): Include images in extraction (default: False)
                     - Other Tavily extract parameters
 

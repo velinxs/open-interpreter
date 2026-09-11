@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Mapping, Optional
+from collections.abc import Mapping
+from typing import Any, Optional
 
 
 def _to_plain(value: Any) -> Any:
@@ -34,7 +35,7 @@ def _to_plain(value: Any) -> Any:
     return str(value)
 
 
-def _usage_from_chunk(chunk: Any) -> Optional[dict]:
+def _usage_from_chunk(chunk: Any) -> dict | None:
     if chunk is None:
         return None
     usage = None

@@ -182,7 +182,7 @@ class ComputerTool(BaseAnthropicTool):
                             keystroke "{keystroke}" using {modifier}
                         end tell
                         """
-                        os.system("osascript -e '{}'".format(script))
+                        os.system(f"osascript -e '{script}'")
                     else:
                         pyautogui.hotkey(*keys)
                 else:

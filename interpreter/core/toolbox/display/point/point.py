@@ -2,7 +2,6 @@ import hashlib
 import io
 import os
 import subprocess
-from typing import List
 
 import cv2
 import nltk
@@ -478,7 +477,7 @@ if fast_model == False:
     data_config = timm.data.resolve_model_data_config(model)
     transforms = timm.data.create_transform(**data_config, is_training=False)
 
-    def embed_images(images: List[Image.Image], model, transforms):
+    def embed_images(images: list[Image.Image], model, transforms):
         # Stack images along the batch dimension
         image_batch = torch.stack([transforms(image) for image in images])
         # Get embeddings

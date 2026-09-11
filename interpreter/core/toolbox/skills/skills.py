@@ -126,7 +126,7 @@ class Skills:
 
         code_to_run = ""
         for file in glob.glob(os.path.join(self.path, "*.py")):
-            with open(file, "r") as f:
+            with open(file) as f:
                 code_to_run += f.read() + "\n"
 
         if self.toolbox.interpreter.debug:
@@ -137,7 +137,7 @@ class Skills:
         if "traceback" in str(output).lower():
             # Import them individually
             for file in glob.glob(os.path.join(self.path, "*.py")):
-                with open(file, "r") as f:
+                with open(file) as f:
                     code_to_run = f.read() + "\n"
 
                 if self.toolbox.interpreter.debug:

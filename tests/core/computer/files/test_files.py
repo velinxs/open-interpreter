@@ -30,7 +30,7 @@ class TestFiles(unittest.TestCase):
             self.files.edit("example/filepath/file", "foobar", "foobarbaz")
 
         # Assert
-        mock_open.assert_any_call("example/filepath/file", "r")
+        mock_open.assert_any_call("example/filepath/file")
         mock_open.assert_any_call("example/filepath/file", "w")
         mock_write.assert_called_once_with("foobarbaz")
 
@@ -44,7 +44,7 @@ class TestFiles(unittest.TestCase):
                 self.files.edit("example/filepath/file", "barbaz", "foobarbaz")
 
         # Assert
-        mock_open.assert_any_call("example/filepath/file", "r")
+        mock_open.assert_any_call("example/filepath/file")
         self.assertEqual(
             str(context_manager.exception),
             "Original text not found. Did you mean one of these? foobar",
@@ -65,7 +65,7 @@ class TestTextFileReader(unittest.TestCase):
             reader = self.files.get_reader("example.txt", encoding="utf-8")
 
         # Assert
-        mock_open.assert_called_with("example.txt", "r", encoding="utf-8")
+        mock_open.assert_called_with("example.txt", encoding="utf-8")
         self.assertIsInstance(reader, TextFileReader)
 
     @mock.patch("chardet.detect")

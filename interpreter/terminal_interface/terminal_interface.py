@@ -599,7 +599,7 @@ def terminal_interface(interpreter, message):
                                 input("  Press Enter when done editing...")
                                 print("")
 
-                                with open(tmp_path, "r", encoding="utf-8") as f:
+                                with open(tmp_path, encoding="utf-8") as f:
                                     code = f.read()
                             finally:
                                 os.unlink(tmp_path)

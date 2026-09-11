@@ -127,9 +127,9 @@ LEFT JOIN handle ON message.handle_id = handle.ROWID
             bool: True if accessible.
         """
         try:
-            with open(self.database_path, "r"):
+            with open(self.database_path):
                 return True
-        except IOError:
+        except OSError:
             return False
 
     def prompt_full_disk_access(self):
