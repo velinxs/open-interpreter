@@ -2,9 +2,8 @@ import json
 import os
 from unittest import TestCase, mock
 
-from interpreter.core.async_core import (
-    AsyncInterpreter,
-    Server,
+from interpreter.core.async_core import AsyncInterpreter, Server
+from interpreter.server.openai_compat import (
     _format_openai_console_output,
     _is_openai_auxiliary_title_request,
     _new_openai_completion_id,

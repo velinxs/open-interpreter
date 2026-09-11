@@ -23,7 +23,7 @@ warnings.filterwarnings(
 
 _CLASSES = {
     "OpenInterpreter": ("interpreter.core.core", "OpenInterpreter"),
-    "AsyncInterpreter": ("interpreter.core.async_core", "AsyncInterpreter"),
+    "AsyncInterpreter": ("interpreter.server", "AsyncInterpreter"),
     "BaseLanguage": ("interpreter.core.terminal.base_language", "BaseLanguage"),
 }
 
