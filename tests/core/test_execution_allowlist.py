@@ -1,5 +1,6 @@
 import pytest
 
+import interpreter.core.utils.execution_allowlist as allowlist_module
 from interpreter.core.core import OpenInterpreter
 from interpreter.core.utils.execution_allowlist import (
     is_execution_allowlisted,
@@ -10,8 +11,22 @@ from interpreter.core.utils.execution_allowlist import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _isolate_allowlist_files(tmp_path, monkeypatch):
+    """Point the allow/deny list files at the test's own directory.
+
+    These default to the user's config directory, so without this a developer
+    who has ever answered "a" at a run prompt fails the suite, and a test that
+    persists a rule writes into their real allowlist.
+    """
+    monkeypatch.setattr(allowlist_module, "DEFAULT_ALLOWLIST_FILE", str(tmp_path / "allowlist.yaml"))
+    monkeypatch.setattr(allowlist_module, "DEFAULT_DENYLIST_FILE", str(tmp_path / "denylist.yaml"))
+
+
 def _interpreter(**kwargs):
     interpreter = OpenInterpreter()
+    interpreter.auto_run_allowlist_file = allowlist_module.DEFAULT_ALLOWLIST_FILE
+    interpreter.auto_run_denylist_file = allowlist_module.DEFAULT_DENYLIST_FILE
     for key, value in kwargs.items():
         setattr(interpreter, key, value)
     return interpreter

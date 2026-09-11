@@ -88,6 +88,7 @@ dev = [
     "ruff>=0.16",
     "websockets>=13.1",
     "pre-commit>=3.5",
+    "pytest-cov>=7.1.0",
 ]
 
 [build-system]
