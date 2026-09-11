@@ -28,9 +28,7 @@ toolbox"""
 interpreter.toolbox.import_toolbox_api = True
 interpreter.toolbox.import_skills = True
 interpreter.toolbox.system_message = ""
-output = interpreter.toolbox.run(
-    "python", setup_code
-)  # This will trigger those imports
+output = interpreter.toolbox.run("python", setup_code)  # This will trigger those imports
 interpreter.auto_run = True
 interpreter.loop = True
 # interpreter.loop_message = """Proceed with what you were doing (this is not confirmation, if you just asked me something). You CAN run code on my machine. If you want to run code, start your message with "```"! If the entire task is done, say exactly 'The task is done.' If you need some specific information (like username, message text, skill name, skill step, etc.) say EXACTLY 'Please provide more information.' If it's impossible, say 'The task is impossible.' (If I haven't provided a task, say exactly 'Let me know what you'd like to do next.') Otherwise keep going. CRITICAL: REMEMBER TO FOLLOW ALL PREVIOUS INSTRUCTIONS. If I'm teaching you something, remember to run the related `toolbox.skills.new_skill` function."""

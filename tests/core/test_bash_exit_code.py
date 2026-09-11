@@ -71,16 +71,16 @@ def test_multiline_constructs_report_their_status():
 
 def test_blank_and_comment_lines_get_no_active_line_marker():
     out = Bash().preprocess_code("echo one\n\n# a comment\necho two\n")
-    assert '##active_line1##' in out  # echo one
-    assert '##active_line2##' not in out  # blank
-    assert '##active_line3##' not in out  # comment
-    assert '##active_line4##' in out  # echo two
+    assert "##active_line1##" in out  # echo one
+    assert "##active_line2##" not in out  # blank
+    assert "##active_line3##" not in out  # comment
+    assert "##active_line4##" in out  # echo two
 
 
 def test_active_line_numbers_still_match_the_source():
     """Skipped lines keep their index so highlighting points at the right line."""
     out = Bash().preprocess_code("\n\necho third")
-    assert '##active_line3##' in out
+    assert "##active_line3##" in out
 
 
 def test_detect_exit_code_parses_the_marker():

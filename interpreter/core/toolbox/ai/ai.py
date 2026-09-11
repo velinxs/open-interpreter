@@ -113,9 +113,7 @@ def fast_llm(llm, system_message, user_message):
 def query_map_chunks(chunks, llm, query):
     """Query the chunks of text using query_chunk_map."""
     with ThreadPoolExecutor() as executor:
-        responses = list(
-            executor.map(lambda chunk: fast_llm(llm, query, chunk), chunks)
-        )
+        responses = list(executor.map(lambda chunk: fast_llm(llm, query, chunk), chunks))
     return responses
 
 
@@ -126,9 +124,7 @@ def query_reduce_chunks(responses, llm, chunk_size, query):
 
         # Use multithreading to summarize each chunk simultaneously
         with ThreadPoolExecutor() as executor:
-            summaries = list(
-                executor.map(lambda chunk: fast_llm(llm, query, chunk), chunks)
-            )
+            summaries = list(executor.map(lambda chunk: fast_llm(llm, query, chunk), chunks))
 
     return summaries[0]
 
@@ -190,9 +186,7 @@ class Ai:
             {"role": "user", "type": "message", "content": text},
         ]
         if base64:
-            messages.append(
-                {"role": "user", "type": "image", "format": "base64", "content": base64}
-            )
+            messages.append({"role": "user", "type": "image", "format": "base64", "content": base64})
         response = ""
         for chunk in self.toolbox.interpreter.llm.run(messages):
             if "content" in chunk:
@@ -203,13 +197,9 @@ class Ai:
         old_messages = self.toolbox.interpreter.llm.interpreter.messages
         old_system_message = self.toolbox.interpreter.llm.interpreter.system_message
         old_import_toolbox_api = self.toolbox.import_toolbox_api
-        old_execution_instructions = (
-            self.toolbox.interpreter.llm.execution_instructions
-        )
+        old_execution_instructions = self.toolbox.interpreter.llm.execution_instructions
         try:
-            self.toolbox.interpreter.llm.interpreter.system_message = (
-                "You are an AI assistant."
-            )
+            self.toolbox.interpreter.llm.interpreter.system_message = "You are an AI assistant."
             self.toolbox.interpreter.llm.interpreter.messages = []
             self.toolbox.import_toolbox_api = False
             self.toolbox.interpreter.llm.execution_instructions = ""
@@ -217,13 +207,9 @@ class Ai:
             response = self.toolbox.interpreter.llm.interpreter.chat(text)
         finally:
             self.toolbox.interpreter.llm.interpreter.messages = old_messages
-            self.toolbox.interpreter.llm.interpreter.system_message = (
-                old_system_message
-            )
+            self.toolbox.interpreter.llm.interpreter.system_message = old_system_message
             self.toolbox.import_toolbox_api = old_import_toolbox_api
-            self.toolbox.interpreter.llm.execution_instructions = (
-                old_execution_instructions
-            )
+            self.toolbox.interpreter.llm.execution_instructions = old_execution_instructions
 
             return response[-1].get("content")
 
@@ -259,17 +245,13 @@ class Ai:
         overlap = 50
 
         # Split the text into chunks
-        chunks = split_into_chunks(
-            text, chunk_size, self.toolbox.interpreter.llm, overlap
-        )
+        chunks = split_into_chunks(text, chunk_size, self.toolbox.interpreter.llm, overlap)
 
         # (Map) Query each chunk
         responses = query_map_chunks(chunks, self.toolbox.interpreter.llm, query)
 
         # (Reduce) Compress the responses
-        response = query_reduce_chunks(
-            responses, self.toolbox.interpreter.llm, chunk_size, custom_reduce_query
-        )
+        response = query_reduce_chunks(responses, self.toolbox.interpreter.llm, chunk_size, custom_reduce_query)
 
         return response
 

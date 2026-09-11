@@ -311,10 +311,7 @@ class SubprocessLanguage(BaseLanguage):
                     active_line = self.detect_active_line(line)
                     # Sometimes there's a little extra on the same line, so be sure to send that out
                     line = re.sub(r"##active_line\d+##", "", line)
-                    active_line_enabled = (
-                        os.environ.get("INTERPRETER_ACTIVE_LINE_DETECTION", "True").lower()
-                        == "true"
-                    )
+                    active_line_enabled = os.environ.get("INTERPRETER_ACTIVE_LINE_DETECTION", "True").lower() == "true"
                     if active_line_enabled:
                         self.output_queue.put(
                             {
@@ -324,18 +321,14 @@ class SubprocessLanguage(BaseLanguage):
                             }
                         )
                     if line:
-                        self.output_queue.put(
-                            {"type": "console", "format": "output", "content": line}
-                        )
+                        self.output_queue.put({"type": "console", "format": "output", "content": line})
                 elif self.detect_end_of_execution(line):
                     exit_code = self.detect_exit_code(line)
                     # Sometimes there's a little extra on the same line, so be sure to send that out.
                     # \d* also consumes the exit status when the marker carries one.
                     line = re.sub(r"##end_of_execution##\d*", "", line).strip()
                     if line:
-                        self.output_queue.put(
-                            {"type": "console", "format": "output", "content": line}
-                        )
+                        self.output_queue.put({"type": "console", "format": "output", "content": line})
                     # Only report failures: a successful command stays silent and
                     # costs the model nothing.
                     if exit_code:
@@ -358,9 +351,7 @@ class SubprocessLanguage(BaseLanguage):
                     time.sleep(0.1)
                     self.done.set()
                 else:
-                    self.output_queue.put(
-                        {"type": "console", "format": "output", "content": line}
-                    )
+                    self.output_queue.put({"type": "console", "format": "output", "content": line})
         except ValueError as e:
             if "operation on closed file" in str(e):
                 if self.verbose:

@@ -108,9 +108,7 @@ class ComputerTool(BaseAnthropicTool):
 
     @property
     def options(self) -> ComputerToolOptions:
-        width, height = self.scale_coordinates(
-            ScalingSource.COMPUTER, self.width, self.height
-        )
+        width, height = self.scale_coordinates(ScalingSource.COMPUTER, self.width, self.height)
         return {
             "display_width_px": width,
             "display_height_px": height,
@@ -136,9 +134,7 @@ class ComputerTool(BaseAnthropicTool):
         if action in ("mouse_move", "left_click_drag"):
             if coordinate is None:
                 raise ToolError(f"coordinate is required for {action}")
-            x, y = self.scale_coordinates(
-                ScalingSource.API, coordinate[0], coordinate[1]
-            )
+            x, y = self.scale_coordinates(ScalingSource.API, coordinate[0], coordinate[1])
 
             if action == "mouse_move":
                 smooth_move_to(x, y)
@@ -228,9 +224,7 @@ class ComputerTool(BaseAnthropicTool):
         screenshot.save(str(path))
 
         if self._scaling_enabled:
-            x, y = self.scale_coordinates(
-                ScalingSource.COMPUTER, self.width, self.height
-            )
+            x, y = self.scale_coordinates(ScalingSource.COMPUTER, self.width, self.height)
             # Use PIL directly instead of shell convert command
             from PIL import Image
 

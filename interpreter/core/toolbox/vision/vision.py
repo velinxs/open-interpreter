@@ -24,15 +24,11 @@ class Vision:
     def load(self, load_moondream=True, load_easyocr=True):
         # print("Loading vision models (Moondream, EasyOCR)...\n")
 
-        with contextlib.redirect_stdout(
-            open(os.devnull, "w")
-        ), contextlib.redirect_stderr(open(os.devnull, "w")):
+        with contextlib.redirect_stdout(open(os.devnull, "w")), contextlib.redirect_stderr(open(os.devnull, "w")):
             if self.easyocr == None and load_easyocr:
                 import easyocr
 
-                self.easyocr = easyocr.Reader(
-                    ["en"]
-                )  # this needs to run only once to load the model into memory
+                self.easyocr = easyocr.Reader(["en"])  # this needs to run only once to load the model into memory
 
             if self.model == None and load_moondream:
                 import transformers  # Wait until we use it. Transformers can't be lazy loaded for some reason!
@@ -53,9 +49,7 @@ class Vision:
                 self.model = transformers.AutoModelForCausalLM.from_pretrained(
                     model_id, trust_remote_code=True, revision=revision
                 )
-                self.tokenizer = transformers.AutoTokenizer.from_pretrained(
-                    model_id, revision=revision
-                )
+                self.tokenizer = transformers.AutoTokenizer.from_pretrained(model_id, revision=revision)
                 return True
 
     def ocr(
@@ -81,9 +75,7 @@ class Vision:
                 #     extension = "png"
                 # Save the base64 content as a temporary file
                 img_data = base64.b64decode(lmc["content"])
-                with tempfile.NamedTemporaryFile(
-                    delete=False, suffix=".png"
-                ) as temp_file:
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as temp_file:
                     temp_file.write(img_data)
                     temp_file_path = temp_file.name
 
@@ -121,9 +113,7 @@ class Vision:
         except ImportError:
             # Don't show installation message for toolbox-generated images
             if not (lmc and lmc.get("role") == "computer"):
-                print(
-                    "\nTo use local vision, run `pip install 'open-interpreter[local]'`.\n"
-                )
+                print("\nTo use local vision, run `pip install 'open-interpreter[local]'`.\n")
             return ""
 
     def query(
@@ -147,9 +137,7 @@ class Vision:
             except ImportError:
                 # Don't show installation message for toolbox-generated images
                 if not (lmc and lmc.get("role") == "computer"):
-                    print(
-                        "\nTo use local vision, run `pip install 'open-interpreter[local]'`.\n"
-                    )
+                    print("\nTo use local vision, run `pip install 'open-interpreter[local]'`.\n")
                 return ""
             if not success:
                 return ""
@@ -180,8 +168,6 @@ class Vision:
 
         with contextlib.redirect_stdout(open(os.devnull, "w")):
             enc_image = self.model.encode_image(img)
-            answer = self.model.answer_question(
-                enc_image, query, self.tokenizer, max_length=400
-            )
+            answer = self.model.answer_question(enc_image, query, self.tokenizer, max_length=400)
 
         return answer

@@ -143,9 +143,7 @@ class CwdTrackingMixin:
                 kept_lines.append(line)
         if removed:
             distinct = list(dict.fromkeys(removed))[:4]
-            self._pending_notice = (
-                f"Removed redundant cd {', '.join(distinct)} (already in that directory)."
-            )
+            self._pending_notice = f"Removed redundant cd {', '.join(distinct)} (already in that directory)."
         return "\n".join(kept_lines)
 
     def _parse_cd(self, line):

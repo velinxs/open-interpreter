@@ -66,6 +66,7 @@ def _normalize_locale_country_for_gl(country: str) -> str:
 
 class ApiKeyError(Exception):
     """Exception raised when an API key is missing. Contains error dict."""
+
     def __init__(self, error_dict):
         self.error_dict = error_dict
         super().__init__(error_dict.get("error", "API key missing"))
@@ -119,7 +120,7 @@ class SearchResult(dict):
             url = r.get("url", "")
             domain = url.split("/")[2] if url.count("/") >= 2 else url
             snippet = r.get("snippet", "")[:120]
-            lines.append(f"  {i}. \"{title}\" \u2014 {domain}")
+            lines.append(f'  {i}. "{title}" \u2014 {domain}')
             if snippet:
                 lines.append(f"     {snippet}")
         if n > 5:
@@ -160,6 +161,7 @@ class FetchResult(dict):
         Pass max_results to cap the number of matches returned.
         """
         import re
+
         content = self._get_content()
         pattern = re.compile(re.escape(term), re.IGNORECASE)
         snippets = []
@@ -177,8 +179,9 @@ class FetchResult(dict):
         Returns a list of (anchor_text, url) tuples parsed from markdown [text](url) syntax.
         """
         import re
+
         content = self._get_content()
-        return re.findall(r'\[([^\]]*)\]\((https?://[^)]+)\)', content)
+        return re.findall(r"\[([^\]]*)\]\((https?://[^)]+)\)", content)
 
     def __repr__(self):
         backend = self.get("backend", "?")
@@ -195,7 +198,7 @@ class FetchResult(dict):
                 url = r.get("url", "")
                 domain = url.split("/")[2] if url.count("/") >= 2 else url
                 content_len = len(r.get("content", ""))
-                lines.append(f"  \u2022 \"{title}\" \u2014 {domain} ({content_len:,} chars)")
+                lines.append(f'  \u2022 "{title}" \u2014 {domain} ({content_len:,} chars)')
             if n > 3:
                 lines.append(f"  ... {n - 3} more")
         else:
@@ -204,10 +207,7 @@ class FetchResult(dict):
             content = self.get("content", "")
             content_len = len(content)
             preview = content[:150].replace("\n", " ") if content else ""
-            extra_keys = ", ".join(
-                f"{k}[dict]" for k in self.keys()
-                if k not in ("title", "url", "content", "backend")
-            )
+            extra_keys = ", ".join(f"{k}[dict]" for k in self.keys() if k not in ("title", "url", "content", "backend"))
             lines = [f"FetchResult [backend={backend}]{cached_tag}"]
             lines.append(
                 f"  Keys: url[str], title[str], content[str={content_len:,} chars]"
@@ -216,7 +216,7 @@ class FetchResult(dict):
             )
             lines.append("  → result.content | result.find(term) | result.links()")
             if title:
-                lines.append(f"  \"{title}\"")
+                lines.append(f'  "{title}"')
             else:
                 lines.append("  [no title]")
             if preview:
@@ -320,8 +320,7 @@ def _normalize_tavily_single_page(result):
     pages = result.get("results", [])
     if not pages:
         raise WebToolboxError(
-            "Tavily returned no results for this URL. "
-            "The page may be inaccessible or blocked. Try a different backend."
+            "Tavily returned no results for this URL. The page may be inaccessible or blocked. Try a different backend."
         )
     flat = pages[0].copy()
     flat["raw_response"] = result.get("raw_response", {})
@@ -391,7 +390,7 @@ class Web:
             error_dict = {
                 "error": f"{key_name} environment variable not set",
                 "message": f"To use {backend_name}, set the {key_name} environment variable.{url_text}",
-                "alternative": "Try using a different backend"
+                "alternative": "Try using a different backend",
             }
             raise ApiKeyError(error_dict)
         return api_key
@@ -426,7 +425,9 @@ class Web:
             # Engine-specific handling
             if engine == "youtube" and "link" in result:
                 url = result.get("link", "")
-                snippet = result.get("description", "") or f"Video by {result.get('channel', {}).get('name', 'Unknown')}"
+                snippet = (
+                    result.get("description", "") or f"Video by {result.get('channel', {}).get('name', 'Unknown')}"
+                )
             elif engine == "google_shopping" and "price" in result:
                 price = result.get("price", "")
                 if price:
@@ -443,7 +444,9 @@ class Web:
             return {
                 "title": getattr(result, "name", ""),
                 "url": getattr(result, "url", ""),
-                "snippet": (getattr(result, "content", "") or getattr(result, "snippet", ""))[:200] if getattr(result, "content", None) or getattr(result, "snippet", None) else ""
+                "snippet": (getattr(result, "content", "") or getattr(result, "snippet", ""))[:200]
+                if getattr(result, "content", None) or getattr(result, "snippet", None)
+                else "",
             }
 
         # Unknown format
@@ -451,10 +454,7 @@ class Web:
 
     def _create_normalized_response(self, raw_response):
         """Create a normalized response structure."""
-        return {
-            "results": [],
-            "raw_response": raw_response
-        }
+        return {"results": [], "raw_response": raw_response}
 
     def _search_brave(self, query, count=10, country_code=None, language_code=None, safesearch="moderate", **kwargs):
         """
@@ -480,11 +480,7 @@ class Web:
 
         url = "https://api.search.brave.com/res/v1/web/search"
 
-        headers = {
-            "Accept": "application/json",
-            "Accept-Encoding": "gzip",
-            "X-Subscription-Token": api_key
-        }
+        headers = {"Accept": "application/json", "Accept-Encoding": "gzip", "X-Subscription-Token": api_key}
 
         # kwargs last would let stray keys (e.g. country=...) override normalized locale — merge first.
         params = {
@@ -514,7 +510,9 @@ class Web:
 
         return normalized
 
-    def _search_serper(self, query, num=10, type="search", country_code=None, language_code=None, autocorrect=True, **kwargs):
+    def _search_serper(
+        self, query, num=10, type="search", country_code=None, language_code=None, autocorrect=True, **kwargs
+    ):
         """
         Search using Serper API (Google search) backend.
 
@@ -552,10 +550,7 @@ class Web:
         # Map type to correct endpoint
         url = f"https://google.serper.dev/{type}"
 
-        headers = {
-            "X-API-KEY": api_key,
-            "Content-Type": "application/json"
-        }
+        headers = {"X-API-KEY": api_key, "Content-Type": "application/json"}
 
         payload = {
             **kwargs,
@@ -791,7 +786,7 @@ class Web:
                 "query": query,
                 "max_results": max_results,
                 "include_answer": False,  # Just search results, no AI answer
-                **kwargs
+                **kwargs,
             }
 
             response = client.search(**search_params)
@@ -842,7 +837,7 @@ class Web:
                 "query": query,
                 "depth": depth,
                 "output_type": "searchResults",  # Just search results, no AI answer
-                **kwargs
+                **kwargs,
             }
 
             response = client.search(**search_params)
@@ -910,15 +905,20 @@ class Web:
                         reasons.append((b, clean_err or "request failed"))
                     else:
                         # For other exception types, include them as a failure reason.
-                        reasons.append(
-                            (b, f"request failed: {clean_err}" if clean_err else "request failed")
-                        )
+                        reasons.append((b, f"request failed: {clean_err}" if clean_err else "request failed"))
             else:
                 reasons.append((b, "unavailable"))
         kind_label = f"{kind} " if kind else ""
         return f"No {kind_label}backends are working. " + ". ".join(f"{b}: {msg}" for b, msg in reasons)
 
-    def search(self, query: str, backend: str | None = None, country_code: str | None = None, language_code: str | None = None, **kwargs) -> SearchResult:
+    def search(
+        self,
+        query: str,
+        backend: str | None = None,
+        country_code: str | None = None,
+        language_code: str | None = None,
+        **kwargs,
+    ) -> SearchResult:
         """
         Search the web for links and snippets.
 
@@ -1054,8 +1054,8 @@ class Web:
 
         # Prepare normalized parameters for all backends
         backend_kwargs = kwargs.copy()
-        backend_kwargs['country_code'] = country_code
-        backend_kwargs['language_code'] = language_code
+        backend_kwargs["country_code"] = country_code
+        backend_kwargs["language_code"] = language_code
 
         # Define backend methods once
         backend_methods = {
@@ -1063,7 +1063,7 @@ class Web:
             "tavily": self._search_tavily,
             "linkup": self._search_linkup,
             "serpapi": self._search_serpapi,
-            "serper": self._search_serper
+            "serper": self._search_serper,
         }
 
         if backend:
@@ -1096,8 +1096,20 @@ class Web:
             except (WebToolboxError, ApiKeyError) as e:
                 failed_results.append((backend_name, e))
 
-        search_backend_to_package = {"serper": "google-search-results (serper)", "serpapi": "google-search-results", "tavily": "tavily-python", "brave": "brave-search-sdk", "linkup": "linkup-sdk"}
-        search_backend_to_key = {"serper": "SERPER_API_KEY", "serpapi": "SERPAPI_API_KEY", "tavily": "TAVILY_API_KEY", "brave": "BRAVE_API_KEY", "linkup": "LINKUP_API_KEY"}
+        search_backend_to_package = {
+            "serper": "google-search-results (serper)",
+            "serpapi": "google-search-results",
+            "tavily": "tavily-python",
+            "brave": "brave-search-sdk",
+            "linkup": "linkup-sdk",
+        }
+        search_backend_to_key = {
+            "serper": "SERPER_API_KEY",
+            "serpapi": "SERPAPI_API_KEY",
+            "tavily": "TAVILY_API_KEY",
+            "brave": "BRAVE_API_KEY",
+            "linkup": "LINKUP_API_KEY",
+        }
         message = self._build_no_backends_error(
             backends_to_try, failed_results, search_backend_to_package, search_backend_to_key, kind="search"
         )
@@ -1132,7 +1144,7 @@ class Web:
             search_params = {
                 "query": question,
                 "include_answer": answer_mode,  # "basic" or "advanced"
-                **kwargs
+                **kwargs,
             }
 
             response = client.search(**search_params)
@@ -1149,10 +1161,7 @@ class Web:
                 f"Response: {str(response)[:500]}"
             )
 
-        normalized = {
-            "answer": response.get("answer", ""),
-            "sources": []
-        }
+        normalized = {"answer": response.get("answer", ""), "sources": []}
 
         # Extract sources from results
         results = response.get("results", [])
@@ -1166,13 +1175,12 @@ class Web:
         for result in results:
             if not isinstance(result, dict):
                 raise ValueError(
-                    f"Tavily result item is not a dict: {type(result).__name__}. "
-                    f"Result: {str(result)[:200]}"
+                    f"Tavily result item is not a dict: {type(result).__name__}. Result: {str(result)[:200]}"
                 )
             source = {
                 "title": result.get("title", ""),
                 "url": result.get("url", ""),
-                "snippet": result.get("content", "")[:200] if result.get("content") else ""
+                "snippet": result.get("content", "")[:200] if result.get("content") else "",
             }
             normalized["sources"].append(source)
 
@@ -1204,12 +1212,7 @@ class Web:
             client = LinkupClient(api_key=api_key)
 
             # Build search parameters
-            search_params = {
-                "query": question,
-                "depth": depth,
-                "output_type": "sourcedAnswer",
-                **kwargs
-            }
+            search_params = {"query": question, "depth": depth, "output_type": "sourcedAnswer", **kwargs}
 
             response = client.search(**search_params)
         except Exception as e:
@@ -1218,10 +1221,7 @@ class Web:
 
         # LinkUp returns a LinkupSourcedAnswer object, not a dict
         # Access attributes directly: response.answer, response.sources
-        normalized = {
-            "answer": getattr(response, "answer", ""),
-            "sources": []
-        }
+        normalized = {"answer": getattr(response, "answer", ""), "sources": []}
 
         # Extract sources - check if it's a list of objects or dicts
         sources = getattr(response, "sources", [])
@@ -1270,7 +1270,7 @@ class Web:
                 "depth": depth,
                 "output_type": "structured",
                 "structured_output_schema": structured_output_schema,
-                **kwargs
+                **kwargs,
             }
 
             response = client.search(**search_params)
@@ -1285,10 +1285,7 @@ class Web:
         if isinstance(structured_data, dict) and "structured_output" in structured_data:
             structured_data = structured_data["structured_output"]
 
-        normalized = {
-            "structured_output": structured_data,
-            "sources": []
-        }
+        normalized = {"structured_output": structured_data, "sources": []}
 
         # Check if sources are available
         sources = getattr(response, "sources", [])
@@ -1338,10 +1335,7 @@ class Web:
             return AnswerResult(result, web=self)
 
         backends_to_try = ["linkup", "tavily"]
-        backend_methods = {
-            "linkup": self._answer_linkup,
-            "tavily": self._answer_tavily
-        }
+        backend_methods = {"linkup": self._answer_linkup, "tavily": self._answer_tavily}
         failed_results = []
 
         for backend_name in backends_to_try:
@@ -1360,11 +1354,13 @@ class Web:
             failed_results,
             backend_to_package={"linkup": "linkup-sdk", "tavily": "tavily-python"},
             backend_to_key={"linkup": "LINKUP_API_KEY", "tavily": "TAVILY_API_KEY"},
-            kind="answer"
+            kind="answer",
         )
         raise WebToolboxError(message)
 
-    def structured_output(self, query: str, schema: Any, backend: str | None = "linkup", **kwargs) -> StructuredOutputResult:
+    def structured_output(
+        self, query: str, schema: Any, backend: str | None = "linkup", **kwargs
+    ) -> StructuredOutputResult:
         """
         Search and extract specific fields defined by schema (dict or Pydantic). PREFERRED for data extraction.
 
@@ -1406,6 +1402,7 @@ class Web:
                 # Try to import any version of Pydantic to check inheritance
                 try:
                     from pydantic import BaseModel as BM2
+
                     if issubclass(schema, BM2):
                         is_pydantic = True
                 except ImportError:
@@ -1414,12 +1411,13 @@ class Web:
                 if not is_pydantic:
                     try:
                         from pydantic.v1 import BaseModel as BM1
+
                         if issubclass(schema, BM1):
                             is_pydantic = True
                     except ImportError:
                         pass
-            elif hasattr(schema, "__pydantic_model__"): # some wrappers
-                 is_pydantic = True
+            elif hasattr(schema, "__pydantic_model__"):  # some wrappers
+                is_pydantic = True
         except Exception:
             # If any check fails, treat as non-pydantic
             pass
@@ -1432,9 +1430,7 @@ class Web:
         if backend:
             backend = backend.lower()
             if backend != "linkup":
-                 raise WebToolboxError(
-                    "Only LinkUp currently supports structured output via backend='linkup'."
-                )
+                raise WebToolboxError("Only LinkUp currently supports structured output via backend='linkup'.")
             backend_methods = {"linkup": self._structured_output_linkup}
             result = backend_methods[backend](query, schema, **kwargs)
             result["backend"] = backend
@@ -1452,7 +1448,9 @@ class Web:
             try:
                 result = backend_methods[backend_name](query, schema, **kwargs)
                 result["backend"] = backend_name
-                print("→ result.structured_output | page=result.fetch(i) → page.content | page.find(term) | page.links()")
+                print(
+                    "→ result.structured_output | page=result.fetch(i) → page.content | page.find(term) | page.links()"
+                )
                 return StructuredOutputResult(result, web=self)
             except (WebToolboxError, ApiKeyError) as e:
                 failed_results.append((backend_name, e))
@@ -1462,7 +1460,7 @@ class Web:
             failed_results,
             backend_to_package={"linkup": "linkup-sdk"},
             backend_to_key={"linkup": "LINKUP_API_KEY"},
-            kind="structured output"
+            kind="structured output",
         )
         raise WebToolboxError(message)
 
@@ -1485,17 +1483,10 @@ class Web:
         # Serper scrape endpoint
         scrape_url = "https://scrape.serper.dev"
 
-        headers = {
-            "X-API-KEY": api_key,
-            "Content-Type": "application/json"
-        }
+        headers = {"X-API-KEY": api_key, "Content-Type": "application/json"}
 
         # Ensure markdown output (default for Serper)
-        payload = {
-            "url": url,
-            "markdown": True,
-            **kwargs
-        }
+        payload = {"url": url, "markdown": True, **kwargs}
 
         try:
             response = requests.post(scrape_url, headers=headers, data=json.dumps(payload), timeout=60)
@@ -1513,7 +1504,7 @@ class Web:
             "url": url,
             "title": title,
             "content": data.get("markdown", "") or data.get("text", ""),  # Prefer markdown, fallback to text
-            "raw_response": data
+            "raw_response": data,
         }
 
         return normalized
@@ -1545,11 +1536,7 @@ class Web:
 
             # Build fetch parameters
             # LinkUp fetch() returns markdown by default, no output_format parameter needed
-            fetch_params = {
-                "url": url,
-                "render_js": render_js,
-                **kwargs
-            }
+            fetch_params = {"url": url, "render_js": render_js, **kwargs}
 
             response = client.fetch(**fetch_params)
         except Exception as e:
@@ -1572,7 +1559,7 @@ class Web:
             "url": url,
             "title": title,
             "content": content,  # Always markdown (normalized)
-            "raw_response": response
+            "raw_response": response,
         }
 
         return normalized
@@ -1634,10 +1621,7 @@ class Web:
                 f"Response: {str(response)[:500]}"
             )
 
-        normalized = {
-            "results": [],
-            "raw_response": response
-        }
+        normalized = {"results": [], "raw_response": response}
 
         results = response.get("results", [])
         if not isinstance(results, list):
@@ -1660,21 +1644,25 @@ class Web:
         for result in results:
             if not isinstance(result, dict):
                 raise ValueError(
-                    f"Tavily result item is not a dict: {type(result).__name__}. "
-                    f"Result: {str(result)[:200]}"
+                    f"Tavily result item is not a dict: {type(result).__name__}. Result: {str(result)[:200]}"
                 )
-            normalized["results"].append({
-                "url": result.get("url", ""),
-                "title": result.get("title", ""),
-                "content": result.get("raw_content", "") or result.get("content", "")  # Tavily returns "raw_content"
-            })
+            normalized["results"].append(
+                {
+                    "url": result.get("url", ""),
+                    "title": result.get("title", ""),
+                    "content": result.get("raw_content", "")
+                    or result.get("content", ""),  # Tavily returns "raw_content"
+                }
+            )
 
         # If some URLs failed but we have some results, include failed_results in raw_response
         # (already included, but we could add a warning if needed)
 
         return normalized
 
-    def fetch(self, url: str, backend: str | None = None, render_js: bool = False, extract_depth: str | None = None, **kwargs) -> FetchResult:
+    def fetch(
+        self, url: str, backend: str | None = None, render_js: bool = False, extract_depth: str | None = None, **kwargs
+    ) -> FetchResult:
         """
         Fetch web page content from a URL as markdown.
 
@@ -1729,11 +1717,7 @@ class Web:
             )
         """
         # Define backend methods
-        backend_methods = {
-            "serper": self._fetch_serper,
-            "linkup": self._fetch_linkup,
-            "tavily": self._fetch_tavily
-        }
+        backend_methods = {"serper": self._fetch_serper, "linkup": self._fetch_linkup, "tavily": self._fetch_tavily}
 
         # Validate backend name before touching the cache, so an invalid backend name
         # always errors immediately rather than silently returning a stale cached result.
@@ -1758,7 +1742,9 @@ class Web:
             backend = backend.lower()
 
             if is_multi_url:
-                result = backend_methods[backend](kwargs["urls"], extract_depth=extract_depth, **{k: v for k, v in kwargs.items() if k != "urls"})
+                result = backend_methods[backend](
+                    kwargs["urls"], extract_depth=extract_depth, **{k: v for k, v in kwargs.items() if k != "urls"}
+                )
             elif backend == "tavily":
                 result = backend_methods[backend]([url], extract_depth=extract_depth, **kwargs)
                 result = _normalize_tavily_single_page(result)
@@ -1785,7 +1771,9 @@ class Web:
                 continue
             try:
                 if is_multi_url:
-                    result = backend_methods[backend_name](kwargs["urls"], extract_depth=extract_depth, **{k: v for k, v in kwargs.items() if k != "urls"})
+                    result = backend_methods[backend_name](
+                        kwargs["urls"], extract_depth=extract_depth, **{k: v for k, v in kwargs.items() if k != "urls"}
+                    )
                 elif backend_name == "tavily":
                     result = backend_methods[backend_name]([url], extract_depth=extract_depth, **kwargs)
                     result = _normalize_tavily_single_page(result)

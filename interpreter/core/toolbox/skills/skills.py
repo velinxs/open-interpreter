@@ -38,6 +38,7 @@ class Skills:
     To create a new skill:
         toolbox.skills.new_skill.create()
     """
+
     def __init__(self, toolbox):
         self.toolbox = toolbox
         self.path = str(Path(oi_dir) / "skills")
@@ -51,28 +52,24 @@ class Skills:
             list[str]: Names of available skills with () to indicate they're callable
         """
         if not self.toolbox.import_skills:
-            print("Skills are disabled. To enable skills, either use a profile like 'the01' that supports skills, "
-                  "or create an instance of OpenInterpreter with import_skills=True")
+            print(
+                "Skills are disabled. To enable skills, either use a profile like 'the01' that supports skills, "
+                "or create an instance of OpenInterpreter with import_skills=True"
+            )
             return []
 
         if not self.toolbox._has_imported_skills:
             print("Skills have not been imported yet.")
             return []
 
-        return [
-            file.replace(".py", "()")
-            for file in os.listdir(self.path)
-            if file.endswith(".py")
-        ]
+        return [file.replace(".py", "()") for file in os.listdir(self.path) if file.endswith(".py")]
 
     def run(self, skill):
         """
         DEPRECATED: Do not use this method.
         Skills are already imported - call them directly as functions instead.
         """
-        print(
-            "To run a skill, run its name as a function name (it is already imported)."
-        )
+        print("To run a skill, run its name as a function name (it is already imported).")
 
     def search(self, query):
         """
@@ -83,19 +80,17 @@ class Skills:
             list[str]: Names of available skills with () to indicate they're callable
         """
         if not self.toolbox.import_skills:
-            print("Skills are disabled. To enable skills, either use a profile like 'the01' that supports skills, "
-                  "or create an instance of OpenInterpreter with import_skills=True")
+            print(
+                "Skills are disabled. To enable skills, either use a profile like 'the01' that supports skills, "
+                "or create an instance of OpenInterpreter with import_skills=True"
+            )
             return []
 
         if not self.toolbox._has_imported_skills:
             print("Skills have not been imported yet.")
             return []
 
-        return [
-            file.replace(".py", "()")
-            for file in os.listdir(self.path)
-            if file.endswith(".py")
-        ]
+        return [file.replace(".py", "()") for file in os.listdir(self.path) if file.endswith(".py")]
 
     def import_skills(self):
         """
@@ -120,9 +115,7 @@ class Skills:
                 total_size += os.path.getsize(fp)
         total_size = total_size / (1024 * 1024)  # convert bytes to megabytes
         if total_size > 100:
-            raise Warning(
-                f"Skills at path {self.path} can't exceed 100mb. Try deleting some."
-            )
+            raise Warning(f"Skills at path {self.path} can't exceed 100mb. Try deleting some.")
 
         code_to_run = ""
         for file in glob.glob(os.path.join(self.path, "*.py")):
@@ -147,9 +140,7 @@ class Skills:
                 output = self.toolbox.interpreter.terminal.run("python", code_to_run)
 
                 if "traceback" in str(output).lower():
-                    print(
-                        f"Skill at {file} might be broken— it produces a traceback when run."
-                    )
+                    print(f"Skill at {file} might be broken— it produces a traceback when run.")
 
         self.toolbox.save_skills = previous_save_skills_setting
 
@@ -258,8 +249,6 @@ def {normalized_name}(step=0):
         # Verify that the file was written
         if os.path.exists(skill_file_path):
             print("SKILL SAVED:", self.name.upper())
-            print(
-                "Teaching session finished. Tell the user that the skill above has been saved. Great work!"
-            )
+            print("Teaching session finished. Tell the user that the skill above has been saved. Great work!")
         else:
             print(f"Error: Failed to write skill file to {skill_file_path}")

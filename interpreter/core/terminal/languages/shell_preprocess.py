@@ -8,8 +8,7 @@ def preprocess_shell(code):
     """
     if (
         not has_multiline_commands(code)
-        and os.environ.get("INTERPRETER_ACTIVE_LINE_DETECTION", "True").lower()
-        == "true"
+        and os.environ.get("INTERPRETER_ACTIVE_LINE_DETECTION", "True").lower() == "true"
     ):
         code = add_active_line_prints(code)
 

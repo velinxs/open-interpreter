@@ -30,10 +30,7 @@ class TestOpenAICompatHelpers(TestCase):
         self.assertIsNone(_normalize_openai_code_approval_reply("ls"))
 
     def test_title_request_detection(self):
-        prompt = (
-            "Based on the chat history, give this conversation a name.\n"
-            "Keep it short - 10 words max."
-        )
+        prompt = "Based on the chat history, give this conversation a name.\nKeep it short - 10 words max."
         self.assertTrue(_is_openai_auxiliary_title_request(prompt))
         self.assertFalse(_is_openai_auxiliary_title_request("hi"))
 

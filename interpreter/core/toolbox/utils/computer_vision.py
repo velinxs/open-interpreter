@@ -187,15 +187,9 @@ def find_text_in_image(img, text, debug=False):
             for center2 in word_centers:
                 if (
                     center1 != center2
-                    and (
-                        (center1[0] - center2[0]) ** 2 + (center1[1] - center2[1]) ** 2
-                    )
-                    ** 0.5
-                    <= 400
+                    and ((center1[0] - center2[0]) ** 2 + (center1[1] - center2[1]) ** 2) ** 0.5 <= 400
                 ):
-                    centers.append(
-                        ((center1[0] + center2[0]) / 2, (center1[1] + center2[1]) / 2)
-                    )
+                    centers.append(((center1[0] + center2[0]) / 2, (center1[1] + center2[1]) / 2))
                     break
             if centers:
                 break

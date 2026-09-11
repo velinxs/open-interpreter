@@ -15,9 +15,7 @@ interpreter.llm.context_window = 7000
 model_name = interpreter.llm.model.replace("ollama/", "")
 try:
     # List out all downloaded ollama models. Will fail if ollama isn't installed
-    result = subprocess.run(
-        ["ollama", "list"], capture_output=True, text=True, check=True
-    )
+    result = subprocess.run(["ollama", "list"], capture_output=True, text=True, check=True)
 except Exception as e:
     print(str(e))
     interpreter.display_message(
@@ -85,7 +83,9 @@ interpreter.messages = [
 
 # interpreter.user_message_template = "{content} Please send me some code that would be able to answer my question, in the form of ```python\n... the code ...\n``` or ```shell\n... the code ...\n```"
 interpreter.code_output_template = '''I executed that code. This was the output: """\n{content}\n"""\n\nWhat does this output mean (I can't understand it, please help) / what code needs to be run next (if anything, or are we done)? I can't replace any placeholders, send me code that just works.'''
-interpreter.empty_code_output_template = "The code above was executed on my machine. It produced no text output. what's next (if anything, or are we done?)"
+interpreter.empty_code_output_template = (
+    "The code above was executed on my machine. It produced no text output. what's next (if anything, or are we done?)"
+)
 interpreter.code_output_sender = "user"
 interpreter.max_output = 600
 interpreter.llm.context_window = 8000
@@ -100,7 +100,9 @@ interpreter.offline = True
 
 # interpreter.user_message_template = "{content} Please send me some code that would be able to answer my question, in the form of ```python\n... the code ...\n``` or ```shell\n... the code ...\n```"
 interpreter.code_output_template = '''I executed that code. This was the output: """{content}"""\n\nWhat does this output mean (I can't understand it, please help) / what's next (if anything, or are we done)?'''
-interpreter.empty_code_output_template = "The code above was executed on my machine. It produced no text output. what's next (if anything, or are we done?)"
+interpreter.empty_code_output_template = (
+    "The code above was executed on my machine. It produced no text output. what's next (if anything, or are we done?)"
+)
 interpreter.code_output_sender = "user"
 interpreter.max_output = 600
 interpreter.llm.context_window = 8000
@@ -219,7 +221,9 @@ interpreter.toolbox.system_message = ""
 
 # interpreter.user_message_template = "{content} Please send me some code that would be able to answer my question, in the form of ```python\n... the code ...\n``` or ```shell\n... the code ...\n```"
 interpreter.code_output_template = '''I executed that code. This was the output: """{content}"""\n\nWhat does this output mean (I can't understand it, please help) / what code needs to be run next (if anything, or are we done)? I can't replace any placeholders— please send me code to determine usernames, paths, etc given the request. I'm lazy!'''
-interpreter.empty_code_output_template = "The code above was executed on my machine. It produced no text output. what's next (if anything, or are we done?)"
+interpreter.empty_code_output_template = (
+    "The code above was executed on my machine. It produced no text output. what's next (if anything, or are we done?)"
+)
 interpreter.code_output_sender = "user"
 interpreter.max_output = 600
 interpreter.llm.context_window = 8000

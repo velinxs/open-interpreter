@@ -21,9 +21,7 @@ async def run(
     truncate_after: int | None = MAX_RESPONSE_LEN,
 ):
     """Run a shell command asynchronously with a timeout."""
-    process = await asyncio.create_subprocess_shell(
-        cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-    )
+    process = await asyncio.create_subprocess_shell(cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
 
     try:
         stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
@@ -37,6 +35,4 @@ async def run(
             process.kill()
         except ProcessLookupError:
             pass
-        raise TimeoutError(
-            f"Command '{cmd}' timed out after {timeout} seconds"
-        ) from exc
+        raise TimeoutError(f"Command '{cmd}' timed out after {timeout} seconds") from exc

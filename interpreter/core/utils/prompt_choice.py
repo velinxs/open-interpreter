@@ -17,8 +17,7 @@ class NoInteractiveInput(Exception):
         self.prompt = prompt
         self.choices = choices
         super().__init__(
-            "No interactive terminal is available to answer: "
-            f"{' '.join(prompt.split())} ({'/'.join(choices)})"
+            f"No interactive terminal is available to answer: {' '.join(prompt.split())} ({'/'.join(choices)})"
         )
 
 
@@ -47,7 +46,13 @@ def prompt_choice(prompt, choices):
     elif len(choices) == 2:
         hint = "Please press [bold]" + choices[0] + "[/bold] or [bold]" + choices[1] + "[/bold]."
     else:
-        hint = "Please press " + ", ".join(f"[bold]{c}[/bold]" for c in choices[:-1]) + ", or [bold]" + choices[-1] + "[/bold]."
+        hint = (
+            "Please press "
+            + ", ".join(f"[bold]{c}[/bold]" for c in choices[:-1])
+            + ", or [bold]"
+            + choices[-1]
+            + "[/bold]."
+        )
     reprompt = "  "
     current_prompt = prompt
     # Non-interactive (server/container/headless): there is no one to ask.

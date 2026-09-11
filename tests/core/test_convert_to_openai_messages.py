@@ -21,9 +21,7 @@ def test_computer_role_description_image_becomes_user():
             "recipient": "assistant",
         }
     ]
-    out = convert_to_openai_messages(
-        messages, function_calling=True, vision=False, interpreter=None
-    )
+    out = convert_to_openai_messages(messages, function_calling=True, vision=False, interpreter=None)
     assert len(out) == 1
     assert out[0]["role"] == "user"
     assert "screenshot" in out[0]["content"]
@@ -39,11 +37,7 @@ def test_html_skips_png_when_not_vision():
     chunks = list(html_lang.run("<b>edited</b>"))
     image_chunks = [c for c in chunks if c.get("type") == "image"]
     assert image_chunks == []
-    assistant_chunks = [
-        c
-        for c in chunks
-        if c.get("recipient") == "assistant" and c.get("type") == "console"
-    ]
+    assistant_chunks = [c for c in chunks if c.get("recipient") == "assistant" and c.get("type") == "console"]
     assert any("```html" in c.get("content", "") for c in assistant_chunks)
 
 
@@ -72,7 +66,7 @@ def test_react_compatible_code_yields_html_for_user():
     user_html = [c for c in chunks if c.get("recipient") == "user" and c.get("format") == "html"]
     assert len(user_html) == 1
     assert "Hello, edit!" in user_html[0]["content"]
-    assert "type=\"text/babel\"" in user_html[0]["content"]
+    assert 'type="text/babel"' in user_html[0]["content"]
 
 
 def test_reasoning_content_propagates_to_all_tool_calls_in_multi_code_turn():
@@ -93,9 +87,7 @@ def test_reasoning_content_propagates_to_all_tool_calls_in_multi_code_turn():
         {"role": "assistant", "type": "code", "format": "python", "content": "print('B')"},
         {"role": "computer", "type": "console", "format": "output", "content": "B"},
     ]
-    out = convert_to_openai_messages(
-        messages, function_calling=True, vision=False, interpreter=_FakeInterpreter()
-    )
+    out = convert_to_openai_messages(messages, function_calling=True, vision=False, interpreter=_FakeInterpreter())
     function_calls = [m for m in out if "function_call" in m]
     assert len(function_calls) == 2
     assert all(m["reasoning_content"] == "Plan. \n\n" for m in function_calls)
@@ -118,9 +110,7 @@ def test_tool_loop_reasoning_replaced_per_llm_call():
         {"role": "assistant", "type": "code", "format": "python", "content": "print('B')"},
         {"role": "computer", "type": "console", "format": "output", "content": "B"},
     ]
-    out = convert_to_openai_messages(
-        messages, function_calling=True, vision=False, interpreter=_FakeInterpreter()
-    )
+    out = convert_to_openai_messages(messages, function_calling=True, vision=False, interpreter=_FakeInterpreter())
     function_calls = [m for m in out if "function_call" in m]
     assert len(function_calls) == 2
     assert function_calls[0]["reasoning_content"] == "R1. \n\n"
@@ -142,9 +132,7 @@ def test_post_stream_reasoning_backfills_earlier_assistant_messages():
         {"role": "assistant", "type": "message", "format": "reasoning", "content": "Computed 2+2. \n\n"},
         {"role": "computer", "type": "console", "format": "output", "content": "4"},
     ]
-    out = convert_to_openai_messages(
-        messages, function_calling=True, vision=False, interpreter=_FakeInterpreter()
-    )
+    out = convert_to_openai_messages(messages, function_calling=True, vision=False, interpreter=_FakeInterpreter())
     function_calls = [m for m in out if "function_call" in m]
     assert len(function_calls) == 1
     assert function_calls[0]["reasoning_content"] == "Computed 2+2. \n\n"
@@ -166,9 +154,7 @@ def test_whitespace_only_assistant_separator_is_dropped():
         {"role": "assistant", "type": "message", "content": "\n\n"},
         {"role": "user", "type": "message", "content": "Proceed."},
     ]
-    out = convert_to_openai_messages(
-        messages, function_calling=True, vision=False, interpreter=_FakeInterpreter()
-    )
+    out = convert_to_openai_messages(messages, function_calling=True, vision=False, interpreter=_FakeInterpreter())
     for m in out:
         if m["role"] == "assistant":
             assert m.get("tool_calls") or str(m.get("content", "")).strip(), (
@@ -190,9 +176,7 @@ def test_whitespace_separator_does_not_break_reasoning_propagation():
         {"role": "assistant", "type": "message", "content": "\n\n"},
         {"role": "assistant", "type": "code", "format": "python", "content": "print('A')"},
     ]
-    out = convert_to_openai_messages(
-        messages, function_calling=True, vision=False, interpreter=_FakeInterpreter()
-    )
+    out = convert_to_openai_messages(messages, function_calling=True, vision=False, interpreter=_FakeInterpreter())
     function_calls = [m for m in out if "function_call" in m]
     assert len(function_calls) == 1
     assert function_calls[0]["reasoning_content"] == "Plan. \n\n"
@@ -213,9 +197,7 @@ def test_user_message_boundary_resets_pending_reasoning():
         {"role": "user", "type": "message", "content": "compute"},
         {"role": "assistant", "type": "code", "format": "python", "content": "print(1)"},
     ]
-    out = convert_to_openai_messages(
-        messages, function_calling=True, vision=False, interpreter=_FakeInterpreter()
-    )
+    out = convert_to_openai_messages(messages, function_calling=True, vision=False, interpreter=_FakeInterpreter())
     function_calls = [m for m in out if "function_call" in m]
     assert len(function_calls) == 1
     assert "reasoning_content" not in function_calls[0]

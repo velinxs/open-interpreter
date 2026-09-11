@@ -100,8 +100,7 @@ class Ai2:
     ... )
     """
 
-    def __init__(self, toolbox=None, default_model: str = None,
-                 temperature: float = 0.0, computer=None):
+    def __init__(self, toolbox=None, default_model: str = None, temperature: float = 0.0, computer=None):
         # Backward compatibility: allow computer parameter
         if toolbox is None and computer is not None:
             toolbox = computer
@@ -110,8 +109,7 @@ class Ai2:
         # on it.
         self.toolbox = toolbox
         # Prefer newest model capable of structured outputs
-        self._default_model = default_model or os.getenv("AI2_MODEL",
-                                                         "gpt-4.1-nano")
+        self._default_model = default_model or os.getenv("AI2_MODEL", "gpt-4.1-nano")
         self.temperature = temperature
 
         # Re-use the same API key the main interpreter is using (or env var)
@@ -133,7 +131,7 @@ class Ai2:
             "google": os.getenv("GOOGLE_API_KEY"),
             "cohere": os.getenv("COHERE_API_KEY"),
             "huggingface": os.getenv("HUGGINGFACE_API_KEY"),
-            "litellm": os.getenv("LITELLM_API_KEY")
+            "litellm": os.getenv("LITELLM_API_KEY"),
         }
 
         # Don't set litellm.api_key globally - pass it per request instead
@@ -145,7 +143,11 @@ class Ai2:
             # Get available models from LiteLLM
             models_response = litellm.model_list()
             # Extract model IDs from the response
-            self._available_models: list[str] = [model.get("id", model.get("model_name", "")) for model in models_response if model.get("id") or model.get("model_name")]
+            self._available_models: list[str] = [
+                model.get("id", model.get("model_name", ""))
+                for model in models_response
+                if model.get("id") or model.get("model_name")
+            ]
         except Exception:
             # Swallow errors (network issues, permissions) – callers can still
             # pass any valid model ID even if pre-fetch failed.
@@ -289,9 +291,7 @@ class Ai2:
             {"role": "user", "content": content},
         ]
         model = kwargs.get("model", self.default_model)
-        temperature = self._get_temperature_for_model(
-            model, kwargs.get("temperature", self.temperature)
-        )
+        temperature = self._get_temperature_for_model(model, kwargs.get("temperature", self.temperature))
 
         # Use LiteLLM for basic text generation (supports any compatible model)
         try:
@@ -323,7 +323,9 @@ class Ai2:
                     )
                     return response.choices[0].message.content.strip()
                 except Exception as openai_error:
-                    raise RuntimeError(f"Both LiteLLM and OpenAI failed. LiteLLM error: {e}, OpenAI error: {openai_error}") from e
+                    raise RuntimeError(
+                        f"Both LiteLLM and OpenAI failed. LiteLLM error: {e}, OpenAI error: {openai_error}"
+                    ) from e
             else:
                 raise RuntimeError(f"LiteLLM error with model '{model}': {e}") from e
 
@@ -359,16 +361,16 @@ class Ai2:
 
         # Check if OpenAI client is available for structured outputs
         if not self.client:
-            raise RuntimeError("OpenAI API key required for boolean_query. Please set OPENAI_API_KEY environment variable.")
+            raise RuntimeError(
+                "OpenAI API key required for boolean_query. Please set OPENAI_API_KEY environment variable."
+            )
 
         class _BoolResp(BaseModel):
             thoughts: str = Field(..., description="Reasoning")
             value: bool = Field(..., description="Query result")
 
         model = kwargs.get("model", self.default_model)
-        temperature = self._get_temperature_for_model(
-            model, kwargs.get("temperature", self.temperature)
-        )
+        temperature = self._get_temperature_for_model(model, kwargs.get("temperature", self.temperature))
 
         try:
             response = self.client.responses.parse(
@@ -426,7 +428,9 @@ class Ai2:
 
         # Check if OpenAI client is available for structured outputs
         if not self.client:
-            raise RuntimeError("OpenAI API key required for choice_query. Please set OPENAI_API_KEY environment variable.")
+            raise RuntimeError(
+                "OpenAI API key required for choice_query. Please set OPENAI_API_KEY environment variable."
+            )
 
         # Dynamically create an Enum for pydantic
         _ChoiceEnum = Enum("AnswerEnum", {c: c for c in choices})
@@ -439,9 +443,7 @@ class Ai2:
         )
 
         model = kwargs.get("model", self.default_model)
-        temperature = self._get_temperature_for_model(
-            model, kwargs.get("temperature", self.temperature)
-        )
+        temperature = self._get_temperature_for_model(model, kwargs.get("temperature", self.temperature))
 
         try:
             response = self.client.responses.parse(

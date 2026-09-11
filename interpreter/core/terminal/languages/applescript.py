@@ -36,9 +36,7 @@ class AppleScript(SubprocessLanguage):
         """
         Adds log commands to indicate the active line of execution in the AppleScript.
         """
-        active_line_enabled = (
-            os.environ.get("INTERPRETER_ACTIVE_LINE_DETECTION", "True").lower() == "true"
-        )
+        active_line_enabled = os.environ.get("INTERPRETER_ACTIVE_LINE_DETECTION", "True").lower() == "true"
 
         modified_lines = []
         lines = code.split("\n")

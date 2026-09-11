@@ -53,7 +53,7 @@ Rules:
 
 User's System: {platform.system()}
 CWD: {os.getcwd()}
-{"Shell: " + os.environ.get('SHELL') if os.environ.get('SHELL') else ''}
+{"Shell: " + os.environ.get("SHELL") if os.environ.get("SHELL") else ""}
 
 """
 
@@ -77,7 +77,7 @@ Rules:
 
 User's System: {platform.system()}
 CWD: {os.getcwd()}
-{"Shell: " + os.environ.get('SHELL') if os.environ.get('SHELL') else ''}
+{"Shell: " + os.environ.get("SHELL") if os.environ.get("SHELL") else ""}
 
 """
 
@@ -106,7 +106,7 @@ chmod 644 config.yml
 
 User's System: {platform.system()}
 CWD: {os.getcwd()}
-{"Shell: " + os.environ.get('SHELL') if os.environ.get('SHELL') else ''}
+{"Shell: " + os.environ.get("SHELL") if os.environ.get("SHELL") else ""}
 
 Now, it's your turn:
 """
@@ -175,9 +175,7 @@ def main():
                     kCGWindowListOptionOnScreenOnly,
                 )
 
-                window_info = CGWindowListCopyWindowInfo(
-                    kCGWindowListOptionOnScreenOnly, kCGNullWindowID
-                )
+                window_info = CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly, kCGNullWindowID)
                 for window in window_info:
                     if window["kCGWindowLayer"] == 0:
                         window_geometry = window["kCGWindowBounds"]
@@ -187,16 +185,12 @@ def main():
                         bottom = int(top + window_geometry["Height"])
                         break
             else:  # Assume it's a Linux-based system
-                root = subprocess.Popen(
-                    ["xprop", "-root", "_NET_ACTIVE_WINDOW"], stdout=subprocess.PIPE
-                )
+                root = subprocess.Popen(["xprop", "-root", "_NET_ACTIVE_WINDOW"], stdout=subprocess.PIPE)
                 stdout, stderr = root.communicate()
                 m = re.search(b"^_NET_ACTIVE_WINDOW.* ([\\w]+)$", stdout)
                 if m is not None:
                     window_id = m.group(1)
-                    window = subprocess.Popen(
-                        ["xwininfo", "-id", window_id], stdout=subprocess.PIPE
-                    )
+                    window = subprocess.Popen(["xwininfo", "-id", window_id], stdout=subprocess.PIPE)
                     stdout, stderr = window.communicate()
                     match = re.search(
                         rb"Absolute upper-left X:\s*(\d+).*Absolute upper-left Y:\s*(\d+).*Width:\s*(\d+).*Height:\s*(\d+)",
@@ -218,9 +212,7 @@ def main():
             # spinner.start()
 
             # Take screenshot of the active window
-            screenshot = ImageGrab.grab(
-                bbox=(int(left), int(top), int(right), int(bottom))
-            )
+            screenshot = ImageGrab.grab(bbox=(int(left), int(top), int(right), int(bottom)))
 
             # OCR the screenshot to get the text
             text = pytesseract.image_to_string(screenshot)
@@ -244,9 +236,7 @@ def main():
             shell = os.environ.get("SHELL", "/bin/bash")
             command = [shell, "-ic", "fc -ln -10"]  # Get just the last command
 
-            output = subprocess.check_output(command, stderr=subprocess.STDOUT).decode(
-                "utf-8"
-            )
+            output = subprocess.check_output(command, stderr=subprocess.STDOUT).decode("utf-8")
 
             # Split the output into lines
             lines = output.strip().split("\n")
@@ -255,9 +245,7 @@ def main():
             history = [
                 line
                 for line in lines
-                if not line.startswith("...")
-                and "saving" not in line
-                and "Saving session..." not in line
+                if not line.startswith("...") and "saving" not in line and "Saving session..." not in line
             ]
             history = [l.strip() for l in history if l.strip()][-10:]
 
@@ -266,9 +254,7 @@ def main():
             # Get the last command
             last_command = history[-1]
             spinner.start()
-            print(
-                f"\nRunning the last command again to collect its output: {last_command}\n"
-            )
+            print(f"\nRunning the last command again to collect its output: {last_command}\n")
             spinner.stop()
             # Run the last command and collect its output
             try:
@@ -281,16 +267,12 @@ def main():
                 last_command_output = str(e)
 
             # Format the history
-            history = "The user tried to run the following commands:\n" + "\n".join(
-                history
-            )
+            history = "The user tried to run the following commands:\n" + "\n".join(history)
             history += f"\nThe last command, {last_command}, resulted in this output:\n{last_command_output}"
 
         except Exception as e:
             raise
-            print(
-                "Failed to retrieve and run the last command from terminal history. Exiting."
-            )
+            print("Failed to retrieve and run the last command from terminal history. Exiting.")
             return
 
     # Trim history
@@ -340,7 +322,7 @@ def main():
                 start_line = max(0, line_number - 3)  # Preceding lines
                 end_line = min(len(all_lines), line_number + 2)  # Following lines
                 for i in range(start_line, end_line + 1):
-                    lines.append(f"Line {i+1}: " + all_lines[i].rstrip())
+                    lines.append(f"Line {i + 1}: " + all_lines[i].rstrip())
         except Exception as e:
             lines.append(f"Error reading file: {e}")
         return lines
@@ -363,9 +345,7 @@ def main():
     ### PREPARE FOR LLM
 
     # Get LLM model from profile
-    default_profile_path = os.path.join(
-        platformdirs.user_config_dir("open-interpreter"), "profiles", "default.yaml"
-    )
+    default_profile_path = os.path.join(platformdirs.user_config_dir("open-interpreter"), "profiles", "default.yaml")
 
     try:
         with open(default_profile_path) as file:
@@ -424,9 +404,7 @@ def main():
     language_buffer = ""
     started = False
 
-    for chunk in litellm.completion(
-        model=model, messages=messages, temperature=0, stream=True
-    ):
+    for chunk in litellm.completion(model=model, messages=messages, temperature=0, stream=True):
         if not started:
             started = True
             spinner.stop()

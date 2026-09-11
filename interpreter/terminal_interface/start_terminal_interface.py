@@ -364,9 +364,8 @@ def start_terminal_interface(interpreter):
         interpreter.custom_instructions = "UPDATED INSTRUCTIONS: You are in ULTRA FAST, ULTRA CERTAIN mode. Do not ask the user any questions or run code to gathet information. Go as quickly as you can. Run code quickly. Do not plan out loud, simply start doing the best thing. The user expects speed. Trust that the user knows best. Just interpret their ambiguous command as quickly and certainly as possible and try to fulfill it IN ONE COMMAND, assuming they have the right information. If they tell you do to something, just do it quickly in one command, DO NOT try to get more information (for example by running `cat` to get a file's infomration— this is probably unecessary!). DIRECTLY DO THINGS AS FAST AS POSSIBLE."
 
         files_in_directory = os.listdir()[:100]
-        interpreter.custom_instructions += (
-            "\nThe files in CWD, which THE USER MAY BE REFERRING TO, are: "
-            + ", ".join(files_in_directory)
+        interpreter.custom_instructions += "\nThe files in CWD, which THE USER MAY BE REFERRING TO, are: " + ", ".join(
+            files_in_directory
         )
 
         # interpreter.debug = True
@@ -393,9 +392,7 @@ Use """ to write multi-line messages.
             '''
             print(special_help_message)
 
-    parser = CustomHelpParser(
-        description="Open Interpreter", usage="%(prog)s [options]"
-    )
+    parser = CustomHelpParser(description="Open Interpreter", usage="%(prog)s [options]")
 
     # Add arguments
     for arg in arguments:
@@ -403,14 +400,12 @@ Use """ to write multi-line messages.
         action = arg.get("action", "store_true")
         nickname = arg.get("nickname")
 
-        name_or_flags = [f'--{arg["name"]}']
+        name_or_flags = [f"--{arg['name']}"]
         if nickname:
             name_or_flags.append(f"-{nickname}")
 
         # Construct argument name flags
-        flags = (
-            [f"-{nickname}", f'--{arg["name"]}'] if nickname else [f'--{arg["name"]}']
-        )
+        flags = [f"-{nickname}", f"--{arg['name']}"] if nickname else [f"--{arg['name']}"]
 
         if arg["type"] == bool:
             parser.add_argument(
@@ -452,9 +447,7 @@ Use """ to write multi-line messages.
         return
 
     if args.reset_profile is not None and args.reset_profile != "NOT_PROVIDED":
-        reset_profile(
-            args.reset_profile
-        )  # This will be None if they just ran `--reset_profile`
+        reset_profile(args.reset_profile)  # This will be None if they just ran `--reset_profile`
         return
 
     if args.version:
@@ -549,25 +542,17 @@ Use """ to write multi-line messages.
         if interpreter.llm.max_tokens is None:
             interpreter.llm.max_tokens = 4096
         if interpreter.llm.supports_functions is None:
-            interpreter.llm.supports_functions = (
-                False if "vision" in interpreter.llm.model else True
-            )
+            interpreter.llm.supports_functions = False if "vision" in interpreter.llm.model else True
 
-    elif interpreter.llm.model.startswith("gpt-4") or interpreter.llm.model.startswith(
-        "openai/gpt-4"
-    ):
+    elif interpreter.llm.model.startswith("gpt-4") or interpreter.llm.model.startswith("openai/gpt-4"):
         if interpreter.llm.context_window is None:
             interpreter.llm.context_window = 123000
         if interpreter.llm.max_tokens is None:
             interpreter.llm.max_tokens = 4096
         if interpreter.llm.supports_functions is None:
-            interpreter.llm.supports_functions = (
-                False if "vision" in interpreter.llm.model else True
-            )
+            interpreter.llm.supports_functions = False if "vision" in interpreter.llm.model else True
 
-    if interpreter.llm.model.startswith(
-        "gpt-3.5-turbo"
-    ) or interpreter.llm.model.startswith("openai/gpt-3.5-turbo"):
+    if interpreter.llm.model.startswith("gpt-3.5-turbo") or interpreter.llm.model.startswith("openai/gpt-3.5-turbo"):
         if interpreter.llm.context_window is None:
             interpreter.llm.context_window = 16000
         if interpreter.llm.max_tokens is None:
@@ -657,14 +642,7 @@ def set_attributes(args, arguments):
 
 
 def get_argument_dictionary(arguments: list[dict], key: str) -> dict:
-    if (
-        len(
-            argument_dictionary_list := list(
-                filter(lambda x: x["name"] == key, arguments)
-            )
-        )
-        > 0
-    ):
+    if len(argument_dictionary_list := list(filter(lambda x: x["name"] == key, arguments))) > 0:
         return argument_dictionary_list[0]
     return {}
 
@@ -674,8 +652,10 @@ def main():
     # (argparse calls sys.exit), so skip the heavy interpreter import entirely.
     _FAST_EXIT_FLAGS = {"--help", "-h", "--version"}
     if _FAST_EXIT_FLAGS.intersection(sys.argv):
+
         class _Stub:
             pass
+
         _stub = _Stub()
         _stub.llm = _Stub()
         start_terminal_interface(_stub)
@@ -692,6 +672,7 @@ def main():
         try:
             from interpreter.core.utils.prompt_choice import NoInteractiveInput, prompt_choice
             from interpreter.terminal_interface.contributing_conversations import contribute_conversations
+
             interpreter.terminal.terminate()
 
             if not interpreter.offline and not interpreter.disable_telemetry:
@@ -714,25 +695,15 @@ def main():
 
                             if contribute == "y":
                                 interpreter.contribute_conversation = True
-                                interpreter.display_message(
-                                    "\n*Thank you for contributing!*\n"
-                                )
+                                interpreter.display_message("\n*Thank you for contributing!*\n")
                     except NoInteractiveInput:
                         # Optional end-of-session survey. Nobody is there to
                         # answer it, so leave feedback unset and carry on.
                         feedback = None
 
-                if (
-                    interpreter.contribute_conversation or interpreter.llm.model == "i"
-                ) and interpreter.messages != []:
-                    conversation_id = (
-                        interpreter.conversation_id
-                        if hasattr(interpreter, "conversation_id")
-                        else None
-                    )
-                    contribute_conversations(
-                        [interpreter.messages], feedback, conversation_id
-                    )
+                if (interpreter.contribute_conversation or interpreter.llm.model == "i") and interpreter.messages != []:
+                    conversation_id = interpreter.conversation_id if hasattr(interpreter, "conversation_id") else None
+                    contribute_conversations([interpreter.messages], feedback, conversation_id)
 
         except KeyboardInterrupt:
             pass

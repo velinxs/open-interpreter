@@ -28,16 +28,24 @@ from pathlib import Path
 
 from ..terminal.languages.resolve_bash import resolve_bash_executable
 
-EDIT_LANGUAGES = frozenset({
-    "sed", "gawk", "jq", "write",
-    "yq", "poke",
-    "comby", "patch",
-})
+EDIT_LANGUAGES = frozenset(
+    {
+        "sed",
+        "gawk",
+        "jq",
+        "write",
+        "yq",
+        "poke",
+        "comby",
+        "patch",
+    }
+)
 
 
 # ---------------------------------------------------------------------------
 # Binary resolution
 # ---------------------------------------------------------------------------
+
 
 def _resolve_binary(env_var, candidates):
     """Return path to a binary. env_var overrides; then PATH; then Git usr/bin on Windows."""
@@ -56,9 +64,7 @@ def _resolve_binary(env_var, candidates):
         # Try Git Bash's usr/bin alongside the bash executable
         try:
             bash = resolve_bash_executable()
-            usr_bin = os.path.normpath(
-                os.path.join(os.path.dirname(bash), "..", "usr", "bin")
-            )
+            usr_bin = os.path.normpath(os.path.join(os.path.dirname(bash), "..", "usr", "bin"))
             for name in candidates:
                 candidate = os.path.join(usr_bin, name + ".exe")
                 if os.path.isfile(candidate):
@@ -67,8 +73,7 @@ def _resolve_binary(env_var, candidates):
             pass
 
     raise FileNotFoundError(
-        f"Could not find {candidates[0]!r}. "
-        f"Install it, add to PATH, or set {env_var} to the full path."
+        f"Could not find {candidates[0]!r}. Install it, add to PATH, or set {env_var} to the full path."
     )
 
 
@@ -90,9 +95,7 @@ def _resolve_yq():
 
 def _assert_mikefarah_yq(yq):
     """edit/yq requires https://github.com/mikefarah/yq, not the Python jq-wrapper yq."""
-    result = subprocess.run(
-        [yq, "--version"], capture_output=True, text=True
-    )
+    result = subprocess.run([yq, "--version"], capture_output=True, text=True)
     version_text = ((result.stdout or "") + (result.stderr or "")).lower()
     if "mikefarah" not in version_text and "github.com/mikefarah/yq" not in version_text:
         raise RuntimeError(
@@ -137,14 +140,12 @@ def _resolve_patch():
 # Path validation
 # ---------------------------------------------------------------------------
 
+
 def _validate_target(target, *, must_exist):
     if not isinstance(target, str) or not target.strip():
         raise ValueError("target is required and must be a non-empty string")
     if not os.path.isabs(target):
-        raise ValueError(
-            "target must be an absolute path "
-            "(e.g. C:\\Users\\... on Windows, /home/... on Linux/Mac)"
-        )
+        raise ValueError("target must be an absolute path (e.g. C:\\Users\\... on Windows, /home/... on Linux/Mac)")
     path = Path(target)
     if must_exist:
         if not path.is_file():
@@ -157,10 +158,7 @@ def _validate_target(target, *, must_exist):
 
 
 def _run_failed(lang, result):
-    raise RuntimeError(
-        _subprocess_text(result)
-        or f"{lang} exited with code {result.returncode}"
-    )
+    raise RuntimeError(_subprocess_text(result) or f"{lang} exited with code {result.returncode}")
 
 
 def _subprocess_text(result):
@@ -183,9 +181,7 @@ def _atomic_replace_from_stdout(target, stdout_bytes):
     Keeps temp files on the same drive as the target (Windows cannot rename across drives).
     """
     path = Path(target)
-    fd, tmp = tempfile.mkstemp(
-        suffix=path.suffix, prefix=path.name + ".", dir=str(path.parent)
-    )
+    fd, tmp = tempfile.mkstemp(suffix=path.suffix, prefix=path.name + ".", dir=str(path.parent))
     os.close(fd)
     try:
         Path(tmp).write_bytes(stdout_bytes)
@@ -199,6 +195,7 @@ def _atomic_replace_from_stdout(target, stdout_bytes):
 # ---------------------------------------------------------------------------
 # Runners
 # ---------------------------------------------------------------------------
+
 
 def run_write(target, code):
     """Create a new file verbatim. Errors if target already exists."""
@@ -353,10 +350,7 @@ def run_yq(target, code):
     result = _run_yq_eval(yq, expr, target)
     out = result.stdout or b""
     if had_content and not out.strip():
-        raise RuntimeError(
-            "yq produced no output for a non-empty file "
-            "(file was not modified; check the expression)"
-        )
+        raise RuntimeError("yq produced no output for a non-empty file (file was not modified; check the expression)")
     _atomic_replace_from_stdout(target, out)
 
     return "yq: OK"
@@ -460,9 +454,7 @@ def _comby_rewritten_source(stdout_bytes):
         if rewritten is not None:
             return rewritten.encode("utf-8")
 
-    raise RuntimeError(
-        f"comby: no rewritten_source in JSON output: {raw[:200]!r}"
-    )
+    raise RuntimeError(f"comby: no rewritten_source in JSON output: {raw[:200]!r}")
 
 
 def run_comby(target, code):
@@ -483,9 +475,7 @@ def run_comby(target, code):
     if result.returncode != 0:
         stderr = (result.stderr or b"").decode("utf-8", errors="replace")
         stdout = (result.stdout or b"").decode("utf-8", errors="replace")
-        raise RuntimeError(
-            (stderr or stdout).strip() or f"comby exited with code {result.returncode}"
-        )
+        raise RuntimeError((stderr or stdout).strip() or f"comby exited with code {result.returncode}")
     _atomic_replace_from_stdout(target, _comby_rewritten_source(result.stdout))
     return "comby: OK"
 
@@ -517,6 +507,7 @@ def run_patch(target, code):
 # ---------------------------------------------------------------------------
 # Dry-run previews (no file modifications)
 # ---------------------------------------------------------------------------
+
 
 def dry_run_edit(language, code, target):
     """Run the edit without modifying the file.
@@ -641,13 +632,11 @@ def dry_run_edit(language, code, target):
 # Dispatch
 # ---------------------------------------------------------------------------
 
+
 def run_edit(language, code, target):
     language = language.lower().strip()
     if language not in EDIT_LANGUAGES:
-        raise ValueError(
-            f"unsupported edit language: {language!r}. "
-            f"Choose one of: {', '.join(sorted(EDIT_LANGUAGES))}"
-        )
+        raise ValueError(f"unsupported edit language: {language!r}. Choose one of: {', '.join(sorted(EDIT_LANGUAGES))}")
     if not isinstance(code, str):
         raise ValueError("code must be a string")
 

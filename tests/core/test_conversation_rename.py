@@ -25,9 +25,7 @@ def test_sanitize_conversation_title_slug():
     """Verifies model/LLM titles are turned into Windows-safe filename segments."""
     oi = OpenInterpreter()
     assert oi._sanitize_conversation_title_slug("Some title here!") == "Some_title_here"
-    assert oi._sanitize_conversation_title_slug('Git repo: packaging/branches') == (
-        "Git_repo_packagingbranches"
-    )
+    assert oi._sanitize_conversation_title_slug("Git repo: packaging/branches") == ("Git_repo_packagingbranches")
 
 
 def test_conversation_auto_title_transcript_orders_turns():
@@ -43,9 +41,7 @@ def test_conversation_auto_title_transcript_orders_turns():
         {"role": "user", "content": "follow up", "type": "message"},
     ]
     body = oi._conversation_auto_title_transcript(total_char_cap=100000)
-    assert body == (
-        "User: first question\n\nAssistant: first answer\n\nUser: follow up"
-    )
+    assert body == ("User: first question\n\nAssistant: first answer\n\nUser: follow up")
 
 
 def test_conversation_auto_title_transcript_trims_long_chunks():
@@ -88,9 +84,7 @@ def test_rename_with_manual_title(interpreter_with_conversation_file):
 
     assert oi.conversation_filename == "Some_title_here__January_01_2025_12-00-00.json"
     assert not os.path.isfile(old_path)
-    assert os.path.isfile(
-        os.path.join(oi.conversation_history_path, oi.conversation_filename)
-    )
+    assert os.path.isfile(os.path.join(oi.conversation_history_path, oi.conversation_filename))
 
 
 def test_rename_with_empty_manual_title_rejected(interpreter_with_conversation_file):

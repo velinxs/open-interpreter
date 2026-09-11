@@ -19,8 +19,10 @@ on makeDate(yr, mon, day, hour, min, sec)
 end makeDate
 """
 
+
 class Calendar:
     """macOS only. Calendar app integration via AppleScript."""
+
     def __init__(self, toolbox):
         self.toolbox = toolbox
         # In the future, we might consider a way to use a different calendar app. For now its Calendar
@@ -219,9 +221,7 @@ class Calendar:
         except subprocess.CalledProcessError as e:
             return str(e)
 
-    def delete_event(
-        self, event_title: str, start_date: datetime.datetime, calendar: str = None
-    ) -> str:
+    def delete_event(self, event_title: str, start_date: datetime.datetime, calendar: str = None) -> str:
         """
         Deletes a calendar event matching the title and start date.
 

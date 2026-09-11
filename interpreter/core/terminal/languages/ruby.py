@@ -20,9 +20,7 @@ class Ruby(SubprocessLanguage):
         Add end of execution marker
         """
 
-        active_line_enabled = (
-            os.environ.get("INTERPRETER_ACTIVE_LINE_DETECTION", "True").lower() == "true"
-        )
+        active_line_enabled = os.environ.get("INTERPRETER_ACTIVE_LINE_DETECTION", "True").lower() == "true"
 
         lines = code.split("\n")
         processed_lines = []
@@ -45,7 +43,7 @@ ensure
 end
 """
         self.code_line_count = len(processed_code.split("\n"))
-        #print(processed_code)
+        # print(processed_code)
         return processed_code
 
     def line_postprocessor(self, line):
@@ -54,7 +52,7 @@ end
             self.code_line_count -= 1
             return None
         if "nil" in line:
-           return None
+            return None
         return line
 
     def detect_active_line(self, line):

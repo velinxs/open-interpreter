@@ -27,10 +27,14 @@ class TestWebToolbox(unittest.TestCase):
                 mock_response.structured_output = {
                     "author_last_name": "Vaswani",
                     "year": 2017,
-                    "title": "Attention is All You Need"
+                    "title": "Attention is All You Need",
                 }
                 mock_response.sources = [
-                    {"title": "Paper on arXiv", "url": "https://arxiv.org/abs/1706.03762", "snippet": "We propose a new simple network architecture..."}
+                    {
+                        "title": "Paper on arXiv",
+                        "url": "https://arxiv.org/abs/1706.03762",
+                        "snippet": "We propose a new simple network architecture...",
+                    }
                 ]
                 mock_instance.search.return_value = mock_response
 
@@ -40,8 +44,8 @@ class TestWebToolbox(unittest.TestCase):
                     "properties": {
                         "author_last_name": {"type": "string"},
                         "year": {"type": "integer"},
-                        "title": {"type": "string"}
-                    }
+                        "title": {"type": "string"},
+                    },
                 }
 
                 # Call the method
@@ -70,8 +74,10 @@ class TestWebToolbox(unittest.TestCase):
             # Mock a Pydantic-like model by inheriting from a real one if available
             try:
                 from pydantic import BaseModel
+
                 class MockModel(BaseModel):
                     test: str
+
                 original_schema = MockModel
             except ImportError:
                 # Fallback to a mock that doesn't inherit but simulates the behavior
@@ -79,6 +85,7 @@ class TestWebToolbox(unittest.TestCase):
                     @staticmethod
                     def model_json_schema():
                         return {"type": "object", "properties": {"test": {"type": "string"}}}
+
                 original_schema = MockModel
 
             with patch("linkup.LinkupClient") as MockClient:
@@ -101,10 +108,8 @@ class TestWebToolbox(unittest.TestCase):
                 self.web.structured_output("test", schema={})
             # It might raise the specific ApiKeyError message or the aggregate No backends message
             err_msg = str(context.exception)
-            self.assertTrue(
-                "No structured output backends are working" in err_msg or
-                "LINKUP_API_KEY" in err_msg
-            )
+            self.assertTrue("No structured output backends are working" in err_msg or "LINKUP_API_KEY" in err_msg)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -25,11 +25,13 @@ to reliably redact env-style NAME=VALUE lines whose names end in _KEY, _SECRET, 
 #   HexHighEntropyString – matches UUIDs, hex segments in paths, etc.
 #   IPPublicDetector – if present; public IPs in output are often not secrets.
 #
-PLUGINS_EXCLUDED_FOR_SANITIZE = frozenset({
-    "Base64HighEntropyString",
-    "HexHighEntropyString",
-    "IPPublicDetector",
-})
+PLUGINS_EXCLUDED_FOR_SANITIZE = frozenset(
+    {
+        "Base64HighEntropyString",
+        "HexHighEntropyString",
+        "IPPublicDetector",
+    }
+)
 
 
 def _get_sanitize_plugins_config():
@@ -39,11 +41,7 @@ def _get_sanitize_plugins_config():
     from detect_secrets.core.plugins.util import get_mapping_from_secret_type_to_class
 
     mapping = get_mapping_from_secret_type_to_class()
-    return [
-        {"name": cls.__name__}
-        for cls in mapping.values()
-        if cls.__name__ not in PLUGINS_EXCLUDED_FOR_SANITIZE
-    ]
+    return [{"name": cls.__name__} for cls in mapping.values() if cls.__name__ not in PLUGINS_EXCLUDED_FOR_SANITIZE]
 
 
 def _is_local_model(model: str) -> bool:
@@ -79,12 +77,14 @@ def _redact_secrets(text: str) -> str:
     from detect_secrets.settings import transient_settings
 
     from .env_secret_detector import EnvSecretDetector
+
     _env_detector = EnvSecretDetector()
 
     config = {"plugins_used": _get_sanitize_plugins_config()}
     secrets_found = set()
     with transient_settings(config):
         from detect_secrets.core.plugins import util as _plugins_util
+
         _plugins_util.get_mapping_from_secret_type_to_class.cache_clear()
         for line in text.split("\n"):
             for secret in scan_line(line):

@@ -146,9 +146,7 @@ def run_function_calling_llm(llm, request_params):
 
                 if language is not None:
                     # Pull the code string straight out of the "arguments" string
-                    code_delta = accumulated_deltas["function_call"]["arguments"][
-                        len(code) :
-                    ]
+                    code_delta = accumulated_deltas["function_call"]["arguments"][len(code) :]
                     # Update the code
                     code = accumulated_deltas["function_call"]["arguments"]
                     # Yield the delta

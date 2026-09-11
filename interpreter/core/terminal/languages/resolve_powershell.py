@@ -22,17 +22,13 @@ def resolve_powershell_executable():
         path = shutil.which("powershell") or shutil.which("powershell.exe")
         if path:
             return path
-        raise FileNotFoundError(
-            "PowerShell not found on Windows. Install PowerShell or set INTERPRETER_POWERSHELL."
-        )
+        raise FileNotFoundError("PowerShell not found on Windows. Install PowerShell or set INTERPRETER_POWERSHELL.")
 
     path = shutil.which("pwsh")
     if path:
         return path
 
-    raise FileNotFoundError(
-        "PowerShell (pwsh) not found. Install PowerShell Core or set INTERPRETER_POWERSHELL."
-    )
+    raise FileNotFoundError("PowerShell (pwsh) not found. Install PowerShell Core or set INTERPRETER_POWERSHELL.")
 
 
 def powershell_startup_args():

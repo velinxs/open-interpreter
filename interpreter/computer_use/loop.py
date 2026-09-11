@@ -99,7 +99,7 @@ PROVIDER_TO_DEFAULT_MODEL_NAME: dict[APIProvider, str] = {
 SYSTEM_PROMPT = f"""<SYSTEM_CAPABILITY>
 * You are an AI assistant with access to a virtual machine running on {"Mac OS" if platform.system() == "Darwin" else platform.system()} with internet access.
 * When using your computer function calls, they take a while to run and send back to you. Where possible/feasible, try to chain multiple of these calls all into one function calls request.
-* The current date is {datetime.today().strftime('%A, %B %d, %Y')}.
+* The current date is {datetime.today().strftime("%A, %B %d, %Y")}.
 </SYSTEM_CAPABILITY>"""
 
 # Update the SYSTEM_PROMPT for Mac OS
@@ -130,9 +130,7 @@ async def sampling_loop(
         # BashTool(),
         # EditTool(),
     )
-    system = (
-        f"{SYSTEM_PROMPT}{' ' + system_prompt_suffix if system_prompt_suffix else ''}"
-    )
+    system = f"{SYSTEM_PROMPT}{' ' + system_prompt_suffix if system_prompt_suffix else ''}"
 
     while True:
         if only_n_most_recent_images:
@@ -223,9 +221,7 @@ async def sampling_loop(
                     name=content_block.name,
                     tool_input=cast(dict[str, Any], content_block.input),
                 )
-                tool_result_content.append(
-                    _make_api_tool_result(result, content_block.id)
-                )
+                tool_result_content.append(_make_api_tool_result(result, content_block.id))
                 tool_output_callback(result, content_block.id)
 
         if not tool_result_content:
@@ -255,9 +251,7 @@ def _maybe_filter_to_n_most_recent_images(
         [
             item
             for message in messages
-            for item in (
-                message["content"] if isinstance(message["content"], list) else []
-            )
+            for item in (message["content"] if isinstance(message["content"], list) else [])
             if isinstance(item, dict) and item.get("type") == "tool_result"
         ],
     )
@@ -285,9 +279,7 @@ def _maybe_filter_to_n_most_recent_images(
             tool_result["content"] = new_content
 
 
-def _make_api_tool_result(
-    result: ToolResult, tool_use_id: str
-) -> BetaToolResultBlockParam:
+def _make_api_tool_result(result: ToolResult, tool_use_id: str) -> BetaToolResultBlockParam:
     """Convert an agent ToolResult to an API ToolResultBlockParam."""
     tool_result_content: list[BetaTextBlockParam | BetaImageBlockParam] | str = []
     is_error = False
@@ -346,9 +338,7 @@ async def main():
         # Get API key from environment variable
         api_key = os.environ.get("ANTHROPIC_API_KEY")
         if not api_key:
-            raise ValueError(
-                "ANTHROPIC_API_KEY environment variable must be set when running in server mode"
-            )
+            raise ValueError("ANTHROPIC_API_KEY environment variable must be set when running in server mode")
 
         @app.post("/openai/chat/completions")
         async def chat_completion(request: ChatCompletionRequest):
@@ -365,9 +355,7 @@ async def main():
                 messages.append(
                     {
                         "role": request.messages[-1].role,
-                        "content": [
-                            {"type": "text", "text": request.messages[-1].content}
-                        ],
+                        "content": [{"type": "text", "text": request.messages[-1].content}],
                     }
                 )
 
@@ -431,9 +419,7 @@ async def main():
     # Check for API key in environment variable
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
-        api_key = input(
-            "\nAn Anthropic API is required for OS mode.\n\nEnter your Anthropic API key: "
-        )
+        api_key = input("\nAn Anthropic API is required for OS mode.\n\nEnter your Anthropic API key: ")
         print_markdown("\n---")
         time.sleep(0.5)
 
@@ -488,9 +474,7 @@ Move your mouse to any corner of the screen to exit.
             print_markdown("\nWe'll email you shortly. ✓\n---\n")
             continue
 
-        messages.append(
-            {"role": "user", "content": [{"type": "text", "text": user_input}]}
-        )
+        messages.append({"role": "user", "content": [{"type": "text", "text": user_input}]})
 
         def output_callback(content_block: BetaContentBlock):
             pass
@@ -552,10 +536,7 @@ def check_mouse_position():
             (x <= corner_threshold and y <= corner_threshold)
             or (x <= corner_threshold and y >= screen_height - corner_threshold)
             or (x >= screen_width - corner_threshold and y <= corner_threshold)
-            or (
-                x >= screen_width - corner_threshold
-                and y >= screen_height - corner_threshold
-            )
+            or (x >= screen_width - corner_threshold and y >= screen_height - corner_threshold)
         ):
             exit_flag = True
             print("\nMouse moved to corner. Exiting...")

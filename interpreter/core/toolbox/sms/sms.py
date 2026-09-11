@@ -9,6 +9,7 @@ import time
 
 class SMS:
     """macOS only. SMS/iMessage via AppleScript and Messages database."""
+
     def __init__(self, toolbox):
         self.toolbox = toolbox
         if sys.platform.lower() == "darwin":  # Only if macOS
@@ -110,9 +111,7 @@ LEFT JOIN handle ON message.handle_id = handle.ROWID
                         sender = message_dict.get("sender")
                         if message_dict.get("is_from_me") == 1:
                             sender = "(Me)"
-                        readable_messages.append(
-                            {"date": date, "from": sender, "text": text}
-                        )
+                        readable_messages.append({"date": date, "from": sender, "text": text})
             except sqlite3.Error as e:
                 break
 

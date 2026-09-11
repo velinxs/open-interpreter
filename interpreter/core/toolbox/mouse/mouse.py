@@ -40,9 +40,7 @@ class Mouse:
         try:
             return pyautogui.position()
         except Exception as e:
-            raise RuntimeError(
-                f"An error occurred while retrieving the mouse position: {e}. "
-            )
+            raise RuntimeError(f"An error occurred while retrieving the mouse position: {e}. ")
 
     def move(self, *args, x=None, y=None, icon=None, text=None, screenshot=None):
         """
@@ -62,9 +60,7 @@ class Mouse:
             if screenshot == None:
                 screenshot = self.toolbox.display.screenshot(show=False)
 
-            coordinates = self.toolbox.display.find(
-                '"' + text + '"', screenshot=screenshot
-            )
+            coordinates = self.toolbox.display.find('"' + text + '"', screenshot=screenshot)
 
             is_fuzzy = any([c["similarity"] != 1 for c in coordinates])
             # nah just hey, if it's fuzzy, then whatever, it prob wont see the message then decide something else (not really smart enough yet usually)
@@ -117,7 +113,7 @@ class Mouse:
                     display(img_pil)
 
                 coordinates = [
-                    f"{i}: ({int(item['coordinates'][0]*self.toolbox.display.width)}, {int(item['coordinates'][1]*self.toolbox.display.height)}) "
+                    f"{i}: ({int(item['coordinates'][0] * self.toolbox.display.width)}, {int(item['coordinates'][1] * self.toolbox.display.height)}) "
                     + '"'
                     + item["text"]
                     + '"'
@@ -191,7 +187,7 @@ class Mouse:
                         plt.show()
 
                 coordinates = [
-                    f"{i}: {int(item[0]*self.toolbox.display.width)}, {int(item[1]*self.toolbox.display.height)}"
+                    f"{i}: {int(item[0] * self.toolbox.display.width)}, {int(item[1] * self.toolbox.display.height)}"
                     for i, item in enumerate(coordinates)
                 ]
                 error_message = (

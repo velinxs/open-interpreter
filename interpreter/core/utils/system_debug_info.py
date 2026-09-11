@@ -17,8 +17,7 @@ def get_python_version():
 
 def get_pip_version():
     try:
-        pip_version = subprocess.check_output(
-            ["pip", "--version"]).decode().split()[1]
+        pip_version = subprocess.check_output(["pip", "--version"]).decode().split()[1]
     except Exception as e:
         pip_version = str(e)
     return pip_version
@@ -26,9 +25,7 @@ def get_pip_version():
 
 def get_oi_version():
     try:
-        oi_version_cmd = subprocess.check_output(
-            ["interpreter", "--version"], text=True
-        )
+        oi_version_cmd = subprocess.check_output(["interpreter", "--version"], text=True)
     except Exception as e:
         oi_version_cmd = str(e)
     try:
@@ -62,10 +59,7 @@ def get_package_mismatches(file_path="pyproject.toml"):
     dev_dependencies = pyproject["tool"]["poetry"]["group"]["dev"]["dependencies"]
     dependencies.update(dev_dependencies)
 
-    installed_packages = {
-        dist.metadata["Name"].lower(): dist.version
-        for dist in distributions()
-    }
+    installed_packages = {dist.metadata["Name"].lower(): dist.version for dist in distributions()}
     mismatches = []
     for package, version_info in dependencies.items():
         if isinstance(version_info, dict):
@@ -101,9 +95,7 @@ def _llm_prompt_sections_for_info(interpreter):
         system_content = base
         if interpreter.llm.tool_calling_instructions:
             system_content += "\n" + interpreter.llm.tool_calling_instructions
-        sections.append(
-            ("System message (`messages[0]`)", system_content or "(empty)")
-        )
+        sections.append(("System message (`messages[0]`)", system_content or "(empty)"))
 
         tools = build_request_tools(interpreter, messages=interpreter.messages)
         tools_json = json.dumps(tools, indent=2)
@@ -117,9 +109,7 @@ def _llm_prompt_sections_for_info(interpreter):
         system_content = base
         if interpreter.llm.execution_instructions:
             system_content += "\n" + interpreter.llm.execution_instructions
-        sections.append(
-            ("System Message (text / markdown mode)", system_content or "(empty)")
-        )
+        sections.append(("System Message (text / markdown mode)", system_content or "(empty)"))
 
     return sections
 
@@ -128,8 +118,7 @@ def interpreter_info(interpreter):
     try:
         if interpreter.offline and interpreter.llm.api_base:
             try:
-                curl = subprocess.check_output(
-                    f"curl {interpreter.llm.api_base}")
+                curl = subprocess.check_output(f"curl {interpreter.llm.api_base}")
             except Exception as e:
                 curl = str(e)
         else:
@@ -169,9 +158,7 @@ def interpreter_info(interpreter):
 
 ## Conversation Messages
 
-""" + "\n\n".join(
-            [str(m) for m in messages_to_display]
-        )
+""" + "\n\n".join([str(m) for m in messages_to_display])
     except:
         return "Error, couldn't get interpreter info"
 

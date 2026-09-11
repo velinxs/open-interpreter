@@ -22,12 +22,8 @@ import requests
 
 def get_or_create_uuid():
     try:
-        uuid_file_path = os.path.join(
-            os.path.expanduser("~"), ".cache", "open-interpreter", "telemetry_user_id"
-        )
-        os.makedirs(
-            os.path.dirname(uuid_file_path), exist_ok=True
-        )  # Ensure the directory exists
+        uuid_file_path = os.path.join(os.path.expanduser("~"), ".cache", "open-interpreter", "telemetry_user_id")
+        os.makedirs(os.path.dirname(uuid_file_path), exist_ok=True)  # Ensure the directory exists
 
         if os.path.exists(uuid_file_path):
             with open(uuid_file_path) as file:

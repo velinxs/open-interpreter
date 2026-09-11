@@ -10,12 +10,8 @@ def run_text_llm(llm, params):
     if llm.execution_instructions and not skip_execution_instructions:
         try:
             # Add the system message
-            params["messages"][0][
-                "content"
-            ] += "\n" + llm.execution_instructions
-            llm.interpreter._last_rendered_system_message = params["messages"][0][
-                "content"
-            ]
+            params["messages"][0]["content"] += "\n" + llm.execution_instructions
+            llm.interpreter._last_rendered_system_message = params["messages"][0]["content"]
         except:
             print('params["messages"][0]', params["messages"][0])
             raise

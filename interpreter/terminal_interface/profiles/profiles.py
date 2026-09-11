@@ -44,8 +44,7 @@ def profile(interpreter, filename_or_url):
     # If they have a profile at a reserved profile name, rename it to {name}_custom.
     # Don't do this for default.yaml or develop.yaml (develop: classic/develop only).
     if (
-        filename_or_url
-        not in ["default", "default.yaml", "develop", "develop.yaml"]
+        filename_or_url not in ["default", "default.yaml", "develop", "develop.yaml"]
         and filename_or_url in default_profiles_names
     ):
         if os.path.isfile(profile_path):
@@ -75,9 +74,7 @@ def get_profile(filename_or_url, profile_path):
     shortcuts = ["i.com/", "www.i.com/", "https://i.com/", "http://i.com/"]
     for shortcut in shortcuts:
         if filename_or_url.startswith(shortcut):
-            filename_or_url = filename_or_url.replace(
-                shortcut, "https://openinterpreter.com/profiles/"
-            )
+            filename_or_url = filename_or_url.replace(shortcut, "https://openinterpreter.com/profiles/")
             if "." not in filename_or_url.split("/")[-1]:
                 extensions = [".json", ".py", ".yaml"]
                 for ext in extensions:
@@ -231,9 +228,7 @@ def apply_profile(interpreter, profile, profile_path):
             if profile_path.endswith("default.yaml"):
                 with open(profile_path) as file:
                     text = file.read()
-                text = text.replace(
-                    "version: " + str(profile["version"]), f"version: {OI_VERSION}"
-                )
+                text = text.replace("version: " + str(profile["version"]), f"version: {OI_VERSION}")
 
                 try:
                     if profile["llm"]["model"] == "gpt-4":
@@ -254,9 +249,7 @@ def apply_profile(interpreter, profile, profile_path):
             # If the migration is skipped, add the version number to the end of the file
             if profile_path.endswith("default.yaml"):
                 with open(profile_path, "a") as file:
-                    file.write(
-                        f"\nversion: {OI_VERSION}  # Profile version (do not modify)"
-                    )
+                    file.write(f"\nversion: {OI_VERSION}  # Profile version (do not modify)")
             return interpreter
 
     if "system_message" in profile:
@@ -289,11 +282,7 @@ def apply_profile(interpreter, profile, profile_path):
     # exact conversion, so a profile that asked for truncation is mapped to the standard
     # retention_ratio default (0.8) rather than being silently ignored — keeping the
     # cache-aware trimming the user opted into.
-    if (
-        "llm" in profile
-        and isinstance(profile["llm"], dict)
-        and "truncation_step" in profile["llm"]
-    ):
+    if "llm" in profile and isinstance(profile["llm"], dict) and "truncation_step" in profile["llm"]:
         del profile["llm"]["truncation_step"]
         profile["llm"].setdefault("retention_ratio", 0.8)
 
@@ -573,9 +562,7 @@ You are capable of **any** task.""",
             )
 
         normalized_system_message = normalize_text(profile["system_message"])
-        normalized_old_system_messages = [
-            normalize_text(message) for message in old_system_messages
-        ]
+        normalized_old_system_messages = [normalize_text(message) for message in old_system_messages]
 
         # If the whole thing is system message, just delete it
         if normalized_system_message in normalized_old_system_messages:
@@ -585,9 +572,7 @@ You are capable of **any** task.""",
                 # This doesn't use the normalized versions! We wouldn't want whitespace to cut it off at a weird part
                 if profile["system_message"].strip().startswith(old_message):
                     # Extract the ending part and make it into custom_instructions
-                    profile["custom_instructions"] = profile["system_message"][
-                        len(old_message) :
-                    ].strip()
+                    profile["custom_instructions"] = profile["system_message"][len(old_message) :].strip()
                     del profile["system_message"]
                     break
 
@@ -634,21 +619,11 @@ version: {OI_VERSION}  # Profile version (do not modify)
 
     # Remove all lines that start with a # comment from the old profile, and old version numbers
     old_profile_lines = old_profile.split("\n")
-    old_profile = "\n".join(
-        [line for line in old_profile_lines if not line.strip().startswith("#")]
-    )
-    old_profile = "\n".join(
-        [
-            line
-            for line in old_profile.split("\n")
-            if not line.strip().startswith("version:")
-        ]
-    )
+    old_profile = "\n".join([line for line in old_profile_lines if not line.strip().startswith("#")])
+    old_profile = "\n".join([line for line in old_profile.split("\n") if not line.strip().startswith("version:")])
 
     # Replace {old_profile} in comment_wrapper with the modified current profile, and add the version
-    comment_wrapper = comment_wrapper.replace("{old_profile}", old_profile).replace(
-        "{OI_VERSION}", OI_VERSION
-    )
+    comment_wrapper = comment_wrapper.replace("{old_profile}", old_profile).replace("{OI_VERSION}", OI_VERSION)
     # Sometimes this happens if profile ended up empty
     comment_wrapper.replace("\n{}\n", "\n")
 
@@ -663,9 +638,7 @@ def apply_profile_to_object(obj, profile):
         if key == "computer":
             key = "toolbox"
         if isinstance(value, dict):
-            if (
-                key == "wtf"
-            ):  # The wtf command has a special part of the profile, not used here
+            if key == "wtf":  # The wtf command has a special part of the profile, not used here
                 continue
             apply_profile_to_object(getattr(obj, key), value)
         else:
@@ -697,9 +670,7 @@ def ensure_develop_profile():
     """
     bundled = os.path.join(oi_default_profiles_path, "develop.yaml")
     if not os.path.exists(bundled):
-        raise FileNotFoundError(
-            "Bundled develop.yaml not found. This profile is for classic/develop only."
-        )
+        raise FileNotFoundError("Bundled develop.yaml not found. This profile is for classic/develop only.")
 
     target_file = os.path.join(profile_dir, "develop.yaml")
 
@@ -711,13 +682,8 @@ def ensure_develop_profile():
 
 
 def reset_profile(specific_default_profile=None):
-    if (
-        specific_default_profile
-        and specific_default_profile not in default_profiles_names
-    ):
-        raise ValueError(
-            f"The specific default profile '{specific_default_profile}' is not a default profile."
-        )
+    if specific_default_profile and specific_default_profile not in default_profiles_names:
+        raise ValueError(f"The specific default profile '{specific_default_profile}' is not a default profile.")
 
     # Check version, before making the profile directory
     current_version = determine_user_version()
@@ -749,9 +715,7 @@ def reset_profile(specific_default_profile=None):
             if current_version is None:
                 # If there is no version, add it to the default yaml
                 with open(target_file, "a") as file:
-                    file.write(
-                        f"\nversion: {OI_VERSION}  # Profile version (do not modify)"
-                    )
+                    file.write(f"\nversion: {OI_VERSION}  # Profile version (do not modify)")
             if not create_oi_directory:
                 print(f"{filename} has been reset.")
         else:
@@ -772,9 +736,7 @@ def reset_profile(specific_default_profile=None):
                     )
                     user_input = "n"
                 if user_input == "y":
-                    send2trash.send2trash(
-                        target_file
-                    )  # This way, people can recover it from the trash
+                    send2trash.send2trash(target_file)  # This way, people can recover it from the trash
                     shutil.copy(default_yaml_file, target_file)
                     print(f"{filename} has been reset.")
                 else:
@@ -828,9 +790,7 @@ def determine_user_version():
                 if "version" in default_profile:
                     return default_profile["version"]
 
-    if os.path.exists(old_dir_020) or (
-        os.path.exists(old_dir_pre_020) and os.path.exists(old_dir_020)
-    ):
+    if os.path.exists(old_dir_020) or (os.path.exists(old_dir_pre_020) and os.path.exists(old_dir_020)):
         # If both old_dir_pre_020 and old_dir_020 are found, or just old_dir_020, return 0.2.0
         return "0.2.0"
     if os.path.exists(old_dir_pre_020):
@@ -862,9 +822,7 @@ def migrate_app_directory(old_dir, new_dir, profile_dir):
     conversations_old_path = os.path.join(old_dir, "conversations")
     conversations_new_path = os.path.join(new_dir, "conversations")
     if os.path.exists(conversations_old_path):
-        shutil.copytree(
-            conversations_old_path, conversations_new_path, dirs_exist_ok=True
-        )
+        shutil.copytree(conversations_old_path, conversations_new_path, dirs_exist_ok=True)
 
     # Migrate the "config.yaml" file to the new format
     config_old_path = os.path.join(old_dir, "config.yaml")
@@ -915,9 +873,7 @@ def write_key_to_profile(key, value):
         # Insert the new key-value pair before the version line
         if version_line_index is not None:
             if f"{key}: {value}\n" not in new_lines:
-                new_lines.append(
-                    f"{key}: {value}\n\n"
-                )  # Adding a newline for separation
+                new_lines.append(f"{key}: {value}\n\n")  # Adding a newline for separation
             # Append the version line and all subsequent lines
             new_lines.extend(lines[version_line_index:])
 

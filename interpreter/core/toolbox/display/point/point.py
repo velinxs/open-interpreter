@@ -87,9 +87,7 @@ def find_icon(description, screenshot=None, debug=False, hashes=None):
                 block["height"],
             )
             draw.rectangle([(left, top), (left + width, top + height)], outline="red")
-        image_data_copy.save(
-            os.path.join(debug_path, "before_filtering_out_extremes.png")
-        )
+        image_data_copy.save(os.path.join(debug_path, "before_filtering_out_extremes.png"))
 
     # Filter out extremes
     min_icon_width = int(os.getenv("OI_POINT_MIN_ICON_WIDTH", "10"))
@@ -99,8 +97,7 @@ def find_icon(description, screenshot=None, debug=False, hashes=None):
     icons_bounding_boxes = [
         box
         for box in icons_bounding_boxes
-        if min_icon_width <= box["width"] <= max_icon_width
-        and min_icon_height <= box["height"] <= max_icon_height
+        if min_icon_width <= box["width"] <= max_icon_width and min_icon_height <= box["height"] <= max_icon_height
     ]
 
     if debug:
@@ -116,9 +113,7 @@ def find_icon(description, screenshot=None, debug=False, hashes=None):
                 block["height"],
             )
             draw.rectangle([(left, top), (left + width, top + height)], outline="red")
-        image_data_copy.save(
-            os.path.join(debug_path, "after_filtering_out_extremes.png")
-        )
+        image_data_copy.save(os.path.join(debug_path, "after_filtering_out_extremes.png"))
 
     # Compute center_x and center_y for each box
     for box in icons_bounding_boxes:
@@ -154,17 +149,13 @@ def find_icon(description, screenshot=None, debug=False, hashes=None):
             os.makedirs(debug_path)
         image_data_copy.save(os.path.join(debug_path, "pytesseract_blocks_image.png"))
 
-    blocks = [
-        b for b in response if len(b["text"]) > 2
-    ]  # icons are sometimes text, like "X"
+    blocks = [b for b in response if len(b["text"]) > 2]  # icons are sometimes text, like "X"
 
     # Filter blocks so the text.lower() needs to be a real word in the English dictionary
     filtered_blocks = []
     for b in blocks:
         words = b["text"].lower().split()
-        words = [
-            "".join(e for e in word if e.isalnum()) for word in words
-        ]  # remove punctuation
+        words = ["".join(e for e in word if e.isalnum()) for word in words]  # remove punctuation
         if all(word in english_words for word in words):
             filtered_blocks.append(b)
     blocks = filtered_blocks
@@ -182,9 +173,7 @@ def find_icon(description, screenshot=None, debug=False, hashes=None):
                 block["height"],
             )
             draw.rectangle([(left, top), (left + width, top + height)], outline="green")
-        image_data_copy.save(
-            os.path.join(debug_path, "pytesseract_filtered_blocks_image.png")
-        )
+        image_data_copy.save(os.path.join(debug_path, "pytesseract_filtered_blocks_image.png"))
 
     if debug:
         # Create a draw object
@@ -202,12 +191,8 @@ def find_icon(description, screenshot=None, debug=False, hashes=None):
             # Draw the detected text in the rectangle in small font
             # Use PIL's built-in bitmap font
             font = ImageFont.load_default()
-            draw.text(
-                (block["left"], block["top"]), block["text"], fill="red", font=font
-            )
-        image_data_copy.save(
-            os.path.join(debug_path, "pytesseract_filtered_blocks_image_with_text.png")
-        )
+            draw.text((block["left"], block["top"]), block["text"], fill="red", font=font)
+        image_data_copy.save(os.path.join(debug_path, "pytesseract_filtered_blocks_image_with_text.png"))
 
     # Create an empty list to store the filtered boxes
     filtered_boxes = []
@@ -217,12 +202,8 @@ def find_icon(description, screenshot=None, debug=False, hashes=None):
         if not any(
             text_box["left"] <= box["x"] <= text_box["left"] + text_box["width"]
             and text_box["top"] <= box["y"] <= text_box["top"] + text_box["height"]
-            and text_box["left"]
-            <= box["x"] + box["width"]
-            <= text_box["left"] + text_box["width"]
-            and text_box["top"]
-            <= box["y"] + box["height"]
-            <= text_box["top"] + text_box["height"]
+            and text_box["left"] <= box["x"] + box["width"] <= text_box["left"] + text_box["width"]
+            and text_box["top"] <= box["y"] + box["height"] <= text_box["top"] + text_box["height"]
             for text_box in blocks
         ):
             filtered_boxes.append(box)
@@ -246,18 +227,14 @@ def find_icon(description, screenshot=None, debug=False, hashes=None):
             )
             draw.rectangle([(left, top), (left + width, top + height)], outline="green")
         # Save the image with the drawn rectangles
-        image_data_copy.save(
-            os.path.join(debug_path, "pytesseract_filtered_boxes_image.png")
-        )
+        image_data_copy.save(os.path.join(debug_path, "pytesseract_filtered_boxes_image.png"))
 
     # Filter out boxes that intersect with text at all
     filtered_boxes = []
     for box in icons_bounding_boxes:
         if not any(
-            max(text_box["left"], box["x"])
-            < min(text_box["left"] + text_box["width"], box["x"] + box["width"])
-            and max(text_box["top"], box["y"])
-            < min(text_box["top"] + text_box["height"], box["y"] + box["height"])
+            max(text_box["left"], box["x"]) < min(text_box["left"] + text_box["width"], box["x"] + box["width"])
+            and max(text_box["top"], box["y"]) < min(text_box["top"] + text_box["height"], box["y"] + box["height"])
             for text_box in blocks
         ):
             filtered_boxes.append(box)
@@ -277,9 +254,7 @@ def find_icon(description, screenshot=None, debug=False, hashes=None):
             )
             draw.rectangle([(left, top), (left + width, top + height)], outline="green")
         # Save the image with the drawn rectangles
-        image_data_copy.save(
-            os.path.join(debug_path, "debug_image_after_filtering_boxes.png")
-        )
+        image_data_copy.save(os.path.join(debug_path, "debug_image_after_filtering_boxes.png"))
 
     # # (DISABLED)
     # # Filter to the most icon-like dimensions
@@ -334,9 +309,7 @@ def find_icon(description, screenshot=None, debug=False, hashes=None):
             width = box["width"]
             height = box["height"]
             draw.rectangle([(left, top), (left + width, top + height)], outline="red")
-        image_data_copy.save(
-            os.path.join(debug_path, "debug_image_after_expanding_boxes.png")
-        )
+        image_data_copy.save(os.path.join(debug_path, "debug_image_after_expanding_boxes.png"))
 
     def combine_boxes(icons_bounding_boxes):
         while True:
@@ -383,9 +356,7 @@ def find_icon(description, screenshot=None, debug=False, hashes=None):
         for box in icons_bounding_boxes:
             x, y, w, h = box["x"], box["y"], box["width"], box["height"]
             draw.rectangle([(x, y), (x + w, y + h)], outline="blue")
-        image_data_copy.save(
-            os.path.join(debug_path, "debug_image_after_combining_boxes.png")
-        )
+        image_data_copy.save(os.path.join(debug_path, "debug_image_after_combining_boxes.png"))
 
     icons = []
     for box in icons_bounding_boxes:
@@ -528,10 +499,7 @@ def image_search(query, icons, hashes, debug):
     unhashed_icons_embeds = unhashed_icons_embeds.to(device)
 
     # Include hashed icons in img_emb
-    img_emb = torch.cat(
-        [unhashed_icons_embeds]
-        + [hashes[icon["hash"]].unsqueeze(0) for icon in hashed_icons]
-    )
+    img_emb = torch.cat([unhashed_icons_embeds] + [hashes[icon["hash"]].unsqueeze(0) for icon in hashed_icons])
 
     # Perform semantic search
     hits = util.semantic_search(query_embed, img_emb)[0]
@@ -578,32 +546,24 @@ def get_element_boxes(image_data, debug):
     ):
         # Apply an extreme contrast filter
         enhancer = ImageEnhance.Contrast(pil_image)
-        contrasted_image = enhancer.enhance(
-            contrast_level
-        )  # Significantly increase contrast
+        contrasted_image = enhancer.enhance(contrast_level)  # Significantly increase contrast
 
         # Create a string with all parameters
         parameters_string = f"contrast_level_{contrast_level}-adaptive_method_{adaptive_method}-threshold_type_{threshold_type}-block_size_{block_size}-C_{C}"
 
         if debug:
             print("TRYING:", parameters_string)
-            contrasted_image_path = os.path.join(
-                debug_path, f"contrasted_image_{parameters_string}.jpg"
-            )
+            contrasted_image_path = os.path.join(debug_path, f"contrasted_image_{parameters_string}.jpg")
             contrasted_image.save(contrasted_image_path)
             print(f"DEBUG: Contrasted image saved to {contrasted_image_path}")
 
         # Convert the contrast-enhanced image to OpenCV format
-        contrasted_image_cv = cv2.cvtColor(
-            np.array(contrasted_image), cv2.COLOR_RGB2BGR
-        )
+        contrasted_image_cv = cv2.cvtColor(np.array(contrasted_image), cv2.COLOR_RGB2BGR)
 
         # Convert the contrast-enhanced image to grayscale
         gray_contrasted = cv2.cvtColor(contrasted_image_cv, cv2.COLOR_BGR2GRAY)
         if debug:
-            image_path = os.path.join(
-                debug_path, f"gray_contrasted_image_{parameters_string}.jpg"
-            )
+            image_path = os.path.join(debug_path, f"gray_contrasted_image_{parameters_string}.jpg")
             cv2.imwrite(image_path, gray_contrasted)
             print("DEBUG: Grayscale contrasted image saved at:", image_path)
 
@@ -618,18 +578,12 @@ def get_element_boxes(image_data, debug):
         )
 
         if debug:
-            binary_contrasted_image_path = os.path.join(
-                debug_path, f"binary_contrasted_image_{parameters_string}.jpg"
-            )
+            binary_contrasted_image_path = os.path.join(debug_path, f"binary_contrasted_image_{parameters_string}.jpg")
             cv2.imwrite(binary_contrasted_image_path, binary_contrasted)
-            print(
-                f"DEBUG: Binary contrasted image saved to {binary_contrasted_image_path}"
-            )
+            print(f"DEBUG: Binary contrasted image saved to {binary_contrasted_image_path}")
 
         # Find contours from the binary image
-        contours_contrasted, _ = cv2.findContours(
-            binary_contrasted, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE
-        )
+        contours_contrasted, _ = cv2.findContours(binary_contrasted, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
 
         # Optionally, draw contours on the image for visualization
         contour_image = np.zeros_like(binary_contrasted)
@@ -640,9 +594,7 @@ def get_element_boxes(image_data, debug):
                 debug_path, f"contoured_contrasted_image_{parameters_string}.jpg"
             )
             cv2.imwrite(contoured_contrasted_image_path, contour_image)
-            print(
-                f"DEBUG: Contoured contrasted image saved at: {contoured_contrasted_image_path}"
-            )
+            print(f"DEBUG: Contoured contrasted image saved at: {contoured_contrasted_image_path}")
 
         return contours_contrasted
 
@@ -650,9 +602,7 @@ def get_element_boxes(image_data, debug):
         import random
 
         for _ in range(10):
-            random_contrast = random.uniform(
-                1, 40
-            )  # Random contrast in range 0.5 to 1.5
+            random_contrast = random.uniform(1, 40)  # Random contrast in range 0.5 to 1.5
             random_block_size = random.choice(
                 range(1, 11, 2)
             )  # Random block size in range 1 to 10, but only odd numbers
@@ -660,9 +610,7 @@ def get_element_boxes(image_data, debug):
             random_adaptive_method = random.choice(
                 [cv2.ADAPTIVE_THRESH_MEAN_C, cv2.ADAPTIVE_THRESH_GAUSSIAN_C]
             )  # Random adaptive method
-            random_threshold_type = random.choice(
-                [cv2.THRESH_BINARY, cv2.THRESH_BINARY_INV]
-            )  # Random threshold type
+            random_threshold_type = random.choice([cv2.THRESH_BINARY, cv2.THRESH_BINARY_INV])  # Random threshold type
             random_C = random.randint(-10, 10)  # Random C in range 1 to 10
             contours_contrasted = process_image(
                 pil_image,
@@ -681,9 +629,7 @@ def get_element_boxes(image_data, debug):
         print("Random Threshold Type: ", random_threshold_type)
         print("Random C: ", random_C)
     else:
-        contours_contrasted = process_image(
-            pil_image, debug=debug, debug_path=debug_path
-        )
+        contours_contrasted = process_image(pil_image, debug=debug, debug_path=debug_path)
 
     if debug:
         print("WE HERE")
@@ -699,9 +645,7 @@ def get_element_boxes(image_data, debug):
     if debug:
         print("WE HHERE")
 
-    if (
-        False
-    ):  # Disabled. I thought this would be faster but it's actually slower than just embedding all of them.
+    if False:  # Disabled. I thought this would be faster but it's actually slower than just embedding all of them.
         # Remove any boxes whose edges cross over any contours
         filtered_boxes = []
         for box in boxes:
@@ -709,14 +653,8 @@ def get_element_boxes(image_data, debug):
             for contour in contours_contrasted:
                 if (
                     cv2.pointPolygonTest(contour, (box["x"], box["y"]), False) >= 0
-                    or cv2.pointPolygonTest(
-                        contour, (box["x"] + box["width"], box["y"]), False
-                    )
-                    >= 0
-                    or cv2.pointPolygonTest(
-                        contour, (box["x"], box["y"] + box["height"]), False
-                    )
-                    >= 0
+                    or cv2.pointPolygonTest(contour, (box["x"] + box["width"], box["y"]), False) >= 0
+                    or cv2.pointPolygonTest(contour, (box["x"], box["y"] + box["height"]), False) >= 0
                     or cv2.pointPolygonTest(
                         contour,
                         (box["x"] + box["width"], box["y"] + box["height"]),

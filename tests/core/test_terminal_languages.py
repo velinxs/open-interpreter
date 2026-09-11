@@ -126,9 +126,7 @@ class TestTerminalLanguages(unittest.TestCase):
         self.assertIsNone(ps.line_postprocessor(">>     $ErrorActionPreference = 'Stop'"))
         self.assertIsNone(ps.line_postprocessor(">> Write-Host hello"))
         # Real output is kept
-        self.assertEqual(
-            ps.line_postprocessor("Hello from PowerShell!"), "Hello from PowerShell!"
-        )
+        self.assertEqual(ps.line_postprocessor("Hello from PowerShell!"), "Hello from PowerShell!")
         self.assertEqual(ps.line_postprocessor("True"), "True")
         self.assertEqual(ps.line_postprocessor("42"), "42")
         # "PS C:\" embedded mid-line (not a prompt) is NOT filtered
@@ -161,7 +159,7 @@ class TestTerminalLanguages(unittest.TestCase):
 
             # AppleScript
             aps = AppleScript()
-            result = aps.add_active_line_indicators("do shell script \"echo hi\"")
+            result = aps.add_active_line_indicators('do shell script "echo hi"')
             self.assertNotIn("##active_line", result)
 
             # PowerShell
@@ -193,7 +191,7 @@ class TestTerminalLanguages(unittest.TestCase):
 
             # AppleScript
             aps = AppleScript()
-            result = aps.add_active_line_indicators("do shell script \"echo hi\"")
+            result = aps.add_active_line_indicators('do shell script "echo hi"')
             self.assertIn("##active_line", result)
 
             # PowerShell (single-line, no multiline constructs)
@@ -404,9 +402,7 @@ class TestTerminalLanguages(unittest.TestCase):
         """In a mixed leading block only the truly redundant plain import is dropped."""
         code = "import os\nimport numpy as np\nimport os.path\nprint(1)"
         stripped, removed = strip_redundant_imports(code, {"os"})
-        self.assertEqual(
-            stripped, "import numpy as np\nimport os.path\nprint(1)"
-        )
+        self.assertEqual(stripped, "import numpy as np\nimport os.path\nprint(1)")
         self.assertEqual(removed, ["os"])
 
     def test_strip_redundant_imports_keeps_try_except_import(self):
@@ -423,9 +419,7 @@ class TestTerminalLanguages(unittest.TestCase):
         stripped, notice = jl.strip_boilerplate("import os\nimport sys\nos.getcwd()")
         self.assertNotIn("import os", stripped)
         self.assertNotIn("import sys", stripped)
-        self.assertEqual(
-            notice, "Removed redundant imports os, sys (already imported)."
-        )
+        self.assertEqual(notice, "Removed redundant imports os, sys (already imported).")
         self.assertEqual(jl.imported_modules, {"os", "sys"})
 
     def test_jupyter_strip_boilerplate_does_not_strip_unreported_import(self):
@@ -470,9 +464,7 @@ class TestTerminalLanguages(unittest.TestCase):
         """A standalone `cd` to the tracked working directory is removed."""
         bash = Bash()
         bash.cwd = "/home/user/project"
-        self.assertEqual(
-            bash._strip_redundant_cd("cd /home/user/project\nls"), "ls"
-        )
+        self.assertEqual(bash._strip_redundant_cd("cd /home/user/project\nls"), "ls")
 
     def test_bash_cd_pwd_and_dot_not_stripped(self):
         """`cd .` is a no-op spelling LLMs don't emit — it's left alone; `cd $PWD` is stripped."""
@@ -486,16 +478,10 @@ class TestTerminalLanguages(unittest.TestCase):
         """A redundant `cd X` chained with `&&`, `;` or `&` is stripped, keeping the rest of the line."""
         bash = Bash()
         bash.cwd = "/home/user/project"
+        self.assertEqual(bash._strip_redundant_cd("cd /home/user/project && ls"), "ls")
+        self.assertEqual(bash._strip_redundant_cd("cd /home/user/project; ls -la"), "ls -la")
         self.assertEqual(
-            bash._strip_redundant_cd("cd /home/user/project && ls"), "ls"
-        )
-        self.assertEqual(
-            bash._strip_redundant_cd("cd /home/user/project; ls -la"), "ls -la"
-        )
-        self.assertEqual(
-            bash._strip_redundant_cd(
-                "cd /home/user/project & do something | something else"
-            ),
+            bash._strip_redundant_cd("cd /home/user/project & do something | something else"),
             "do something | something else",
         )
 
@@ -503,9 +489,7 @@ class TestTerminalLanguages(unittest.TestCase):
         """A `cd .` even when chained is left alone — we only strip what LLMs actually emit."""
         bash = Bash()
         bash.cwd = "/home/user/project"
-        self.assertEqual(
-            bash._strip_redundant_cd("cd . && ls"), "cd . && ls"
-        )
+        self.assertEqual(bash._strip_redundant_cd("cd . && ls"), "cd . && ls")
 
     def test_bash_cd_to_other_existing_directory_kept_and_tracked(self):
         """A `cd` to a different existing directory is kept and updates the tracked cwd."""
@@ -547,9 +531,7 @@ class TestTerminalLanguages(unittest.TestCase):
         """A quoted redundant target (`cd "/path" && cmd`) is stripped like an unquoted one."""
         bash = Bash()
         bash.cwd = "/home/user/project"
-        self.assertEqual(
-            bash._strip_redundant_cd('cd "/home/user/project" && ls'), "ls"
-        )
+        self.assertEqual(bash._strip_redundant_cd('cd "/home/user/project" && ls'), "ls")
 
     def test_bash_dangling_chain_stripped_and_noticed(self):
         """`cd X &&` with nothing after (a syntax error) is dropped and still counted in the notice."""
@@ -578,15 +560,9 @@ class TestTerminalLanguages(unittest.TestCase):
         """Chain operators without surrounding spaces (`cd X&&ls`, `cd X;ls`, `cd X&ls`) are handled."""
         bash = Bash()
         bash.cwd = "/home/user/project"
-        self.assertEqual(
-            bash._strip_redundant_cd("cd /home/user/project&&ls"), "ls"
-        )
-        self.assertEqual(
-            bash._strip_redundant_cd("cd /home/user/project;ls"), "ls"
-        )
-        self.assertEqual(
-            bash._strip_redundant_cd("cd /home/user/project&ls"), "ls"
-        )
+        self.assertEqual(bash._strip_redundant_cd("cd /home/user/project&&ls"), "ls")
+        self.assertEqual(bash._strip_redundant_cd("cd /home/user/project;ls"), "ls")
+        self.assertEqual(bash._strip_redundant_cd("cd /home/user/project&ls"), "ls")
 
     def test_bash_bare_cd_kept(self):
         """A bare `cd` (no target) goes to $HOME — kept, since we can't verify it's redundant."""
@@ -611,17 +587,13 @@ class TestTerminalLanguages(unittest.TestCase):
         """An unterminated quoted target can't be parsed — the line is kept untouched."""
         bash = Bash()
         bash.cwd = "/home/user/project"
-        self.assertEqual(
-            bash._strip_redundant_cd("cd '/home/user/project"), "cd '/home/user/project"
-        )
+        self.assertEqual(bash._strip_redundant_cd("cd '/home/user/project"), "cd '/home/user/project")
 
     def test_bash_double_redundant_cd_both_stripped(self):
         """A standalone and a chained redundant cd to the same dir are both removed."""
         bash = Bash()
         bash.cwd = "/home/user/project"
-        result = bash._strip_redundant_cd(
-            "cd /home/user/project\ncd /home/user/project && ls"
-        )
+        result = bash._strip_redundant_cd("cd /home/user/project\ncd /home/user/project && ls")
         self.assertEqual(result, "ls")
 
     def test_bash_redundant_cd_before_real_cd_keeps_real_cd(self):
@@ -639,17 +611,13 @@ class TestTerminalLanguages(unittest.TestCase):
         """A redundant target spelled with a trailing slash still resolves to the cwd and is stripped."""
         bash = Bash()
         bash.cwd = "/home/user/project"
-        self.assertEqual(
-            bash._strip_redundant_cd("cd /home/user/project/ && ls"), "ls"
-        )
+        self.assertEqual(bash._strip_redundant_cd("cd /home/user/project/ && ls"), "ls")
 
     def test_bash_cd_env_var_target_kept(self):
         """An env-var target (`cd $HOME`) is not mistaken for the cwd when it differs."""
         bash = Bash()
         bash.cwd = "/home/user/project"
-        self.assertEqual(
-            bash._strip_redundant_cd("cd $HOME && ls"), "cd $HOME && ls"
-        )
+        self.assertEqual(bash._strip_redundant_cd("cd $HOME && ls"), "cd $HOME && ls")
 
     def test_powershell_redundant_cd_stripped_with_aliases_and_case_insensitivity(self):
         """PowerShell strips `cd`/`Set-Location`/`sl` to the current dir, case-insensitively, even when chained."""
@@ -663,12 +631,8 @@ class TestTerminalLanguages(unittest.TestCase):
             ps._strip_redundant_cd("Set-Location /home/user/project && dir"),
             "dir",
         )
-        self.assertEqual(
-            ps._strip_redundant_cd("SL /home/user/project & dir"), "dir"
-        )
-        self.assertEqual(
-            ps._strip_redundant_cd("CD /home/user/project; dir"), "dir"
-        )
+        self.assertEqual(ps._strip_redundant_cd("SL /home/user/project & dir"), "dir")
+        self.assertEqual(ps._strip_redundant_cd("CD /home/user/project; dir"), "dir")
 
     def test_powershell_redundant_cd_to_other_dir_kept(self):
         """A PowerShell cd to a different existing directory is kept."""
@@ -682,12 +646,8 @@ class TestTerminalLanguages(unittest.TestCase):
         """cmd strips `cd /d` and plain `cd` to the current dir even when chained with `&`/`&&`."""
         cmd = _StubCwdShell(cd_option_prefixes=("/d",), cd_chain_operators=("&&", "&"))
         cmd.cwd = "/home/user/project"
-        self.assertEqual(
-            cmd._strip_redundant_cd("cd /d /home/user/project & dir"), "dir"
-        )
-        self.assertEqual(
-            cmd._strip_redundant_cd("cd /home/user/project && dir"), "dir"
-        )
+        self.assertEqual(cmd._strip_redundant_cd("cd /d /home/user/project & dir"), "dir")
+        self.assertEqual(cmd._strip_redundant_cd("cd /home/user/project && dir"), "dir")
 
     def test_cmd_cd_percent_cd_and_semicolon_handling(self):
         """cmd treats `%CD%` as the current dir; `;` is not a cmd separator so `cd X; ls` is kept whole."""
@@ -873,9 +833,7 @@ class TestRespondNotices(unittest.TestCase):
         interp = FakeInterpreter()
         interp.messages = messages
         interp.terminal = _FakeTerminal(instances)
-        with patch(
-            "interpreter.core.respond.assemble_system_message", return_value=""
-        ):
+        with patch("interpreter.core.respond.assemble_system_message", return_value=""):
             for chunk in respond(interp):
                 if chunk.get("type") == "confirmation":
                     return chunk

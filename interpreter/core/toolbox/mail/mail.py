@@ -8,6 +8,7 @@ from ..utils.run_applescript import run_applescript, run_applescript_capture
 
 class Mail:
     """macOS only. Mail app integration via AppleScript."""
+
     def __init__(self, toolbox):
         self.toolbox = toolbox
         # In the future, we should allow someone to specify their own mail app
@@ -26,9 +27,7 @@ class Mail:
         too_many_emails_msg = ""
         if number > 50:
             number = min(number, 50)
-            too_many_emails_msg = (
-                "This method is limited to 10 emails, returning the first 10: "
-            )
+            too_many_emails_msg = "This method is limited to 10 emails, returning the first 10: "
         # This is set up to retry if the number of emails is less than the number requested, but only a max of three times
         retries = 0  # Initialize the retry counter
         while retries < 3:
@@ -79,9 +78,7 @@ class Mail:
         delay_seconds = 5  # Default delay in seconds
 
         if attachments:
-            formatted_attachments = [
-                self.format_path_for_applescript(path) for path in attachments
-            ]
+            formatted_attachments = [self.format_path_for_applescript(path) for path in attachments]
 
             # Generate AppleScript to attach each file
             attachment_clause = "\n".join(
@@ -103,7 +100,7 @@ class Mail:
                 make new to recipient at end of to recipients with properties {{address:"{to}"}}
                 {attachment_clause}
             end tell
-            {f'delay {delay_seconds}' if attachments else ''}
+            {f"delay {delay_seconds}" if attachments else ""}
             send new_message
         end tell
         """
@@ -150,9 +147,7 @@ class Mail:
             float: Delay in seconds.
         """
         try:
-            total_size_mb = sum(
-                os.path.getsize(os.path.expanduser(att)) for att in attachments
-            ) / (1024 * 1024)
+            total_size_mb = sum(os.path.getsize(os.path.expanduser(att)) for att in attachments) / (1024 * 1024)
             # Assume 1 MBps upload speed, which is conservative on purpose
             upload_speed_mbps = 1
             estimated_time_seconds = total_size_mb / upload_speed_mbps
@@ -171,12 +166,7 @@ class Mail:
             str: Formatted path string.
         """
         # Escape backslashes, quotes, and curly braces for AppleScript
-        file_path = (
-            file_path.replace("\\", "\\\\")
-            .replace('"', '\\"')
-            .replace("{", "\\{")
-            .replace("}", "\\}")
-        )
+        file_path = file_path.replace("\\", "\\\\").replace('"', '\\"').replace("{", "\\{").replace("}", "\\}")
         # Convert to a POSIX path and quote for AppleScript
         posix_path = f'POSIX file "{file_path}"'
         return posix_path

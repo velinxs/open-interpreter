@@ -60,10 +60,7 @@ def normalize_auto_run_mode(value):
         return "allowlist"
     if value == "denylist":
         return "denylist"
-    raise ValueError(
-        f"Invalid auto_run mode: {value!r}. "
-        "Expected prompt, all, allowlist, denylist, or a boolean."
-    )
+    raise ValueError(f"Invalid auto_run mode: {value!r}. Expected prompt, all, allowlist, denylist, or a boolean.")
 
 
 def _expand_path(path):
@@ -113,8 +110,7 @@ def _validate_rule(rule, source="allowlist"):
     match_type = rule.get("match")
     if match_type not in MATCHERS:
         raise ValueError(
-            f"Unsupported match type {match_type!r} in {source}. "
-            f"Supported: {', '.join(sorted(MATCHERS))}."
+            f"Unsupported match type {match_type!r} in {source}. Supported: {', '.join(sorted(MATCHERS))}."
         )
     if not rule.get("language"):
         raise ValueError(f"Rule in {source} missing 'language'")
@@ -124,9 +120,7 @@ def _validate_rule(rule, source="allowlist"):
         try:
             re.compile(rule["pattern"])
         except re.error as error:
-            raise ValueError(
-                f"Invalid regex in {source}: {rule['pattern']!r} ({error})"
-            ) from error
+            raise ValueError(f"Invalid regex in {source}: {rule['pattern']!r} ({error})") from error
 
 
 def _rule_matches(rule, language, code):
@@ -292,9 +286,7 @@ def persist_allowlist_rule(interpreter, language, code):
 
     session_rules.append(dict(rule))
 
-    allowlist_file = _expand_path(
-        getattr(interpreter, "auto_run_allowlist_file", None) or DEFAULT_ALLOWLIST_FILE
-    )
+    allowlist_file = _expand_path(getattr(interpreter, "auto_run_allowlist_file", None) or DEFAULT_ALLOWLIST_FILE)
     os.makedirs(os.path.dirname(allowlist_file), exist_ok=True)
 
     file_rules = _load_rules_from_file(allowlist_file)

@@ -70,9 +70,7 @@ def _is_safe_cut(message):
     role = message.get("role")
     if role == "user":
         return True
-    if role == "assistant" and not message.get("function_call") and not message.get(
-        "tool_calls"
-    ):
+    if role == "assistant" and not message.get("function_call") and not message.get("tool_calls"):
         return True
     return False
 
@@ -112,11 +110,7 @@ def _find_safe_cut(messages, target_tokens, model):
         return 0
 
     for i, cost in enumerate(costs):
-        if (
-            retained <= target_tokens
-            and _is_safe_cut(messages[i])
-            and i <= last_user
-        ):
+        if retained <= target_tokens and _is_safe_cut(messages[i]) and i <= last_user:
             return i
         retained -= cost
     # Even dropping everything up to the current turn can't reach the target:
@@ -159,10 +153,7 @@ def _omission_note(messages, cut):
             last_ts = ts
     noun = "message" if count == 1 else "messages"
     if first_ts and last_ts:
-        return (
-            f"[… {count} {noun} omitted from {first_ts} to {last_ts} "
-            f"to fit context window …]"
-        )
+        return f"[… {count} {noun} omitted from {first_ts} to {last_ts} to fit context window …]"
     return f"[… {count} {noun} omitted to fit context window …]"
 
 

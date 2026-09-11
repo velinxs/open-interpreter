@@ -40,13 +40,7 @@ def conversation_navigator(interpreter):
     # Make a dict that maps reformatted "First few words... (September 23rd)" -> "First_few_words__September_23rd.json" (original file name)
     readable_names_and_filenames = {}
     for filename in json_files:
-        name = (
-            filename.replace(".json", "")
-            .replace(".JSON", "")
-            .replace("__", "... (")
-            .replace("_", " ")
-            + ")"
-        )
+        name = filename.replace(".json", "").replace(".JSON", "").replace("__", "... (").replace("_", " ") + ")"
         readable_names_and_filenames[name] = filename
 
     # Add the option to open the folder or start a new conversation. These don't map to filenames, we'll catch them
@@ -76,11 +70,7 @@ def conversation_navigator(interpreter):
             readable_names_and_filenames_list = all_names_list
             break
 
-        readable_names_and_filenames_list = [
-            name
-            for name in all_names_list
-            if search_term.lower() in name.lower()
-        ]
+        readable_names_and_filenames_list = [name for name in all_names_list if search_term.lower() in name.lower()]
         if readable_names_and_filenames_list:
             break
 
@@ -124,11 +114,7 @@ def conversation_navigator(interpreter):
 
     # Drop any prior resume alerts from saved history so we never stack
     # duplicates across resume / undo / autosave cycles.
-    interpreter.messages = [
-        m
-        for m in interpreter.messages
-        if m.get("alert_kind") != "conversation_resumed"
-    ]
+    interpreter.messages = [m for m in interpreter.messages if m.get("alert_kind") != "conversation_resumed"]
 
     current_cwd = os.getcwd()
 

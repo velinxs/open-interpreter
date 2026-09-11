@@ -33,9 +33,7 @@ def _user_ts(message, messages, *, _now=None):
     if sent_at is not None:
         if isinstance(sent_at, (int, float)):
             return datetime.fromtimestamp(sent_at).strftime("%Y-%m-%d %H:%M")
-        return datetime.fromisoformat(str(sent_at).replace("Z", "+00:00")).strftime(
-            "%Y-%m-%d %H:%M"
-        )
+        return datetime.fromisoformat(str(sent_at).replace("Z", "+00:00")).strftime("%Y-%m-%d %H:%M")
     if _now is None:
         _now = datetime.now()
     last_user = [m for m in messages if m.get("role") == "user"]
@@ -122,9 +120,7 @@ def convert_to_openai_messages(
                 or interpreter.always_apply_user_message_template
             ):
                 # Only add the template for the last message?
-                new_message["content"] = interpreter.user_message_template.replace(
-                    "{content}", message["content"]
-                )
+                new_message["content"] = interpreter.user_message_template.replace("{content}", message["content"])
             else:
                 new_message["content"] = message["content"]
 
@@ -142,9 +138,7 @@ def convert_to_openai_messages(
             if function_calling:
                 new_message["function_call"] = {
                     "name": "execute",
-                    "arguments": json.dumps(
-                        {"language": message["format"], "code": message["content"]}
-                    ),
+                    "arguments": json.dumps({"language": message["format"], "code": message["content"]}),
                     # parsed_arguments isn't actually an OpenAI thing, it's an OI thing.
                     # but it's soo useful!
                     # "parsed_arguments": {
@@ -156,9 +150,7 @@ def convert_to_openai_messages(
                 # especially for the OpenAI service hosted on Azure
                 new_message["content"] = ""
             else:
-                new_message[
-                    "content"
-                ] = f"""```{message["format"]}\n{message["content"]}\n```"""
+                new_message["content"] = f"""```{message["format"]}\n{message["content"]}\n```"""
 
         elif message["type"] == "edit":
             last_tool_name = "edit"
@@ -166,11 +158,13 @@ def convert_to_openai_messages(
             if function_calling:
                 new_message["function_call"] = {
                     "name": "edit",
-                    "arguments": json.dumps({
-                        "language": message["format"],
-                        "code": message["content"],
-                        "target": message["target"],
-                    }),
+                    "arguments": json.dumps(
+                        {
+                            "language": message["format"],
+                            "code": message["content"],
+                            "target": message["target"],
+                        }
+                    ),
                 }
                 new_message["content"] = ""
             else:
@@ -190,9 +184,7 @@ def convert_to_openai_messages(
                         print("\n\n\nStrange chunk found:", message, "\n\n\n")
                     message["content"] = str(message["content"])
                 if message["content"].strip() == "":
-                    new_message[
-                        "content"
-                    ] = "No output"  # I think it's best to be explicit, but we should test this.
+                    new_message["content"] = "No output"  # I think it's best to be explicit, but we should test this.
                 else:
                     new_message["content"] = message["content"]
 
@@ -202,17 +194,13 @@ def convert_to_openai_messages(
                     if message["content"].strip() == "":
                         content = interpreter.empty_code_output_template
                     else:
-                        content = interpreter.code_output_template.replace(
-                            "{content}", message["content"]
-                        )
+                        content = interpreter.code_output_template.replace("{content}", message["content"])
 
                     new_message["role"] = "user"
                     new_message["content"] = content
                 elif interpreter.code_output_sender == "assistant":
                     new_message["role"] = "assistant"
-                    new_message["content"] = (
-                        "\n```output\n" + message["content"] + "\n```"
-                    )
+                    new_message["content"] = "\n```output\n" + message["content"] + "\n```"
 
         elif message["type"] == "image":
             if message.get("format") == "description":
@@ -252,18 +240,14 @@ def convert_to_openai_messages(
                         if message.get("role") == "user":
                             ts = _user_ts(message, messages)
                             if ts is not None:
-                                new_message["content"].insert(
-                                    0, {"type": "text", "text": f"[{ts}] "}
-                                )
+                                new_message["content"].insert(0, {"type": "text", "text": f"[{ts}] "})
                         new_messages.append(new_message)
                         continue
                     # Convert to base64
                     extension = image_path.split(".")[-1].lower()
 
                     with open(image_path, "rb") as image_file:
-                        encoded_string = base64.b64encode(image_file.read()).decode(
-                            "utf-8"
-                        )
+                        encoded_string = base64.b64encode(image_file.read()).decode("utf-8")
 
                 else:
                     # Probably would be better to move this to a validation pass
@@ -271,17 +255,11 @@ def convert_to_openai_messages(
                     if "format" not in message:
                         raise Exception("Format of the image is not specified.")
                     else:
-                        raise Exception(
-                            f"Unrecognized image format: {message['format']}"
-                        )
+                        raise Exception(f"Unrecognized image format: {message['format']}")
 
                 content = f"data:image/{extension};base64,{encoded_string}"
                 image_was_resized = False
-                use_shrink = (
-                    message["shrink"]
-                    if "shrink" in message
-                    else shrink_images
-                )
+                use_shrink = message["shrink"] if "shrink" in message else shrink_images
 
                 if use_shrink:
                     import io
@@ -312,9 +290,7 @@ def convert_to_openai_messages(
                             # Convert the image back to base64
                             buffered = io.BytesIO()
                             img.save(buffered, format=pil_format)
-                            encoded_string = base64.b64encode(
-                                buffered.getvalue()
-                            ).decode("utf-8")
+                            encoded_string = base64.b64encode(buffered.getvalue()).decode("utf-8")
 
                             # Set the content
                             content = f"data:image/{extension};base64,{encoded_string}"
@@ -328,9 +304,7 @@ def convert_to_openai_messages(
                             if content_size_mb < 5:
                                 break
                         else:
-                            print(
-                                "Attempted to shrink the image but failed. Sending to the LLM anyway."
-                            )
+                            print("Attempted to shrink the image but failed. Sending to the LLM anyway.")
 
                 # OpenAI-style detail: high when sending full-resolution pixels; low when shrinking (smaller tokens).
                 _detail = "low" if use_shrink else "high"
@@ -354,27 +328,18 @@ def convert_to_openai_messages(
                 if message.get("format") == "path":
                     path_text = "This image is at this path: " + message["content"]
                     if image_was_resized:
-                        path_text += (
-                            " (Image was resized to fit size limits; fine detail may be reduced.)"
-                        )
-                    if any(
-                        content.get("type") == "text"
-                        for content in new_message["content"]
-                    ):
+                        path_text += " (Image was resized to fit size limits; fine detail may be reduced.)"
+                    if any(content.get("type") == "text" for content in new_message["content"]):
                         for content in new_message["content"]:
                             if content.get("type") == "text":
                                 content["text"] += "\n" + path_text
                     else:
-                        new_message["content"].append(
-                            {"type": "text", "text": path_text}
-                        )
+                        new_message["content"].append({"type": "text", "text": path_text})
 
                 if message.get("role") == "user":
                     ts = _user_ts(message, messages)
                     if ts is not None:
-                        new_message["content"].insert(
-                            0, {"type": "text", "text": f"[{ts}] "}
-                        )
+                        new_message["content"].insert(0, {"type": "text", "text": f"[{ts}] "})
 
         elif message["type"] == "view_image_call":
             # Reconstructs the assistant's view_image tool call so process_messages finds a

@@ -19,9 +19,7 @@ class R(SubprocessLanguage):
         Add end of execution marker
         """
 
-        active_line_enabled = (
-            os.environ.get("INTERPRETER_ACTIVE_LINE_DETECTION", "True").lower() == "true"
-        )
+        active_line_enabled = os.environ.get("INTERPRETER_ACTIVE_LINE_DETECTION", "True").lower() == "true"
 
         lines = code.split("\n")
         processed_lines = []
@@ -60,13 +58,9 @@ cat("##end_of_execution##\\n");
             return None
         if "R version" in line:  # Startup message
             return None
-        if line.strip().startswith('[1] "') and line.endswith(
-            '"'
-        ):  # For strings, trim quotation marks
+        if line.strip().startswith('[1] "') and line.endswith('"'):  # For strings, trim quotation marks
             return line[5:-1].strip()
-        if line.strip().startswith(
-            "[1]"
-        ):  # Normal R output prefix for non-string outputs
+        if line.strip().startswith("[1]"):  # Normal R output prefix for non-string outputs
             return line[4:].strip()
 
         return line

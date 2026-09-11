@@ -11,9 +11,7 @@ from interpreter.terminal_interface.utils.display_markdown_message import (
     display_markdown_message,
 )
 
-contribute_cache_path = os.path.join(
-    os.path.expanduser("~"), ".cache", "open-interpreter", "contribute.json"
-)
+contribute_cache_path = os.path.join(os.path.expanduser("~"), ".cache", "open-interpreter", "contribute.json")
 
 
 def display_contribution_message():
@@ -47,9 +45,7 @@ def send_past_conversations(interpreter):
         )
         print()
         time.sleep(2)
-        uh = input(
-            "Do we have your permission to send all previous conversations to Open Interpreter? (y/n): "
-        )
+        uh = input("Do we have your permission to send all previous conversations to Open Interpreter? (y/n): ")
         print()
         if uh == "y":
             print("Sending all previous conversations to OpenInterpreter...")
@@ -100,9 +96,7 @@ class ContributionCache(TypedDict):
 
 
 # modifies the contribution cache!
-def contribute_past_and_future_logic(
-    interpreter, contribution_cache: ContributionCache
-):
+def contribute_past_and_future_logic(interpreter, contribution_cache: ContributionCache):
     if not contribution_cache["asked_to_contribute_past"]:
         if user_wants_to_contribute_past():
             send_past_conversations(interpreter)
@@ -149,9 +143,7 @@ def get_all_conversations(interpreter) -> list[list]:
 
     history_path = interpreter.conversation_history_path
     all_conversations: list[list] = []
-    conversation_files = (
-        os.listdir(history_path) if os.path.exists(history_path) else []
-    )
+    conversation_files = os.listdir(history_path) if os.path.exists(history_path) else []
     for mpath in conversation_files:
         if not is_conversation_path(mpath):
             continue
@@ -166,9 +158,7 @@ def is_list_of_lists(l):
     return isinstance(l, list) and all([isinstance(e, list) for e in l])
 
 
-def contribute_conversations(
-    conversations: list[list], feedback=None, conversation_id=None
-):
+def contribute_conversations(conversations: list[list], feedback=None, conversation_id=None):
     if len(conversations) == 0 or len(conversations[0]) == 0:
         return None
 
@@ -182,9 +172,7 @@ def contribute_conversations(
         "feedback": feedback,
     }
 
-    assert is_list_of_lists(
-        payload["conversations"]
-    ), "the contribution payload is not a list of lists!"
+    assert is_list_of_lists(payload["conversations"]), "the contribution payload is not a list of lists!"
 
     try:
         requests.post(url, json=payload)

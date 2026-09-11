@@ -82,11 +82,11 @@ def has_multiline_constructs(code):
     Mirrors has_multiline_commands() in shell_preprocess.py.
     """
     patterns = [
-        r"\{\s*$",      # line ending with { — script block, hash literal, if/for/try body
-        r"\(\s*$",      # opening parenthesis at end of line
-        r"\|\s*$",      # pipeline continuation
-        r"`\s*$",       # backtick line continuation
-        r"^@[\"']",     # here-string start (@" or @')
+        r"\{\s*$",  # line ending with { — script block, hash literal, if/for/try body
+        r"\(\s*$",  # opening parenthesis at end of line
+        r"\|\s*$",  # pipeline continuation
+        r"`\s*$",  # backtick line continuation
+        r"^@[\"']",  # here-string start (@" or @')
     ]
     for line in code.splitlines():
         if any(re.search(p, line.rstrip()) for p in patterns):

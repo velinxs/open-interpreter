@@ -2,6 +2,7 @@
 This file defines the Interpreter class.
 It's the main file. `from interpreter import interpreter` will import an instance of this class.
 """
+
 import json
 import os
 import tempfile
@@ -39,9 +40,7 @@ _CONVERSATION_TITLE_TRANSCRIPT_TOTAL_CHARS = 12000
 # `%rename` sends more transcript so long threads still inform the title.
 _CONVERSATION_TITLE_TRANSCRIPT_MANUAL_TOTAL_CHARS = 250000
 
-_CONVERSATION_TITLE_TRANSCRIPT_OMITTED_MARKER = (
-    "\n\n[ … middle of conversation omitted … ]\n\n"
-)
+_CONVERSATION_TITLE_TRANSCRIPT_OMITTED_MARKER = "\n\n[ … middle of conversation omitted … ]\n\n"
 
 
 def _conversation_title_transcript_trim_to_cap(body, cap):
@@ -273,9 +272,7 @@ class OpenInterpreter:
 
     @property
     def will_contribute(self):
-        overrides = (
-            self.offline or not self.conversation_history or self.disable_telemetry
-        )
+        overrides = self.offline or not self.conversation_history or self.disable_telemetry
         return self.contribute_conversation and not overrides
 
     def _is_user_message_for_conversation_title(self, m):
@@ -320,11 +317,7 @@ class OpenInterpreter:
             clipped = self._clip_conversation_title_text(m["content"])
             lines.append(f"{label}: {clipped}")
         body = "\n\n".join(lines)
-        cap = (
-            total_char_cap
-            if total_char_cap is not None
-            else _CONVERSATION_TITLE_TRANSCRIPT_TOTAL_CHARS
-        )
+        cap = total_char_cap if total_char_cap is not None else _CONVERSATION_TITLE_TRANSCRIPT_TOTAL_CHARS
         body = _conversation_title_transcript_trim_to_cap(body, cap)
         return body
 
@@ -389,9 +382,7 @@ class OpenInterpreter:
             return ""
         return self._sanitize_conversation_title_slug(content)
 
-    def rename_conversation_file_from_llm_title(
-        self, use_full_transcript=False, manual_title=None
-    ):
+    def rename_conversation_file_from_llm_title(self, use_full_transcript=False, manual_title=None):
         """Rename the on-disk JSON (``%rename``).
 
         With no title text, asks the model using the chat transcript. With
@@ -400,31 +391,21 @@ class OpenInterpreter:
         if not self.conversation_history:
             self.display_message("> Cannot rename: conversation history is disabled.")
             return False
-        if not self.conversation_filename or not self.conversation_filename.endswith(
-            ".json"
-        ):
-            self.display_message(
-                "> No conversation file is set yet; keep chatting so a save exists."
-            )
+        if not self.conversation_filename or not self.conversation_filename.endswith(".json"):
+            self.display_message("> No conversation file is set yet; keep chatting so a save exists.")
             return False
 
         manual = (manual_title or "").strip()
         if manual:
             slug = self._sanitize_conversation_title_slug(manual)
             if not slug:
-                self.display_message(
-                    "> Could not derive a valid filename from that title."
-                )
+                self.display_message("> Could not derive a valid filename from that title.")
                 return False
         else:
             if self.offline:
                 self.display_message("> Cannot rename: offline mode.")
                 return False
-            cap = (
-                _CONVERSATION_TITLE_TRANSCRIPT_MANUAL_TOTAL_CHARS
-                if use_full_transcript
-                else None
-            )
+            cap = _CONVERSATION_TITLE_TRANSCRIPT_MANUAL_TOTAL_CHARS if use_full_transcript else None
             transcript = self._conversation_auto_title_transcript(total_char_cap=cap)
             if not transcript.strip():
                 self.display_message("> Nothing in this chat to title yet.")
@@ -441,13 +422,9 @@ class OpenInterpreter:
             date_segment = datetime.now().strftime("%B_%d_%Y_%H-%M-%S")
 
         new_filename = f"{slug}__{date_segment}.json"
-        old_path = os.path.join(
-            self.conversation_history_path, self.conversation_filename
-        )
+        old_path = os.path.join(self.conversation_history_path, self.conversation_filename)
         if not os.path.isfile(old_path):
-            self.display_message(
-                "> Conversation has not been saved to disk yet; trigger a save first."
-            )
+            self.display_message("> Conversation has not been saved to disk yet; trigger a save first.")
             return False
 
         if new_filename == self.conversation_filename:
@@ -463,15 +440,12 @@ class OpenInterpreter:
     def _maybe_upgrade_conversation_title(self, final_path):
         if self.offline or self._conversation_title_upgraded:
             return
-        if not self.conversation_filename or not self.conversation_filename.endswith(
-            ".json"
-        ):
+        if not self.conversation_filename or not self.conversation_filename.endswith(".json"):
             return
         n_user = sum(
             1
             for m in self.messages
-            if self._is_user_message_for_conversation_title(m)
-            and isinstance(m.get("content"), str)
+            if self._is_user_message_for_conversation_title(m) and isinstance(m.get("content"), str)
         )
         if n_user < _CONVERSATION_AUTO_TITLE_MIN_USER_MESSAGES:
             return
@@ -503,9 +477,7 @@ class OpenInterpreter:
         try:
             self.responding = True
             if self.anonymous_telemetry:
-                message_type = type(
-                    message
-                ).__name__  # Only send message type, no content
+                message_type = type(message).__name__  # Only send message type, no content
                 send_telemetry(
                     "started_chat",
                     properties={
@@ -606,9 +578,7 @@ class OpenInterpreter:
                 # If it's the first message, set the conversation name
                 if not self.conversation_filename:
                     first_few_words_list = self.messages[0]["content"][:25].split(" ")
-                    if (
-                        len(first_few_words_list) >= 2
-                    ):  # for languages like English with blank between words
+                    if len(first_few_words_list) >= 2:  # for languages like English with blank between words
                         first_few_words = "_".join(first_few_words_list[:-1])
                     else:  # for languages like Chinese without blank between words
                         first_few_words = self.messages[0]["content"][:15]
@@ -616,9 +586,7 @@ class OpenInterpreter:
                         first_few_words = first_few_words.replace(char, "")
 
                     date = datetime.now().strftime("%B_%d_%Y_%H-%M-%S")
-                    self.conversation_filename = (
-                        "__".join([first_few_words, date]) + ".json"
-                    )
+                    self.conversation_filename = "__".join([first_few_words, date]) + ".json"
 
                 # Check if the directory exists, if not, create it
                 if not os.path.exists(self.conversation_history_path):
@@ -631,9 +599,7 @@ class OpenInterpreter:
                 # Persist conversation even if the consumer stops reading the stream early.
                 # This makes conversation saving robust to Ctrl-C and early UI breaks.
                 if self.conversation_history and self.conversation_filename:
-                    final_path = os.path.join(
-                        self.conversation_history_path, self.conversation_filename
-                    )
+                    final_path = os.path.join(self.conversation_history_path, self.conversation_filename)
                     # Write atomically to avoid partially-written files on interruption.
                     fd, tmp_path = tempfile.mkstemp(
                         prefix=f".{self.conversation_filename}.",
@@ -687,16 +653,12 @@ class OpenInterpreter:
                 # meaningful (e.g. grep with no matches) and must be added so the LLM
                 # sees that the command ran, preventing it from re-proposing the same code.
                 if chunk.get("content") == "" and not (
-                    chunk.get("type") == "console"
-                    and chunk.get("format") == "output"
+                    chunk.get("type") == "console" and chunk.get("format") == "output"
                 ):
                     continue
 
                 # If active_line is None, we finished running code.
-                if (
-                    chunk.get("format") == "active_line"
-                    and chunk.get("content", "") == None
-                ):
+                if chunk.get("format") == "active_line" and chunk.get("content", "") == None:
                     # If output wasn't yet produced, add an empty output
                     if self.messages[-1]["role"] != "computer":
                         self.messages.append(
@@ -781,10 +743,7 @@ class OpenInterpreter:
                     and last_flag_base["type"] == chunk["type"]
                     and (
                         "format" not in last_flag_base
-                        or (
-                            "format" in chunk
-                            and chunk["format"] == last_flag_base["format"]
-                        )
+                        or ("format" in chunk and chunk["format"] == last_flag_base["format"])
                     )
                 ):
                     # If they match, append the chunk's content to the current message's content
@@ -793,10 +752,7 @@ class OpenInterpreter:
                         if any(
                             [
                                 (property in self.messages[-1])
-                                and (
-                                    self.messages[-1].get(property)
-                                    != chunk.get(property)
-                                )
+                                and (self.messages[-1].get(property) != chunk.get(property))
                                 for property in ["role", "type", "format"]
                             ]
                         ):
@@ -825,9 +781,7 @@ class OpenInterpreter:
 
                 # Truncate output if it's console output
                 if chunk["type"] == "console" and chunk["format"] == "output":
-                    spill_note = self._record_full_output(
-                        self.messages[-1], chunk["content"]
-                    )
+                    spill_note = self._record_full_output(self.messages[-1], chunk["content"])
                     self.messages[-1]["content"] = truncate_output(
                         self.messages[-1]["content"],
                         self.max_output,
@@ -846,9 +800,7 @@ class OpenInterpreter:
 
     def _spill_file_path(self):
         if self._spill_path is None:
-            self._spill_path = os.path.join(
-                tempfile.gettempdir(), f"oi_outputs_{os.getpid()}.log"
-            )
+            self._spill_path = os.path.join(tempfile.gettempdir(), f"oi_outputs_{os.getpid()}.log")
         return self._spill_path
 
     def _open_spill(self, path):
@@ -907,11 +859,7 @@ class OpenInterpreter:
                     # First overflow for this block: append a header after
                     # whatever earlier blocks are already in the file.
                     f.seek(0, os.SEEK_END)
-                    f.write(
-                        f"\n===== OI OUTPUT BLOCK {index} =====\n".encode(
-                            "utf-8", errors="replace"
-                        )
-                    )
+                    f.write(f"\n===== OI OUTPUT BLOCK {index} =====\n".encode("utf-8", errors="replace"))
                 else:
                     # Resume where the body ended, overwriting the old footer.
                     f.seek(self._spill_body_end)

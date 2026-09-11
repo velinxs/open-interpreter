@@ -37,9 +37,7 @@ class CodeBlock(BaseBlock):
         self.live = create_live_display(self.live.console)
 
         self.type = "code"
-        self.highlight_active_line = (
-            interpreter.highlight_active_line if interpreter else None
-        )
+        self.highlight_active_line = interpreter.highlight_active_line if interpreter else None
 
         # Define these for IDE auto-completion
         self.language = ""
@@ -99,7 +97,7 @@ class CodeBlock(BaseBlock):
         if self.code.strip():
             self._print_permanent_block(self.code, "code")
             # Update code_lines_popped to maintain relative line numbering
-            self.code_lines_popped += len(self.code.split('\n'))
+            self.code_lines_popped += len(self.code.split("\n"))
             self.code = ""
 
         if self.output.strip():
@@ -116,9 +114,7 @@ class CodeBlock(BaseBlock):
             syntax_language = self._syntax_language()
 
             # We use a table to allow for potential line-specific styling if needed
-            code_table = Table(
-                show_header=False, show_footer=False, box=None, padding=0, expand=True
-            )
+            code_table = Table(show_header=False, show_footer=False, box=None, padding=0, expand=True)
             code_table.add_column()
 
             code_lines = content.strip().split("\n")
@@ -162,6 +158,7 @@ class CodeBlock(BaseBlock):
 
         if was_started:
             from ..utils.streaming_markdown import create_live_display
+
             self.live = create_live_display(self.live.console)
             self.live.start()
 
@@ -198,7 +195,7 @@ class CodeBlock(BaseBlock):
         # We know it's finished streaming if self.active_line is not None OR self.output has content.
         if not should_highlight and self.code.strip() and (self.active_line is not None or self.output.strip()):
             self._print_permanent_block(self.code, "code")
-            self.code_lines_popped += len(self.code.split('\n'))
+            self.code_lines_popped += len(self.code.split("\n"))
             self.code = ""
 
         # Execution stdout/stderr is plain text, not markdown. detect_complete_block()
@@ -214,17 +211,13 @@ class CodeBlock(BaseBlock):
         # or this is a write edit preview (content is the target file body).
         write_preview = self.language == "write" and self.target_path
         # write previews need syntax even when active_line highlighting is off.
-        use_syntax_panel = self.code.strip() and (
-            write_preview or (should_highlight and self.active_line is not None)
-        )
+        use_syntax_panel = self.code.strip() and (write_preview or (should_highlight and self.active_line is not None))
         if use_syntax_panel:
             # Get code
             code = self.code
 
             # Create a table for the code
-            code_table = Table(
-                show_header=False, show_footer=False, box=None, padding=0, expand=True
-            )
+            code_table = Table(show_header=False, show_footer=False, box=None, padding=0, expand=True)
             code_table.add_column()
 
             # Add cursor only if active line highliting is true
@@ -238,9 +231,7 @@ class CodeBlock(BaseBlock):
             for i, line in enumerate(code_lines, start=1):
                 if i == self.active_line:
                     # This is the active line, print it with a white background
-                    syntax = Syntax(
-                        line, syntax_language, theme="bw", line_numbers=False, word_wrap=True
-                    )
+                    syntax = Syntax(line, syntax_language, theme="bw", line_numbers=False, word_wrap=True)
                     code_table.add_row(syntax, style="black on white")
                 else:
                     # This is not the active line, print it normally
@@ -271,10 +262,11 @@ class CodeBlock(BaseBlock):
             if self.output.strip():
                 viewport_lines = calculate_window_size(self.live.console, self.viewport_fraction)
                 viewport_lines = max(viewport_lines, 3)
-                output_lines = self.output.strip().split('\n')
+                output_lines = self.output.strip().split("\n")
 
                 formatted_output = create_sliding_window_display(
-                    self.live.console, output_lines, viewport_lines, width_offset=6)
+                    self.live.console, output_lines, viewport_lines, width_offset=6
+                )
 
                 # Escape so Rich does not interpret [brackets] as markup
                 output_panel = Panel(formatted_output, box=MINIMAL, style="#FFFFFF on #3b3b37")
@@ -298,11 +290,11 @@ class CodeBlock(BaseBlock):
         # Prepare streaming buffer lines
         buffer_lines = []
         if self.code.strip():
-            buffer_lines.extend(self.code.strip().split('\n'))
+            buffer_lines.extend(self.code.strip().split("\n"))
         if self.output.strip():
             if buffer_lines:
-                buffer_lines.append("") # Spacer
-            buffer_lines.extend(self.output.strip().split('\n'))
+                buffer_lines.append("")  # Spacer
+            buffer_lines.extend(self.output.strip().split("\n"))
 
         # Calculate viewport size
         viewport_lines = calculate_window_size(self.live.console, self.viewport_fraction)
@@ -310,7 +302,8 @@ class CodeBlock(BaseBlock):
 
         # Create sliding window display
         formatted_buffer = create_sliding_window_display(
-            self.live.console, buffer_lines, viewport_lines, width_offset=6)
+            self.live.console, buffer_lines, viewport_lines, width_offset=6
+        )
 
         # Add cursor if requested
         if cursor:
@@ -344,4 +337,3 @@ class CodeBlock(BaseBlock):
         # Update the live display
         self.live.update(Padding(Group(*group_items), PADDING_PANEL))
         self.live.refresh()
-

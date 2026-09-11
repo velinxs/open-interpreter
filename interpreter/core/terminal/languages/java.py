@@ -36,12 +36,12 @@ class Java(SubprocessLanguage):
     def run(self, code):
         try:
             # Extract the class name from the code
-            match = re.search(r'class\s+(\w+)', code)
+            match = re.search(r"class\s+(\w+)", code)
             if not match:
                 yield {
                     "type": "console",
                     "format": "output",
-                    "content": "Error: No class definition found in the provided code."
+                    "content": "Error: No class definition found in the provided code.",
                 }
                 return
 
@@ -49,33 +49,23 @@ class Java(SubprocessLanguage):
             file_name = f"{class_name}.java"
 
             # Write the Java code to a file, preserving newlines
-            with open(file_name, "w", newline='\n') as file:
+            with open(file_name, "w", newline="\n") as file:
                 file.write(code)
 
             # Compile the Java code
             compile_process = subprocess.Popen(
-                ["javac", file_name],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True
+                ["javac", file_name], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
             )
 
             stdout, stderr = compile_process.communicate()
 
             if compile_process.returncode != 0:
-                yield {
-                    "type": "console",
-                    "format": "output",
-                    "content": f"Compilation Error:\n{stderr}"
-                }
+                yield {"type": "console", "format": "output", "content": f"Compilation Error:\n{stderr}"}
                 return
 
             # Run the compiled Java code
             run_process = subprocess.Popen(
-                ["java", class_name],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True
+                ["java", class_name], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
             )
 
             stdout_thread = threading.Thread(
@@ -115,11 +105,7 @@ class Java(SubprocessLanguage):
                         break
 
         except Exception as e:
-            yield {
-                "type": "console",
-                "format": "output",
-                "content": f"{traceback.format_exc()}"
-            }
+            yield {"type": "console", "format": "output", "content": f"{traceback.format_exc()}"}
         finally:
             # Clean up the generated Java files
             if os.path.exists(file_name):
@@ -128,13 +114,12 @@ class Java(SubprocessLanguage):
             if os.path.exists(class_file):
                 os.remove(class_file)
 
+
 def preprocess_java(code):
     """
     Add active line markers (when enabled) and end of execution marker.
     """
-    active_line_enabled = (
-        os.environ.get("INTERPRETER_ACTIVE_LINE_DETECTION", "True").lower() == "true"
-    )
+    active_line_enabled = os.environ.get("INTERPRETER_ACTIVE_LINE_DETECTION", "True").lower() == "true"
 
     lines = code.split("\n")
     processed_lines = []

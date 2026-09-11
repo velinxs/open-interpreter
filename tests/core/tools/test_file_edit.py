@@ -34,6 +34,8 @@ class TestEditLanguagesRegistry(unittest.TestCase):
         self.assertIn("patch", EDIT_LANGUAGES)
         self.assertNotIn("perl", EDIT_LANGUAGES)
         self.assertNotIn("ed", EDIT_LANGUAGES)
+
+
 class TestValidateTarget(unittest.TestCase):
     def test_requires_absolute_path(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -114,14 +116,10 @@ class TestRunSed(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             target = os.path.join(tmp, "demo.txt")
             run_write(target, "foo\n")
-            with mock.patch(
-                "interpreter.core.tools.file_edit.subprocess.run"
-            ) as run_mock:
+            with mock.patch("interpreter.core.tools.file_edit.subprocess.run") as run_mock:
                 completed = mock.Mock(returncode=0, stdout=b"bar\n", stderr=b"")
                 run_mock.return_value = completed
-                with mock.patch(
-                    "interpreter.core.tools.file_edit._atomic_replace_from_stdout"
-                ) as replace_mock:
+                with mock.patch("interpreter.core.tools.file_edit._atomic_replace_from_stdout") as replace_mock:
                     run_sed(target, "s/foo/bar/")
             args = run_mock.call_args[0][0]
             self.assertNotIn("-i", args)
@@ -170,15 +168,9 @@ class TestRunJq(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             target = os.path.join(tmp, "data.json")
             run_write(target, '{"a":1}\n')
-            with mock.patch(
-                "interpreter.core.tools.file_edit.subprocess.run"
-            ) as run_mock:
-                run_mock.return_value = mock.Mock(
-                    returncode=0, stdout=b'{"a":2}\n', stderr=b""
-                )
-                with mock.patch(
-                    "interpreter.core.tools.file_edit._atomic_replace_from_stdout"
-                ) as replace_mock:
+            with mock.patch("interpreter.core.tools.file_edit.subprocess.run") as run_mock:
+                run_mock.return_value = mock.Mock(returncode=0, stdout=b'{"a":2}\n', stderr=b"")
+                with mock.patch("interpreter.core.tools.file_edit._atomic_replace_from_stdout") as replace_mock:
                     run_jq(target, ".a = 2")
             replace_mock.assert_called_once_with(target, b'{"a":2}\n')
 
@@ -191,7 +183,7 @@ class TestRunGawk(unittest.TestCase):
             run_write(target, "hello world\n")
             run_gawk(
                 target,
-                "{\n  gsub(/world/, \"earth\")\n  print\n}\n",
+                '{\n  gsub(/world/, "earth")\n  print\n}\n',
             )
             self.assertEqual(open(target, encoding="utf-8").read(), "hello earth\n")
 
@@ -199,12 +191,8 @@ class TestRunGawk(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             target = os.path.join(tmp, "lines.txt")
             run_write(target, "hello\n")
-            with mock.patch(
-                "interpreter.core.tools.file_edit.subprocess.run"
-            ) as run_mock:
-                run_mock.return_value = mock.Mock(
-                    returncode=0, stdout="", stderr=""
-                )
+            with mock.patch("interpreter.core.tools.file_edit.subprocess.run") as run_mock:
+                run_mock.return_value = mock.Mock(returncode=0, stdout="", stderr="")
                 run_gawk(target, "{ print }")
             _, kwargs = run_mock.call_args
             self.assertEqual(kwargs["cwd"], str(Path(target).parent))
@@ -278,15 +266,9 @@ class TestRunYq(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             target = os.path.join(tmp, "config.yaml")
             run_write(target, "port: 8080\n")
-            with mock.patch(
-                "interpreter.core.tools.file_edit._run_yq_eval"
-            ) as eval_mock:
-                eval_mock.return_value = mock.Mock(
-                    returncode=0, stdout=b"port: 9090\n", stderr=b""
-                )
-                with mock.patch(
-                    "interpreter.core.tools.file_edit._atomic_replace_from_stdout"
-                ) as replace_mock:
+            with mock.patch("interpreter.core.tools.file_edit._run_yq_eval") as eval_mock:
+                eval_mock.return_value = mock.Mock(returncode=0, stdout=b"port: 9090\n", stderr=b"")
+                with mock.patch("interpreter.core.tools.file_edit._atomic_replace_from_stdout") as replace_mock:
                     run_yq(target, ".port = 9090")
             replace_mock.assert_called_once_with(target, b"port: 9090\n")
 
@@ -298,12 +280,7 @@ class TestRunPatch(unittest.TestCase):
             target = os.path.join(tmp, "demo.txt")
             run_write(target, "foo\nbar\n")
             diff = (
-                f"--- {os.path.basename(target)}\n"
-                f"+++ {os.path.basename(target)}\n"
-                "@@ -1,2 +1,2 @@\n"
-                "-foo\n"
-                "+baz\n"
-                " bar\n"
+                f"--- {os.path.basename(target)}\n+++ {os.path.basename(target)}\n@@ -1,2 +1,2 @@\n-foo\n+baz\n bar\n"
             )
             run_patch(target, diff)
             self.assertEqual(open(target, encoding="utf-8").read(), "baz\nbar\n")
@@ -312,19 +289,13 @@ class TestRunPatch(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             target = os.path.join(tmp, "demo.txt")
             run_write(target, "foo\n")
-            with mock.patch(
-                "interpreter.core.tools.file_edit.subprocess.run"
-            ) as run_mock:
-                run_mock.return_value = mock.Mock(
-                    returncode=0, stdout=b"", stderr=b""
-                )
+            with mock.patch("interpreter.core.tools.file_edit.subprocess.run") as run_mock:
+                run_mock.return_value = mock.Mock(returncode=0, stdout=b"", stderr=b"")
                 run_patch(
                     target,
                     f"--- {Path(target).name}\n+++ {Path(target).name}\n",
                 )
-            self.assertEqual(
-                run_mock.call_args.kwargs["cwd"], str(Path(target).parent)
-            )
+            self.assertEqual(run_mock.call_args.kwargs["cwd"], str(Path(target).parent))
 
 
 @unittest.skipUnless(shutil.which("comby"), "comby not installed")

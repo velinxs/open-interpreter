@@ -43,9 +43,7 @@ def get_google_search_results(query):
     time.sleep(2)  # Allow page to load
 
     results = []
-    search_results = driver.find_elements(By.CSS_SELECTOR, "div.g")[
-        :5
-    ]  # Limit to top 5 results
+    search_results = driver.find_elements(By.CSS_SELECTOR, "div.g")[:5]  # Limit to top 5 results
 
     for result in search_results:
         title_element = result.find_element(By.CSS_SELECTOR, "h3")
@@ -63,9 +61,7 @@ results = get_google_search_results(search_query)
 
 # Use concurrent futures to fetch text content in parallel
 with concurrent.futures.ThreadPoolExecutor() as executor:
-    future_to_url = {
-        executor.submit(fetch_page_text, result["link"]): result for result in results
-    }
+    future_to_url = {executor.submit(fetch_page_text, result["link"]): result for result in results}
     for future in concurrent.futures.as_completed(future_to_url):
         url = future_to_url[future]
         try:
@@ -74,4 +70,4 @@ with concurrent.futures.ThreadPoolExecutor() as executor:
                 f"Title: {url['title']}\nURL: {url['link']}\nText: {page_text[:500]}...\n"
             )  # Print the first 500 characters
         except Exception as exc:
-            print(f'{url["link"]} generated an exception: {exc}')
+            print(f"{url['link']} generated an exception: {exc}")

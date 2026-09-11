@@ -102,9 +102,9 @@ class MessageBlock(BaseBlock):
             self.completed_blocks.append(content)
 
             # Remove the rendered block from buffer using line numbers
-            lines = self.buffer.split('\n')
+            lines = self.buffer.split("\n")
             remaining_lines = lines[next_line_begin:]
-            self.buffer = '\n'.join(remaining_lines)
+            self.buffer = "\n".join(remaining_lines)
 
             # If we removed content, refresh the viewport with remaining content
             if remaining_lines:
@@ -127,8 +127,13 @@ class MessageBlock(BaseBlock):
 
             # Create sliding window display for the buffer
             formatted_buffer = create_sliding_window_display(
-                self.live.console, self.buffer.split('\n'), viewport_lines, self.debug,
-                base_style="cyan" if self.reasoning_mode else None, width_offset=width_offset)
+                self.live.console,
+                self.buffer.split("\n"),
+                viewport_lines,
+                self.debug,
+                base_style="cyan" if self.reasoning_mode else None,
+                width_offset=width_offset,
+            )
 
             # Add cursor if requested
             if cursor and isinstance(formatted_buffer, Text):

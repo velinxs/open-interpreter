@@ -4,14 +4,7 @@ import unittest
 from pathlib import Path
 
 # Project root: tests/core/terminal -> parents[3]
-REPL_PATH = (
-    Path(__file__).resolve().parents[3]
-    / "interpreter"
-    / "core"
-    / "terminal"
-    / "languages"
-    / "perl_repl.pl"
-)
+REPL_PATH = Path(__file__).resolve().parents[3] / "interpreter" / "core" / "terminal" / "languages" / "perl_repl.pl"
 
 
 @unittest.skipUnless(shutil.which("perl"), "perl not installed")
@@ -42,7 +35,7 @@ class TestPerlReplScript(unittest.TestCase):
 
     def test_marker_with_cr_suffix_still_completes(self):
         """chomp on __OI_END__ must accept CRLF markers (Windows text=True bug)."""
-        out, _, rc = self._communicate_block("print \"ok\n\";", extra_marker_bytes=b"\r")
+        out, _, rc = self._communicate_block('print "ok\n";', extra_marker_bytes=b"\r")
         self.assertEqual(rc, 0)
         self.assertIn("ok", out)
         self.assertIn("##end_of_execution##", out)
@@ -55,7 +48,7 @@ class TestPerlReplScript(unittest.TestCase):
             stderr=subprocess.PIPE,
             bufsize=0,
         )
-        proc.stdin.write(b'$counter = 41;\n__OI_END__\n')
+        proc.stdin.write(b"$counter = 41;\n__OI_END__\n")
         proc.stdin.write(b'$counter++;\nprint "$counter\n";\n__OI_END__\n')
         proc.stdin.flush()
         out, err = proc.communicate(timeout=10)

@@ -19,12 +19,8 @@ from rich.panel import Panel
 def local_setup(interpreter, provider=None, model=None):
     def download_model(models_dir, models, interpreter):
         # Get RAM and disk information
-        total_ram = psutil.virtual_memory().total / (
-            1024 * 1024 * 1024
-        )  # Convert bytes to GB
-        free_disk_space = psutil.disk_usage("/").free / (
-            1024 * 1024 * 1024
-        )  # Convert bytes to GB
+        total_ram = psutil.virtual_memory().total / (1024 * 1024 * 1024)  # Convert bytes to GB
+        free_disk_space = psutil.disk_usage("/").free / (1024 * 1024 * 1024)  # Convert bytes to GB
 
         # Display the users hardware specs
         interpreter.display_message(
@@ -40,9 +36,7 @@ def local_setup(interpreter, provider=None, model=None):
                 "\nYour computer could handle a mid-sized model (4-10GB), Mistral-7B might be the best model for your computer.\n"
             )
         else:
-            interpreter.display_message(
-                "\nYour computer should have enough RAM to run any model below.\n"
-            )
+            interpreter.display_message("\nYour computer should have enough RAM to run any model below.\n")
 
         interpreter.display_message(
             "In general, the larger the model, the better the performance, but choose a model that best fits your computer's hardware. \nOnly models you have the storage space to download are shown:\n"
@@ -126,18 +120,13 @@ def local_setup(interpreter, provider=None, model=None):
 
             # Filter models based on available disk space and RAM
             filtered_models = [
-                model
-                for model in model_list
-                if model["size"] <= free_disk_space and model["file_name"] not in models
+                model for model in model_list if model["size"] <= free_disk_space and model["file_name"] not in models
             ]
             if filtered_models:
                 time.sleep(1)
 
                 # Prompt the user to select a model
-                model_choices = [
-                    f"{model['name']} ({model['size']:.2f}GB)"
-                    for model in filtered_models
-                ]
+                model_choices = [f"{model['name']} ({model['size']:.2f}GB)" for model in filtered_models]
                 questions = [
                     inquirer.List(
                         "model",
@@ -152,9 +141,7 @@ def local_setup(interpreter, provider=None, model=None):
 
                 # Get the selected model
                 selected_model = next(
-                    model
-                    for model in filtered_models
-                    if f"{model['name']} ({model['size']}GB)" == answers["model"]
+                    model for model in filtered_models if f"{model['name']} ({model['size']}GB)" == answers["model"]
                 )
 
                 # Download the selected model
@@ -180,9 +167,7 @@ def local_setup(interpreter, provider=None, model=None):
 
                 return model_path
             else:
-                print(
-                    "\nYour computer does not have enough storage to download any local LLMs.\n"
-                )
+                print("\nYour computer does not have enough storage to download any local LLMs.\n")
                 return None
         except Exception as e:
             print(e)
@@ -192,9 +177,7 @@ def local_setup(interpreter, provider=None, model=None):
             return None
 
     # START OF LOCAL MODEL PROVIDER LOGIC
-    interpreter.display_message(
-        "\n**Open Interpreter** supports multiple local model providers.\n"
-    )
+    interpreter.display_message("\n**Open Interpreter** supports multiple local model providers.\n")
 
     # Define the choices for local models
     choices = [
@@ -241,32 +224,22 @@ def local_setup(interpreter, provider=None, model=None):
     elif selected_model == "Ollama":
         try:
             # List out all downloaded ollama models. Will fail if ollama isn't installed
-            result = subprocess.run(
-                ["ollama", "list"], capture_output=True, text=True, check=True
-            )
+            result = subprocess.run(["ollama", "list"], capture_output=True, text=True, check=True)
             lines = result.stdout.split("\n")
 
             names = [
                 line.split()[0].replace(":latest", "")
                 for line in lines
-                if line.strip()
-                and not line.startswith("failed")
-                and not line.startswith("NAME")
+                if line.strip() and not line.startswith("failed") and not line.startswith("NAME")
             ]  # Extract names, trim out ":latest", skip header
 
             # Models whose name contain one of these keywords will be moved to the front of the list
             priority_models = ["llama3", "codestral"]
             priority_models_found = []
             for word in priority_models:
-                models_to_move = [
-                    name for name in names if word.lower() in name.lower()
-                ]
+                models_to_move = [name for name in names if word.lower() in name.lower()]
                 priority_models_found.extend(models_to_move)
-            names = [
-                name
-                for name in names
-                if not any(word.lower() in name.lower() for word in priority_models)
-            ]
+            names = [name for name in names if not any(word.lower() in name.lower() for word in priority_models)]
             names = priority_models_found + names
 
             for model in ["llama3.1", "phi3", "mistral-nemo", "gemma2", "codestral"]:
@@ -295,9 +268,7 @@ def local_setup(interpreter, provider=None, model=None):
                 interpreter.display_message(f"\nDownloading {model}...\n")
                 subprocess.run(["ollama", "pull", model], check=True)
             elif "Browse Models ↗" in selected_name:
-                interpreter.display_message(
-                    "Opening [ollama.com/library](ollama.com/library)."
-                )
+                interpreter.display_message("Opening [ollama.com/library](ollama.com/library).")
                 import webbrowser
 
                 webbrowser.open("https://ollama.com/library")
@@ -334,21 +305,24 @@ def local_setup(interpreter, provider=None, model=None):
         except Exception as e:
             # Handle API errors from LiteLLM with rich display
             error_str = str(e)
-            if isinstance(e, (
-                # LiteLLM exception variants
-                getattr(litellm, "APIError", Exception),
-                getattr(litellm, "OpenAIError", Exception),
-                litellm.exceptions.APIError,
-                litellm.exceptions.OpenAIError,
-                litellm.exceptions.NotFoundError,
-                litellm.exceptions.BadRequestError,
-                litellm.exceptions.RateLimitError,
-                litellm.exceptions.AuthenticationError,
-                getattr(litellm.exceptions, "APIConnectionError", Exception),
-                # OpenAI Python client variants (defensive, in case they leak through)
-                getattr(openai, "APIError", Exception),
-                getattr(openai, "OpenAIError", Exception),
-            )):
+            if isinstance(
+                e,
+                (
+                    # LiteLLM exception variants
+                    getattr(litellm, "APIError", Exception),
+                    getattr(litellm, "OpenAIError", Exception),
+                    litellm.exceptions.APIError,
+                    litellm.exceptions.OpenAIError,
+                    litellm.exceptions.NotFoundError,
+                    litellm.exceptions.BadRequestError,
+                    litellm.exceptions.RateLimitError,
+                    litellm.exceptions.AuthenticationError,
+                    getattr(litellm.exceptions, "APIConnectionError", Exception),
+                    # OpenAI Python client variants (defensive, in case they leak through)
+                    getattr(openai, "APIError", Exception),
+                    getattr(openai, "OpenAIError", Exception),
+                ),
+            ):
                 # Display error in a rich panel
                 rich_print(Panel.fit(error_str, title="[red]Error", border_style="red"))
                 sys.exit(1)
@@ -406,17 +380,13 @@ def local_setup(interpreter, provider=None, model=None):
 
     elif selected_model == "Llamafile":
         if platform.system() == "Darwin":  # Check if the system is MacOS
-            result = subprocess.run(
-                ["xcode-select", "-p"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT
-            )
+            result = subprocess.run(["xcode-select", "-p"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
             if result.returncode != 0:
                 interpreter.display_message(
                     "To use Llamafile, Open Interpreter requires Mac users to have Xcode installed. You can install Xcode from https://developer.apple.com/xcode/ .\n\nAlternatively, you can use `LM Studio`, `Jan.ai`, or `Ollama` to manage local language models. Learn more at https://docs.openinterpreter.com/guides/running-locally ."
                 )
                 time.sleep(3)
-                raise Exception(
-                    "Xcode is not installed. Please install Xcode and try again."
-                )
+                raise Exception("Xcode is not installed. Please install Xcode and try again.")
 
         # Define the path to the models directory
         models_dir = os.path.join(interpreter.get_oi_dir(), "models")
@@ -429,9 +399,7 @@ def local_setup(interpreter, provider=None, model=None):
         models = [f for f in os.listdir(models_dir) if f.endswith(".llamafile")]
 
         if not models:
-            print(
-                "\nNo models currently downloaded. Please select a new model to download.\n"
-            )
+            print("\nNo models currently downloaded. Please select a new model to download.\n")
             model_path = download_model(models_dir, models, interpreter)
         else:
             # Prompt the user to select a downloaded model or download a new one
@@ -482,9 +450,7 @@ def local_setup(interpreter, provider=None, model=None):
         model_name = model_path.split("/")[-1]
         interpreter.display_message(f"> Model set to `{model_name}`")
 
-    user_ram = psutil.virtual_memory().total / (
-        1024 * 1024 * 1024
-    )  # Convert bytes to GB
+    user_ram = psutil.virtual_memory().total / (1024 * 1024 * 1024)  # Convert bytes to GB
     # Set context window and max tokens for all local models based on the users available RAM
     if user_ram and user_ram > 9:
         interpreter.llm.max_tokens = 1200

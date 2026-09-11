@@ -144,27 +144,22 @@ def test_denylist_python_rules():
     interpreter = _interpreter(auto_run_mode="denylist")
     assert should_require_execution_confirmation_for_code(interpreter, "python", "print(1)") is False
     assert (
-        should_require_execution_confirmation_for_code(
-            interpreter, "python", "import shutil; shutil.rmtree('/data')"
-        )
+        should_require_execution_confirmation_for_code(interpreter, "python", "import shutil; shutil.rmtree('/data')")
         is True
     )
 
 
 def test_denylist_file_rules(tmp_path):
     denylist_file = tmp_path / "denylist.yaml"
-    denylist_file.write_text(
-        "rules:\n"
-        "  - language: bash\n"
-        "    match: regex\n"
-        "    pattern: 'terraform\\s+destroy'\n"
-    )
+    denylist_file.write_text("rules:\n  - language: bash\n    match: regex\n    pattern: 'terraform\\s+destroy'\n")
     interpreter = _interpreter(
         auto_run_mode="denylist",
         auto_run_denylist_file=str(denylist_file),
     )
     assert should_require_execution_confirmation_for_code(interpreter, "bash", "terraform plan") is False
-    assert should_require_execution_confirmation_for_code(interpreter, "bash", "terraform destroy -auto-approve") is True
+    assert (
+        should_require_execution_confirmation_for_code(interpreter, "bash", "terraform destroy -auto-approve") is True
+    )
 
 
 def test_denylist_is_ignored_in_yolo_mode():

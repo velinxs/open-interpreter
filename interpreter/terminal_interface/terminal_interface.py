@@ -91,11 +91,7 @@ def _display_edit_dry_run(output, *, interpreter, target, edit_language, ok=True
     if not output:
         return
     # File-format highlighting only for successful previews; errors are plain text.
-    fence_lang = (
-        syntax_lang_for_dry_run(target, edit_language)
-        if ok
-        else "text"
-    )
+    fence_lang = syntax_lang_for_dry_run(target, edit_language) if ok else "text"
     fence = "````" if "```" in output else "```"
     block = f"{fence}{fence_lang}\n{output}\n{fence}"
     if interpreter.plain_text_display:
@@ -116,14 +112,8 @@ def terminal_interface(interpreter, message):
     # Auto run and offline (this.. this isn't right) don't display messages.
     # Probably worth abstracting this to something like "debug_cli" at some point.
     # If (len(interpreter.messages) == 1), they probably used the advanced "i {command}" entry, so no message should be displayed.
-    if (
-        interpreter.auto_run_mode != "all"
-        and not interpreter.offline
-        and not (len(interpreter.messages) == 1)
-    ):
-        interpreter_intro_message = [
-            "**Open Interpreter** will require approval before running code."
-        ]
+    if interpreter.auto_run_mode != "all" and not interpreter.offline and not (len(interpreter.messages) == 1):
+        interpreter_intro_message = ["**Open Interpreter** will require approval before running code."]
 
         if interpreter.auto_run_mode == "allowlist":
             interpreter_intro_message.append(
@@ -132,8 +122,7 @@ def terminal_interface(interpreter, message):
 
         if interpreter.auto_run_mode == "denylist":
             interpreter_intro_message.append(
-                "**Denylist mode**: everything runs without approval "
-                "*except* commands matching a denylist rule."
+                "**Denylist mode**: everything runs without approval *except* commands matching a denylist rule."
             )
 
         if interpreter.safe_mode == "ask" or interpreter.safe_mode == "auto":
@@ -173,11 +162,7 @@ def terminal_interface(interpreter, message):
             else:
                 ### This is the primary input for Open Interpreter.
                 try:
-                    message = (
-                        cli_input("> ").strip()
-                        if interpreter.multi_line
-                        else input("> ").strip()
-                    )
+                    message = cli_input("> ").strip() if interpreter.multi_line else input("> ").strip()
                 except (KeyboardInterrupt, EOFError):
                     # Treat Ctrl-D on an empty line the same as Ctrl-C by exiting gracefully
                     interpreter.display_message("\n\n`Exiting...`")
@@ -207,15 +192,10 @@ def terminal_interface(interpreter, message):
                 print("Please exit this conversation, then run `interpreter --local`.")
                 continue
             if message.strip() == "pip install --upgrade open-interpreter":
-                print(
-                    "Please exit this conversation, then run `pip install --upgrade open-interpreter`."
-                )
+                print("Please exit this conversation, then run `pip install --upgrade open-interpreter`.")
                 continue
 
-            if (
-                interpreter.llm.supports_vision
-                or interpreter.llm.vision_renderer != None
-            ):
+            if interpreter.llm.supports_vision or interpreter.llm.vision_renderer != None:
                 # Is the input a path to an image? Like they just dragged it into the terminal?
                 image_paths = find_image_path(message)
 
@@ -225,30 +205,21 @@ def terminal_interface(interpreter, message):
                     _content = RichText()
                     for p in image_paths:
                         _content.append(p + "\n")
-                    _any_large = any(
-                        image_path_exceeds_shrink_threshold(p) for p in image_paths
-                    )
+                    _any_large = any(image_path_exceeds_shrink_threshold(p) for p in image_paths)
                     if _any_large:
                         _content.append(
-                            "\nf = upload full resolution\n"
-                            "r = upload with resize if large\n"
-                            "n = don't upload"
+                            "\nf = upload full resolution\nr = upload with resize if large\nn = don't upload"
                         )
                         _panel = Panel(_content, title="Image Detected", box=ROUNDED, padding=(0, 1))
                         _console.print(RichPadding(_panel, PADDING_PANEL))
                         response = _prompt_or_skip("  ", ("f", "r", "n"))
                     else:
-                        _content.append(
-                            "\ny = upload image\n"
-                            "n = don't upload"
-                        )
+                        _content.append("\ny = upload image\nn = don't upload")
                         _panel = Panel(_content, title="Image Detected", box=ROUNDED, padding=(0, 1))
                         _console.print(RichPadding(_panel, PADDING_PANEL))
                         response = _prompt_or_skip("  ", ("y", "n"))
 
-                    if (_any_large and response in ("f", "r")) or (
-                        not _any_large and response == "y"
-                    ):
+                    if (_any_large and response in ("f", "r")) or (not _any_large and response == "y"):
                         _shrink = _any_large and response == "r"
                         # Add the text message to interpreter's message history
                         interpreter.messages.append(
@@ -300,10 +271,7 @@ def terminal_interface(interpreter, message):
                 # Comply with PyAutoGUI fail-safe for OS mode
                 # so people can turn it off by moving their mouse to a corner
                 if interpreter.os:
-                    if (
-                        chunk.get("format") == "output"
-                        and "failsafeexception" in chunk["content"].lower()
-                    ):
+                    if chunk.get("format") == "output" and "failsafeexception" in chunk["content"].lower():
                         print("Fail-safe triggered (mouse in one of the four corners).")
                         break
 
@@ -316,29 +284,24 @@ def terminal_interface(interpreter, message):
                     paths = chunk.get("paths") or []
                     if paths:
                         max_len = 72
+
                         def _truncate(p):
-                            return p if len(p) <= max_len else p[: (max_len // 2) - 2] + "..." + p[-(max_len // 2) + 1 :]
+                            return (
+                                p if len(p) <= max_len else p[: (max_len // 2) - 2] + "..." + p[-(max_len // 2) + 1 :]
+                            )
+
                         _console = RichConsole(emoji=False)
                         _content = RichText()
                         for p in paths:
                             _content.append(_truncate(p) + "\n")
-                        _large = any(
-                            image_path_exceeds_shrink_threshold(p) for p in paths
-                        )
+                        _large = any(image_path_exceeds_shrink_threshold(p) for p in paths)
                         if _large:
-                            _content.append(
-                                "\nf = show full resolution\n"
-                                "r = show with resize if large\n"
-                                "n = don't show"
-                            )
+                            _content.append("\nf = show full resolution\nr = show with resize if large\nn = don't show")
                             _panel = Panel(_content, title="View Image Request", box=ROUNDED, padding=(0, 1))
                             _console.print(RichPadding(_panel, PADDING_PANEL))
                             response = _prompt_or_skip("  ", ("f", "r", "n"))
                         else:
-                            _content.append(
-                                "\ny = show image\n"
-                                "n = don't show"
-                            )
+                            _content.append("\ny = show image\nn = don't show")
                             _panel = Panel(_content, title="View Image Request", box=ROUNDED, padding=(0, 1))
                             _console.print(RichPadding(_panel, PADDING_PANEL))
                             response = _prompt_or_skip("  ", ("y", "n"))
@@ -370,7 +333,7 @@ def terminal_interface(interpreter, message):
                         # rather than at a clean line boundary — causing the subsequent
                         # input("> ") prompt to appear on the wrong line.
                         if active_block and not interpreter.plain_text_display:
-                            if hasattr(active_block, 'finalize'):
+                            if hasattr(active_block, "finalize"):
                                 active_block.finalize()
                             active_block.end()
                             active_block = None
@@ -479,9 +442,7 @@ def terminal_interface(interpreter, message):
                             declined_notice = NO_APPROVER_NOTICE
 
                         if response == "a":
-                            rule, added = persist_allowlist_rule(
-                                interpreter, language, code
-                            )
+                            rule, added = persist_allowlist_rule(interpreter, language, code)
                             if added:
                                 print(
                                     f'  Added to allowlist: {rule["language"]} exact "{rule["pattern"]}"',
@@ -506,7 +467,12 @@ def terminal_interface(interpreter, message):
                             active_block.margin_top = False  # <- Aesthetic choice
                             active_block.language = language
 
-                            should_highlight = interpreter.highlight_active_line if hasattr(interpreter, 'highlight_active_line') and interpreter.highlight_active_line is not None else True
+                            should_highlight = (
+                                interpreter.highlight_active_line
+                                if hasattr(interpreter, "highlight_active_line")
+                                and interpreter.highlight_active_line is not None
+                                else True
+                            )
                             if should_highlight:
                                 active_block.code = code
                             # If should_highlight is False and the code hasn't been edited,
@@ -559,9 +525,7 @@ def terminal_interface(interpreter, message):
                                             os.startfile(tmp_path, "edit")
                                         except OSError:
                                             notepad = os.path.join(
-                                                os.environ.get(
-                                                    "SystemRoot", r"C:\Windows"
-                                                ),
+                                                os.environ.get("SystemRoot", r"C:\Windows"),
                                                 "System32",
                                                 "notepad.exe",
                                             )
@@ -581,13 +545,13 @@ def terminal_interface(interpreter, message):
                                             break
                                     else:
                                         # No editor found - show error and pause
-                                        print("\n" + "="*60)
+                                        print("\n" + "=" * 60)
                                         print("ERROR: Could not find a suitable text editor.")
                                         print("Please set one of these environment variables:")
                                         print("  - VISUAL (preferred, e.g., gedit, kate)")
                                         print("  - EDITOR (e.g., nano, vi)")
                                         print("Or install one of: gedit, kate, nano, vi")
-                                        print("="*60 + "\n")
+                                        print("=" * 60 + "\n")
                                         input("Press Enter to continue without editing...")
                                         continue
 
@@ -697,7 +661,7 @@ def terminal_interface(interpreter, message):
 
                 # Handle special chunk to stop Live display before error panel
                 if chunk.get("type") == "stop_live_display":
-                    if active_block and hasattr(active_block, 'live') and active_block.live.is_started:
+                    if active_block and hasattr(active_block, "live") and active_block.live.is_started:
                         active_block.live.stop()
                     continue
 
@@ -718,7 +682,7 @@ def terminal_interface(interpreter, message):
                         ):
                             active_block.sync_stored_code(stored["content"])
 
-                    if hasattr(active_block, 'finalize'):
+                    if hasattr(active_block, "finalize"):
                         active_block.finalize()
                     else:
                         active_block.refresh(cursor=False)
@@ -748,46 +712,42 @@ def terminal_interface(interpreter, message):
                                 active_block.add_content(chunk["content"])
 
                     if "end" in chunk and interpreter.os:
-                            last_message = interpreter.messages[-1]["content"]
+                        last_message = interpreter.messages[-1]["content"]
 
-                            # Remove markdown lists and the line above markdown lists
-                            lines = last_message.split("\n")
-                            i = 0
-                            while i < len(lines):
-                                # Match markdown lists starting with hyphen, asterisk or number
-                                if re.match(r"^\s*([-*]|\d+\.)\s", lines[i]):
-                                    del lines[i]
-                                    if i > 0:
-                                        del lines[i - 1]
-                                        i -= 1
-                                else:
-                                    i += 1
-                            message = "\n".join(lines)
-                            # Replace newlines with spaces, escape double quotes and backslashes
-                            sanitized_message = (
-                                message.replace("\\", "\\\\")
-                                .replace("\n", " ")
-                                .replace('"', '\\"')
-                            )
-
-                            # Display notification in OS mode
-                            interpreter.toolbox.os.notify(sanitized_message)
-
-                            # Speak message aloud
-                            if platform.system() == "Darwin" and interpreter.speak_messages:
-                                if voice_subprocess:
-                                    voice_subprocess.terminate()
-                                voice_subprocess = subprocess.Popen(
-                                    [
-                                        "osascript",
-                                        "-e",
-                                        f'say "{sanitized_message}" using "Fred"',
-                                    ]
-                                )
+                        # Remove markdown lists and the line above markdown lists
+                        lines = last_message.split("\n")
+                        i = 0
+                        while i < len(lines):
+                            # Match markdown lists starting with hyphen, asterisk or number
+                            if re.match(r"^\s*([-*]|\d+\.)\s", lines[i]):
+                                del lines[i]
+                                if i > 0:
+                                    del lines[i - 1]
+                                    i -= 1
                             else:
-                                pass
-                                # User isn't on a Mac, so we can't do this. You should tell them something about that when they first set this up.
-                                # Or use a universal TTS library.
+                                i += 1
+                        message = "\n".join(lines)
+                        # Replace newlines with spaces, escape double quotes and backslashes
+                        sanitized_message = message.replace("\\", "\\\\").replace("\n", " ").replace('"', '\\"')
+
+                        # Display notification in OS mode
+                        interpreter.toolbox.os.notify(sanitized_message)
+
+                        # Speak message aloud
+                        if platform.system() == "Darwin" and interpreter.speak_messages:
+                            if voice_subprocess:
+                                voice_subprocess.terminate()
+                            voice_subprocess = subprocess.Popen(
+                                [
+                                    "osascript",
+                                    "-e",
+                                    f'say "{sanitized_message}" using "Fred"',
+                                ]
+                            )
+                        else:
+                            pass
+                            # User isn't on a Mac, so we can't do this. You should tell them something about that when they first set this up.
+                            # Or use a universal TTS library.
 
                 # Assistant code blocks
                 elif chunk["role"] == "assistant" and chunk["type"] == "code":
@@ -830,14 +790,12 @@ def terminal_interface(interpreter, message):
                         continue
 
                     # Never display HTML/JS in browser, just show as plain text
-                    if ("format" in chunk and (chunk["format"] == "html" or chunk["format"] == "javascript")):
+                    if "format" in chunk and (chunk["format"] == "html" or chunk["format"] == "javascript"):
                         print(chunk["content"])
                         continue
 
                     assistant_code_blocks = [
-                        m
-                        for m in interpreter.messages
-                        if m.get("role") == "assistant" and m.get("type") == "code"
+                        m for m in interpreter.messages if m.get("role") == "assistant" and m.get("type") == "code"
                     ]
                     if assistant_code_blocks:
                         code = assistant_code_blocks[-1].get("content")
@@ -879,21 +837,15 @@ def terminal_interface(interpreter, message):
                         )
                     else:
                         # If the last message is a console output, simply append the extra output to it
-                        interpreter.messages[-1]["content"] += (
-                            "\n" + extra_computer_output
-                        )
-                        interpreter.messages[-1]["content"] = interpreter.messages[-1][
-                            "content"
-                        ].strip()
+                        interpreter.messages[-1]["content"] += "\n" + extra_computer_output
+                        interpreter.messages[-1]["content"] = interpreter.messages[-1]["content"].strip()
 
                 # Console
                 if chunk["type"] == "console":
                     render_cursor = False
                     if "format" in chunk and chunk["format"] == "output":
                         active_block.output += "\n" + chunk["content"]
-                        active_block.output = (
-                            active_block.output.strip()
-                        )  # ^ Aesthetic choice
+                        active_block.output = active_block.output.strip()  # ^ Aesthetic choice
 
                         # Truncate output
                         active_block.output = truncate_output(
@@ -950,9 +902,7 @@ def terminal_interface(interpreter, message):
                                         text_or_icon = "icon"
                                     else:
                                         text_or_icon = "text"
-                                    if (
-                                        "click" in active_block.code
-                                    ):  # This could be better
+                                    if "click" in active_block.code:  # This could be better
                                         description = f"Clicking {text_or_icon}..."
                                     else:
                                         description = f"Mousing over {text_or_icon}..."
@@ -993,10 +943,7 @@ def terminal_interface(interpreter, message):
 
             # Only exit when the user chose "n" at the API retry prompt (not when
             # they declined to run code). respond() sets _stopped_retrying in that case.
-            if (
-                interactive
-                and getattr(interpreter, "_stopped_retrying", False)
-            ):
+            if interactive and getattr(interpreter, "_stopped_retrying", False):
                 interpreter._stopped_retrying = False
                 if interpreter.messages and interpreter.messages[-1].get("role") == "user":
                     interpreter.messages.pop()

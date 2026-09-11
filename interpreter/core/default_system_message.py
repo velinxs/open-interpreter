@@ -16,7 +16,7 @@ def get_location_info():
     try:
         local_tz = datetime.now().astimezone().tzinfo
         tz_name = str(local_tz)
-        utc_offset = time.strftime('%z')
+        utc_offset = time.strftime("%z")
         location_parts.append(f"- Timezone: {tz_name} (UTC{utc_offset})\n")
     except Exception:
         pass
@@ -27,19 +27,18 @@ def get_location_info():
         import urllib.request
 
         # Use a fast, free geolocation API with short timeout
-        response = urllib.request.urlopen('http://ip-api.com/json/', timeout=1)
+        response = urllib.request.urlopen("http://ip-api.com/json/", timeout=1)
         data = json.loads(response.read().decode())
 
-        if data.get('status') == 'success':
-            country = data.get('country', '')
+        if data.get("status") == "success":
+            country = data.get("country", "")
             if country:
-                location_parts.insert(
-                    0, f"- Country: {country} (estimated from IP address)")
+                location_parts.insert(0, f"- Country: {country} (estimated from IP address)")
     except Exception:
         # Silently fail if no internet or API is down
         pass
 
-    return '\n'.join(location_parts) if location_parts else "Location: Unknown"
+    return "\n".join(location_parts) if location_parts else "Location: Unknown"
 
 
 _cli_lang = "cmd" if platform.system() == "Windows" else "bash"

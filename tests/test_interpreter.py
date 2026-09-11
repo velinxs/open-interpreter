@@ -26,7 +26,7 @@ TEST_API_KEY_ENV = os.environ.get("TEST_API_KEY_ENV", "OPENAI_API_KEY")  # Which
 # Skip tests that require LLM API access when no API key is available
 requires_api_key = pytest.mark.skipif(
     not os.environ.get(TEST_API_KEY_ENV),
-    reason=f"No {TEST_API_KEY_ENV} available - requires LLM access (models: {TEST_MODEL_MINI}/{TEST_MODEL_MAIN})"
+    reason=f"No {TEST_API_KEY_ENV} available - requires LLM access (models: {TEST_MODEL_MINI}/{TEST_MODEL_MAIN})",
 )
 #####
 
@@ -51,9 +51,7 @@ def _wait_for_tcp(host, port, timeout=45.0, interval=0.25):
         except OSError as e:
             last_err = e
             time.sleep(interval)
-    raise RuntimeError(
-        f"Nothing accepted connections on {host}:{port} within {timeout}s (last error: {last_err!r})"
-    )
+    raise RuntimeError(f"Nothing accepted connections on {host}:{port} within {timeout}s (last error: {last_err!r})")
 
 
 def test_hallucinations():
@@ -75,9 +73,7 @@ def test_hallucinations():
 
     code = """10+12executeexecute\n"""
 
-    interpreter.messages = [
-        {"role": "assistant", "type": "code", "format": "python", "content": code}
-    ]
+    interpreter.messages = [{"role": "assistant", "type": "code", "format": "python", "content": code}]
     _assert_first_substantive_output("22")
 
     code = """{
@@ -85,9 +81,7 @@ def test_hallucinations():
     "code": "10+12"
   }"""
 
-    interpreter.messages = [
-        {"role": "assistant", "type": "code", "format": "python", "content": code}
-    ]
+    interpreter.messages = [{"role": "assistant", "type": "code", "format": "python", "content": code}]
     _assert_first_substantive_output("22")
 
     code = """functions.execute({
@@ -95,16 +89,12 @@ def test_hallucinations():
     "code": "10+12"
   })"""
 
-    interpreter.messages = [
-        {"role": "assistant", "type": "code", "format": "python", "content": code}
-    ]
+    interpreter.messages = [{"role": "assistant", "type": "code", "format": "python", "content": code}]
     _assert_first_substantive_output("22")
 
     code = """{language: "python", code: "print('hello')" }"""
 
-    interpreter.messages = [
-        {"role": "assistant", "type": "code", "format": "python", "content": code}
-    ]
+    interpreter.messages = [{"role": "assistant", "type": "code", "format": "python", "content": code}]
     _assert_first_substantive_output("hello")
 
 
@@ -157,15 +147,11 @@ def test_authenticated_acknowledging_breaking_server():
                 "system_message": "You are a poem writing bot. Do not do anything but respond with a poem.",
                 "auto_run": True,
             }
-            response = requests.post(
-                post_url, json=settings, headers={"X-API-KEY": "testing"}
-            )
+            response = requests.post(post_url, json=settings, headers={"X-API-KEY": "testing"})
             print("POST request sent, response:", response.json())
 
             # Sending messages via WebSocket
-            await websocket.send(
-                json.dumps({"role": "user", "type": "message", "start": True})
-            )
+            await websocket.send(json.dumps({"role": "user", "type": "message", "start": True}))
             await websocket.send(
                 json.dumps(
                     {
@@ -175,9 +161,7 @@ def test_authenticated_acknowledging_breaking_server():
                     }
                 )
             )
-            await websocket.send(
-                json.dumps({"role": "user", "type": "message", "end": True})
-            )
+            await websocket.send(json.dumps({"role": "user", "type": "message", "end": True}))
             print("WebSocket chunks sent")
 
             max_chunks = 5
@@ -202,12 +186,7 @@ def test_authenticated_acknowledging_breaking_server():
                     "type": "status",
                     "content": "complete",
                 }:
-                    raise (
-                        Exception(
-                            "It shouldn't have finished this soon, poem is: "
-                            + poem
-                        )
-                    )
+                    raise (Exception("It shouldn't have finished this soon, poem is: " + poem))
 
             await websocket.close()
             print("Disconnected from WebSocket")
@@ -352,9 +331,7 @@ def test_server():
             print("POST request sent, response:", response.json())
 
             # Sending messages via WebSocket
-            await websocket.send(
-                json.dumps({"role": "user", "type": "message", "start": True})
-            )
+            await websocket.send(json.dumps({"role": "user", "type": "message", "start": True}))
             await websocket.send(
                 json.dumps(
                     {
@@ -364,9 +341,7 @@ def test_server():
                     }
                 )
             )
-            await websocket.send(
-                json.dumps({"role": "user", "type": "message", "end": True})
-            )
+            await websocket.send(json.dumps({"role": "user", "type": "message", "end": True}))
             print("WebSocket chunks sent")
 
             # Wait for a specific response
@@ -393,9 +368,7 @@ def test_server():
             print("POST request sent, response:", response.json())
 
             # Sending messages via WebSocket
-            await websocket.send(
-                json.dumps({"role": "user", "type": "message", "start": True})
-            )
+            await websocket.send(json.dumps({"role": "user", "type": "message", "start": True}))
             await websocket.send(
                 json.dumps(
                     {
@@ -405,9 +378,7 @@ def test_server():
                     }
                 )
             )
-            await websocket.send(
-                json.dumps({"role": "user", "type": "message", "end": True})
-            )
+            await websocket.send(json.dumps({"role": "user", "type": "message", "end": True}))
             print("WebSocket chunks sent")
 
             # Wait for a specific response
@@ -427,9 +398,7 @@ def test_server():
             print("POST request sent, response:", response.json())
 
             # Sending messages via WebSocket
-            await websocket.send(
-                json.dumps({"role": "user", "type": "message", "start": True})
-            )
+            await websocket.send(json.dumps({"role": "user", "type": "message", "start": True}))
             await websocket.send(
                 json.dumps(
                     {
@@ -439,9 +408,7 @@ def test_server():
                     }
                 )
             )
-            await websocket.send(
-                json.dumps({"role": "user", "type": "message", "end": True})
-            )
+            await websocket.send(json.dumps({"role": "user", "type": "message", "end": True}))
             print("WebSocket chunks sent")
 
             # Wait for response
@@ -463,9 +430,7 @@ def test_server():
             assert "18893094989" not in accumulated_content.replace(",", "")
 
             # Send go message
-            await websocket.send(
-                json.dumps({"role": "user", "type": "command", "start": True})
-            )
+            await websocket.send(json.dumps({"role": "user", "type": "command", "start": True}))
             await websocket.send(
                 json.dumps(
                     {
@@ -475,9 +440,7 @@ def test_server():
                     }
                 )
             )
-            await websocket.send(
-                json.dumps({"role": "user", "type": "command", "end": True})
-            )
+            await websocket.send(json.dumps({"role": "user", "type": "command", "end": True}))
 
             # Wait for a specific response
             accumulated_content = await wait_for_websocket_complete(websocket)
@@ -699,8 +662,7 @@ def test_generator():
         flag_checker = []
 
         for chunk in interpreter.chat(
-            tests["query"]
-            + "\nNo talk or plan, just immediately code, then tell me the answer.",
+            tests["query"] + "\nNo talk or plan, just immediately code, then tell me the answer.",
             stream=True,
             display=True,
         ):
@@ -721,42 +683,28 @@ def test_generator():
             if chunk["role"] == "computer" and chunk["type"] == "console":
                 console_output_found = True
             if "format" in chunk:
-                if (
-                    chunk["role"] == "computer"
-                    and chunk["type"] == "console"
-                    and chunk["format"] == "active_line"
-                ):
+                if chunk["role"] == "computer" and chunk["type"] == "console" and chunk["format"] == "active_line":
                     active_line_found = True
 
         # Ensure all flags are proper
-        assert (
-            flag_checker.count(
-                {"role": "assistant", "type": "code", "format": "python", "start": True}
-            )
-            == 1
-        ), "Incorrect number of 'assistant code start' flags"
-        assert (
-            flag_checker.count(
-                {"role": "assistant", "type": "code", "format": "python", "end": True}
-            )
-            == 1
-        ), "Incorrect number of 'assistant code end' flags"
-        assert (
-            flag_checker.count({"role": "assistant", "type": "message", "start": True})
-            == 1
-        ), "Incorrect number of 'assistant message start' flags"
-        assert (
-            flag_checker.count({"role": "assistant", "type": "message", "end": True})
-            == 1
-        ), "Incorrect number of 'assistant message end' flags"
-        assert (
-            flag_checker.count({"role": "computer", "type": "console", "start": True})
-            == 1
-        ), "Incorrect number of 'computer console output start' flags"
-        assert (
-            flag_checker.count({"role": "computer", "type": "console", "end": True})
-            == 1
-        ), "Incorrect number of 'computer console output end' flags"
+        assert flag_checker.count({"role": "assistant", "type": "code", "format": "python", "start": True}) == 1, (
+            "Incorrect number of 'assistant code start' flags"
+        )
+        assert flag_checker.count({"role": "assistant", "type": "code", "format": "python", "end": True}) == 1, (
+            "Incorrect number of 'assistant code end' flags"
+        )
+        assert flag_checker.count({"role": "assistant", "type": "message", "start": True}) == 1, (
+            "Incorrect number of 'assistant message start' flags"
+        )
+        assert flag_checker.count({"role": "assistant", "type": "message", "end": True}) == 1, (
+            "Incorrect number of 'assistant message end' flags"
+        )
+        assert flag_checker.count({"role": "computer", "type": "console", "start": True}) == 1, (
+            "Incorrect number of 'computer console output start' flags"
+        )
+        assert flag_checker.count({"role": "computer", "type": "console", "end": True}) == 1, (
+            "Incorrect number of 'computer console output end' flags"
+        )
 
         # Assert that assistant message, console output, and active line were found
         assert assistant_message_found, "No assistant message was found"
@@ -817,9 +765,7 @@ def test_skills():
     import sys
 
     if sys.version_info[:2] == (3, 12):
-        print(
-            "skills.search is only for python 3.11 for now, because it depends on unstructured. skipping this test."
-        )
+        print("skills.search is only for python 3.11 for now, because it depends on unstructured. skipping this test.")
         return
 
     import json
@@ -866,9 +812,7 @@ def test_skills():
 @pytest.mark.skip(reason="Local only")
 def test_browser():
     interpreter.toolbox.api_base = "http://0.0.0.0:80/v0"
-    print(
-        interpreter.toolbox.browser.search("When's the next Dune showing in Seattle?")
-    )
+    print(interpreter.toolbox.browser.search("When's the next Dune showing in Seattle?"))
     assert False
 
 
@@ -961,9 +905,7 @@ def test_websocket_server():
     ws = create_connection("ws://localhost:8000/")
 
     # Send the first message
-    ws.send(
-        "Hello, interpreter! What operating system are you on? Also, what time is it in Seattle?"
-    )
+    ws.send("Hello, interpreter! What operating system are you on? Also, what time is it in Seattle?")
     # Wait for a moment before sending the second message
     time.sleep(1)
     ws.send("Actually, nevermind. Thank you!")
@@ -1020,9 +962,7 @@ def test_async():
 @pytest.mark.skip(reason="Computer with display only + no way to fail test")
 def test_find_text_api():
     start = time.time()
-    interpreter.toolbox.mouse.move(
-        "Left Arrow Left Arrow and a bunch of hallucinated text? or was it..."
-    )
+    interpreter.toolbox.mouse.move("Left Arrow Left Arrow and a bunch of hallucinated text? or was it...")
     # Left Arrow Left Arrow
     # and a bunch of hallucinated text? or was it...
     print(time.time() - start)
@@ -1086,9 +1026,7 @@ def setup_function():
     interpreter.verbose = False
 
 
-@pytest.mark.skip(
-    reason="Not working consistently, I think GPT related changes? It worked recently"
-)
+@pytest.mark.skip(reason="Not working consistently, I think GPT related changes? It worked recently")
 @requires_api_key
 def test_long_message():
     messages = [
@@ -1176,9 +1114,7 @@ def test_hello_world():
 
     messages = interpreter.chat(hello_world_message)
 
-    assert messages == [
-        {"role": "assistant", "type": "message", "content": hello_world_response}
-    ]
+    assert messages == [{"role": "assistant", "type": "message", "content": hello_world_response}]
 
 
 @pytest.mark.integration
@@ -1287,9 +1223,7 @@ def test_write_to_file():
     assert path.read_text(encoding="utf-8") == "Washington"
 
     interpreter.messages = []  # Just reset message history, nothing else for this test
-    interpreter.chat(
-        f"Read the file at {path_str!r} with Python via execute and print() its exact text."
-    )
+    interpreter.chat(f"Read the file at {path_str!r} with Python via execute and print() its exact text.")
     assert path.read_text(encoding="utf-8") == "Washington"
 
 
@@ -1306,29 +1240,21 @@ def test_reset():
 
 
 def test_token_counter():
-    system_tokens = count_tokens(
-        text=interpreter.system_message, model=interpreter.llm.model
-    )
+    system_tokens = count_tokens(text=interpreter.system_message, model=interpreter.llm.model)
 
     prompt = "How many tokens is this?"
 
     prompt_tokens = count_tokens(text=prompt, model=interpreter.llm.model)
 
-    messages = [
-        {"role": "system", "message": interpreter.system_message}
-    ] + interpreter.messages
+    messages = [{"role": "system", "message": interpreter.system_message}] + interpreter.messages
 
-    system_token_test = count_messages_tokens(
-        messages=messages, model=interpreter.llm.model
-    )
+    system_token_test = count_messages_tokens(messages=messages, model=interpreter.llm.model)
 
     system_tokens_ok = system_tokens == system_token_test[0]
 
     messages.append({"role": "user", "message": prompt})
 
-    prompt_token_test = count_messages_tokens(
-        messages=messages, model=interpreter.llm.model
-    )
+    prompt_token_test = count_messages_tokens(messages=messages, model=interpreter.llm.model)
 
     prompt_tokens_ok = system_tokens + prompt_tokens == prompt_token_test[0]
 

@@ -16,9 +16,7 @@ db_password = os.environ.get("DB_PASSWORD", "")
 
 # Construct connection string with optional password
 if db_password and db_password.strip():
-    connection_string = (
-        f"postgresql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
-    )
+    connection_string = f"postgresql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
 else:
     connection_string = f"postgresql://{db_user}@{db_host}:{db_port}/{db_name}"
 

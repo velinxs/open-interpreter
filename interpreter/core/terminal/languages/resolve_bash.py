@@ -35,6 +35,4 @@ def resolve_bash_executable():
     if os.path.isfile("/bin/bash"):
         return "/bin/bash"
 
-    raise FileNotFoundError(
-        "bash not found. Install bash or set INTERPRETER_BASH to its full path."
-    )
+    raise FileNotFoundError("bash not found. Install bash or set INTERPRETER_BASH to its full path.")

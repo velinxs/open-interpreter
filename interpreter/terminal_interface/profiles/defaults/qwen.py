@@ -19,10 +19,10 @@ Now, your turn:""".strip()
 
 # Message templates
 interpreter.code_output_template = """I executed that code. This was the output: \n\n{content}\n\nWhat does this output mean? I can't understand it, please help / what code needs to be run next (if anything, or are we done with my query)?"""
-interpreter.empty_code_output_template = "I executed your code snippet. It produced no text output. What's next (if anything, or are we done?)"
-interpreter.user_message_template = (
-    "Write a ```python code snippet that would answer this query: `{content}`"
+interpreter.empty_code_output_template = (
+    "I executed your code snippet. It produced no text output. What's next (if anything, or are we done?)"
 )
+interpreter.user_message_template = "Write a ```python code snippet that would answer this query: `{content}`"
 interpreter.code_output_sender = "user"
 
 # LLM settings

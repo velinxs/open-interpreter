@@ -21,9 +21,7 @@ def get_active_window():
         )
 
         active_app = NSWorkspace.sharedWorkspace().activeApplication()
-        for window in CGWindowListCopyWindowInfo(
-            kCGWindowListOptionOnScreenOnly, kCGNullWindowID
-        ):
+        for window in CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly, kCGNullWindowID):
             if window["kCGWindowOwnerName"] == active_app["NSApplicationName"]:
                 return {
                     "region": window["kCGWindowBounds"],

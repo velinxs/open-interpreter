@@ -16,16 +16,13 @@ def render_message(interpreter, message):
         # If the part is enclosed in {{ and }}
         if part.startswith("{{") and part.endswith("}}"):
             # Run the code inside the brackets
-            output = interpreter.terminal.run(
-                "python", part[2:-2].strip(), display=interpreter.verbose
-            )
+            output = interpreter.terminal.run("python", part[2:-2].strip(), display=interpreter.verbose)
 
             # Extract the output content
             outputs = (
                 line["content"]
                 for line in output
-                if line.get("format") == "output"
-                and "IGNORE_ALL_ABOVE_THIS_LINE" not in line["content"]
+                if line.get("format") == "output" and "IGNORE_ALL_ABOVE_THIS_LINE" not in line["content"]
             )
 
             # Replace the part with the output

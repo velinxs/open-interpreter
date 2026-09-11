@@ -123,8 +123,6 @@ def format_last_usage_markdown(usage: dict) -> str:
         body.append("\n```\n")
 
     if not body:
-        body.append(
-            f"```json\n{json.dumps(_usage_details_for_display(_to_plain(usage)), indent=2)}\n```\n"
-        )
+        body.append(f"```json\n{json.dumps(_usage_details_for_display(_to_plain(usage)), indent=2)}\n```\n")
 
     return header + "".join(body)

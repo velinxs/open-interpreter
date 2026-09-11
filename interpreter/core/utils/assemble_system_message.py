@@ -10,9 +10,7 @@ def assemble_system_message(interpreter):
             system_message += "\n\n" + language.system_message
 
     if interpreter.custom_instructions:
-        system_message += (
-            "\n\n## User's Custom Instructions\n\n" + interpreter.custom_instructions
-        )
+        system_message += "\n\n## User's Custom Instructions\n\n" + interpreter.custom_instructions
 
     server_request_system = getattr(interpreter, "_server_request_system", None)
     if server_request_system:

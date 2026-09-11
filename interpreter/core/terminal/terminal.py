@@ -67,7 +67,7 @@ class Terminal:
     def sudo_install(self, package):
         try:
             # First, try to install without sudo
-            subprocess.run(['apt', 'install', '-y', package], check=True)
+            subprocess.run(["apt", "install", "-y", package], check=True)
         except subprocess.CalledProcessError:
             # If it fails, try with sudo
             print(f"Installation of {package} requires sudo privileges.")
@@ -76,9 +76,7 @@ class Terminal:
             try:
                 # Use sudo with password
                 subprocess.run(
-                    ['sudo', '-S', 'apt', 'install', '-y', package],
-                    input=sudo_password.encode(),
-                    check=True
+                    ["sudo", "-S", "apt", "install", "-y", package], input=sudo_password.encode(), check=True
                 )
                 print(f"Successfully installed {package}")
             except subprocess.CalledProcessError as e:
@@ -107,11 +105,10 @@ class Terminal:
         the injection actually succeeded before marking it as done.
         """
         import importlib
+
         interpreter_module = importlib.import_module("interpreter")
-        interpreter_pkg_dir = os.path.dirname(
-            os.path.dirname(interpreter_module.__file__)
-        )
-        return f'''
+        interpreter_pkg_dir = os.path.dirname(os.path.dirname(interpreter_module.__file__))
+        return f"""
 import os
 os.environ["INTERPRETER_TOOLBOX_API"] = "False" # To prevent infinite recurring injection of the toolbox API
 import sys
@@ -126,7 +123,7 @@ from interpreter import interpreter, ai2
 
 toolbox = interpreter.toolbox
 print("__TOOLBOX_API_IMPORTED__")
-'''.strip()
+""".strip()
 
     def get_language(self, language):
         for lang in self.languages:
@@ -149,7 +146,9 @@ print("__TOOLBOX_API_IMPORTED__")
         if language == "bash" and code.strip().startswith("apt install"):
             package = code.split()[-1]
             if self.sudo_install(package):
-                return [{"type": "console", "format": "output", "content": f"Package {package} installed successfully."}]
+                return [
+                    {"type": "console", "format": "output", "content": f"Package {package} installed successfully."}
+                ]
             else:
                 return [{"type": "console", "format": "output", "content": f"Failed to install package {package}."}]
 
@@ -245,17 +244,14 @@ print("__TOOLBOX_API_IMPORTED__")
                     # Sometimes, we want to hide the traceback to preserve tokens.
                     # (is this a good idea?)
                     if "@@@HIDE_TRACEBACK@@@" in content:
-                        chunk["content"] = (
-                            "Stopping execution.\n\n"
-                            + content.split("@@@HIDE_TRACEBACK@@@")[-1].strip()
-                        )
+                        chunk["content"] = "Stopping execution.\n\n" + content.split("@@@HIDE_TRACEBACK@@@")[-1].strip()
 
                     if language in _BUFFERED_CONSOLE_LANGUAGES:
                         if not buffered_output:
                             yield {
                                 "type": "console",
                                 "format": "output",
-                                "content": "Note: Shell command output will be shown after completion.\n\n"
+                                "content": "Note: Shell command output will be shown after completion.\n\n",
                             }
                         buffered_output += chunk["content"]
                         continue
@@ -278,7 +274,7 @@ print("__TOOLBOX_API_IMPORTED__")
                 yield {
                     "type": "console",
                     "format": "output",
-                    "content": f"{buffered_output.strip()}\n\nTime elapsed: {elapsed}s"
+                    "content": f"{buffered_output.strip()}\n\nTime elapsed: {elapsed}s",
                 }
 
         except GeneratorExit:
@@ -291,8 +287,6 @@ print("__TOOLBOX_API_IMPORTED__")
     def terminate(self):
         for language_name in list(self._active_languages.keys()):
             language = self._active_languages[language_name]
-            if (
-                language
-            ):  # Not sure why this is None sometimes. We should look into this
+            if language:  # Not sure why this is None sometimes. We should look into this
                 language.terminate()
             del self._active_languages[language_name]

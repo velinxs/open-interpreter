@@ -39,7 +39,7 @@ class Browser:
             str: Formatted text with titles, URLs, snippets.
         """
         response = requests.get(
-            f'{self.toolbox.api_base.strip("/")}/browser/search',
+            f"{self.toolbox.api_base.strip('/')}/browser/search",
             params={"query": query},
         )
         return response.json()["result"]
@@ -58,7 +58,7 @@ class Browser:
                 threading.current_thread(),
                 "response",
                 requests.get(
-                    f'{self.toolbox.api_base.strip("/")}/browser/search',
+                    f"{self.toolbox.api_base.strip('/')}/browser/search",
                     params={"query": query},
                 ),
             )

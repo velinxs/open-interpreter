@@ -65,7 +65,9 @@ Now, your turn:"""
 
 # Message templates
 interpreter.code_output_template = '''I executed that code. This was the output: """{content}"""\n\nWhat does this output mean (I can't understand it, please help) / what code needs to be run next (if anything, or are we done)? I can't replace any placeholders.'''
-interpreter.empty_code_output_template = "The code above was executed on my machine. It produced no text output. What's next (if anything, or are we done?)"
+interpreter.empty_code_output_template = (
+    "The code above was executed on my machine. It produced no text output. What's next (if anything, or are we done?)"
+)
 interpreter.code_output_sender = "user"
 
 # Toolbox settings
@@ -83,6 +85,4 @@ interpreter.display_message(
 interpreter.display_message(
     "\n**Note:** Codestral is a relatively weak model, so OS mode is highly experimental. Try using a more powerful model for OS mode with `interpreter --os`."
 )
-interpreter.display_message(
-    f"> Model set to `{interpreter.llm.model}`, experimental OS control enabled"
-)
+interpreter.display_message(f"> Model set to `{interpreter.llm.model}`, experimental OS control enabled")

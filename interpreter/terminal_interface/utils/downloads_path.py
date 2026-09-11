@@ -41,16 +41,12 @@ def _windows_downloads_dir() -> str:
     CoTaskMemFree.restype = None
 
     folder_id = GUID()
-    hr = CLSIDFromString(
-        "{374DE290-123F-4565-9164-39C4925E467B}", ctypes.byref(folder_id)
-    )
+    hr = CLSIDFromString("{374DE290-123F-4565-9164-39C4925E467B}", ctypes.byref(folder_id))
     if hr != 0:
         raise OSError(hr, "CLSIDFromString(FOLDERID_Downloads)")
 
     path_out = ctypes.c_wchar_p()
-    hr = SHGetKnownFolderPath(
-        ctypes.byref(folder_id), 0, None, ctypes.byref(path_out)
-    )
+    hr = SHGetKnownFolderPath(ctypes.byref(folder_id), 0, None, ctypes.byref(path_out))
     if hr != 0:
         raise OSError(hr, "SHGetKnownFolderPath(FOLDERID_Downloads)")
 

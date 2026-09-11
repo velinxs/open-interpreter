@@ -75,9 +75,7 @@ class _BashSession:
         assert self._process.stderr
 
         # send command to the process
-        self._process.stdin.write(
-            command.encode() + f"; echo '{self._sentinel}'\n".encode()
-        )
+        self._process.stdin.write(command.encode() + f"; echo '{self._sentinel}'\n".encode())
         await self._process.stdin.drain()
 
         # read output from the process, until the sentinel is found
@@ -87,9 +85,7 @@ class _BashSession:
                     await asyncio.sleep(self._output_delay)
                     # if we read directly from stdout/stderr, it will wait forever for
                     # EOF. use the StreamReader buffer directly instead.
-                    output = (
-                        self._process.stdout._buffer.decode()
-                    )  # pyright: ignore[reportAttributeAccessIssue]
+                    output = self._process.stdout._buffer.decode()  # pyright: ignore[reportAttributeAccessIssue]
                     if self._sentinel in output:
                         # strip the sentinel and break
                         output = output[: output.index(self._sentinel)]
@@ -103,9 +99,7 @@ class _BashSession:
         if output.endswith("\n"):
             output = output[:-1]
 
-        error = (
-            self._process.stderr._buffer.decode()
-        )  # pyright: ignore[reportAttributeAccessIssue]
+        error = self._process.stderr._buffer.decode()  # pyright: ignore[reportAttributeAccessIssue]
         if error.endswith("\n"):
             error = error[:-1]
 
@@ -130,9 +124,7 @@ class BashTool(BaseAnthropicTool):
         self._session = None
         super().__init__()
 
-    async def __call__(
-        self, command: str | None = None, restart: bool = False, **kwargs
-    ):
+    async def __call__(self, command: str | None = None, restart: bool = False, **kwargs):
         if restart:
             if self._session:
                 self._session.stop()

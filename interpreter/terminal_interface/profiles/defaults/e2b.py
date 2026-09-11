@@ -38,8 +38,7 @@ class PythonE2B:
         yield {
             "type": "console",
             "format": "output",
-            "content": stdout
-            + stderr,  # We combined these arbitrarily. Yield anything you'd like!
+            "content": stdout + stderr,  # We combined these arbitrarily. Yield anything you'd like!
         }
 
     def stop(self):

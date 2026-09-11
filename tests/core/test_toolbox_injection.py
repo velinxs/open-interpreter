@@ -140,12 +140,7 @@ class TestInjectionResistsShadowingCheckout(unittest.TestCase):
             decoy = os.path.join(shadow_dir, "interpreter")
             os.makedirs(decoy)
             with open(os.path.join(decoy, "__init__.py"), "w") as f:
-                f.write(
-                    "class _Decoy:\n"
-                    "    pass\n"
-                    "interpreter = _Decoy()\n"
-                    "# deliberately no `toolbox` and no `ai2`\n"
-                )
+                f.write("class _Decoy:\n    pass\ninterpreter = _Decoy()\n# deliberately no `toolbox` and no `ai2`\n")
 
             env = dict(os.environ)
             # Make the real package importable from anywhere, as in an

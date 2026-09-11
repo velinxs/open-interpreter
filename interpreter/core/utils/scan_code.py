@@ -16,9 +16,7 @@ def scan_code(code, language, interpreter):
     """
     language_class = interpreter.terminal.get_language(language)
 
-    temp_file = create_temporary_file(
-        code, language_class.file_extension, verbose=interpreter.verbose
-    )
+    temp_file = create_temporary_file(code, language_class.file_extension, verbose=interpreter.verbose)
 
     temp_path = os.path.dirname(temp_file)
     file_name = os.path.basename(temp_file)

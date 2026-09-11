@@ -49,7 +49,9 @@ Now, your turn:""".strip()
 
 # Message templates
 interpreter.code_output_template = '''I executed that code. This was the output: """{content}"""\n\nWhat does this output mean (I can't understand it, please help) / what code needs to be run next (if anything, or are we done)? I can't replace any placeholders.'''
-interpreter.empty_code_output_template = "The code above was executed on my machine. It produced no text output. What's next (if anything, or are we done?)"
+interpreter.empty_code_output_template = (
+    "The code above was executed on my machine. It produced no text output. What's next (if anything, or are we done?)"
+)
 interpreter.code_output_sender = "user"
 
 # LLM settings

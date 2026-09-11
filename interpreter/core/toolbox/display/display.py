@@ -212,9 +212,7 @@ class Display:
 
             if quadrant in quadrant_coordinates:
                 x, y = quadrant_coordinates[quadrant]
-                screenshot = pyautogui.screenshot(
-                    region=(x, y, quadrant_width, quadrant_height)
-                )
+                screenshot = pyautogui.screenshot(region=(x, y, quadrant_width, quadrant_height))
             else:
                 raise ValueError("Invalid quadrant. Choose between 1 and 4.")
 
@@ -263,9 +261,7 @@ class Display:
 
                 from .point.point import point
 
-                result = point(
-                    description, screenshot, self.toolbox.debug, self._hashes
-                )
+                result = point(description, screenshot, self.toolbox.debug, self._hashes)
 
                 return result
             except:
@@ -294,7 +290,7 @@ class Display:
 
                 try:
                     response = requests.post(
-                        f'{self.toolbox.api_base.strip("/")}/point/',
+                        f"{self.toolbox.api_base.strip('/')}/point/",
                         json={"query": description, "base64": screenshot_base64},
                     )
                     return response.json()
@@ -322,7 +318,7 @@ class Display:
 
             try:
                 response = requests.post(
-                    f'{self.toolbox.api_base.strip("/")}/point/text/',
+                    f"{self.toolbox.api_base.strip('/')}/point/text/",
                     json={"query": text, "base64": screenshot_base64},
                 )
                 response = response.json()
@@ -357,7 +353,7 @@ class Display:
 
             try:
                 response = requests.post(
-                    f'{self.toolbox.api_base.strip("/")}/text/',
+                    f"{self.toolbox.api_base.strip('/')}/text/",
                     json={"base64": screenshot_base64},
                 )
                 response = response.json()
@@ -381,10 +377,7 @@ def take_screenshot_to_pil(screen=0, combine_screens=True):
     if screen == -1:  # All screens
         # Take a screenshot of each screen and save them in a list
         screenshots = [
-            pyautogui.screenshot(
-                region=(monitor.x, monitor.y, monitor.width, monitor.height)
-            )
-            for monitor in monitors
+            pyautogui.screenshot(region=(monitor.x, monitor.y, monitor.width, monitor.height)) for monitor in monitors
         ]
 
         if combine_screens:
@@ -407,9 +400,7 @@ def take_screenshot_to_pil(screen=0, combine_screens=True):
                 new_img_cv = cv2.cvtColor(new_img_cv, cv2.COLOR_RGB2BGR)
 
                 # Paste each screenshot into the new image using OpenCV
-                new_img_cv[
-                    0 : img_cv.shape[0], x_offset : x_offset + img_cv.shape[1]
-                ] = img_cv
+                new_img_cv[0 : img_cv.shape[0], x_offset : x_offset + img_cv.shape[1]] = img_cv
                 x_offset += img.width
 
                 # Add monitor labels using OpenCV

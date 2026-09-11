@@ -63,9 +63,7 @@ class AsyncInterpreter(OpenInterpreter):
         self.id = os.getenv("INTERPRETER_ID", datetime.now().timestamp())
         self.print = False  # Will print output
 
-        self.require_acknowledge = (
-            os.getenv("INTERPRETER_REQUIRE_ACKNOWLEDGE", "False").lower() == "true"
-        )
+        self.require_acknowledge = os.getenv("INTERPRETER_REQUIRE_ACKNOWLEDGE", "False").lower() == "true"
         self.acknowledged_outputs = []
         self._server_request_system = None
         self._server_awaiting_code_approval = False
@@ -117,9 +115,7 @@ class AsyncInterpreter(OpenInterpreter):
                     pass
 
             self.stop_event.clear()
-            self.respond_thread = threading.Thread(
-                target=self.respond, args=(run_code,)
-            )
+            self.respond_thread = threading.Thread(target=self.respond, args=(run_code,))
             self.respond_thread.start()
 
     async def output(self):
@@ -136,9 +132,7 @@ class AsyncInterpreter(OpenInterpreter):
                 sent_chunks = False
 
                 for chunk_og in self._respond_and_store():
-                    chunk = (
-                        chunk_og.copy()
-                    )  # This fixes weird double token chunks. Probably a deeper problem?
+                    chunk = chunk_og.copy()  # This fixes weird double token chunks. Probably a deeper problem?
 
                     if chunk["type"] == "confirmation":
                         if run_code:
@@ -166,11 +160,7 @@ class AsyncInterpreter(OpenInterpreter):
                                 print("\n[An image was produced]")
                             else:
                                 content = chunk.get("content", "")
-                                content = (
-                                    str(content)
-                                    .encode("ascii", "ignore")
-                                    .decode("ascii")
-                                )
+                                content = str(content).encode("ascii", "ignore").decode("ascii")
                                 print(content, end="", flush=True)
 
                     if self.debug:
@@ -241,24 +231,14 @@ class AsyncInterpreter(OpenInterpreter):
             elif "content" in chunk and not (
                 len(self.messages) > 0
                 and (
-                    (
-                        "type" in self.messages[-1]
-                        and chunk.get("type") != self.messages[-1].get("type")
-                    )
-                    or (
-                        "format" in self.messages[-1]
-                        and chunk.get("format") != self.messages[-1].get("format")
-                    )
+                    ("type" in self.messages[-1] and chunk.get("type") != self.messages[-1].get("type"))
+                    or ("format" in self.messages[-1] and chunk.get("format") != self.messages[-1].get("format"))
                 )
             ):
                 if len(self.messages) == 0:
-                    raise Exception(
-                        "You must send a 'start: True' chunk first to create this message."
-                    )
+                    raise Exception("You must send a 'start: True' chunk first to create this message.")
                 # Append to an existing message
-                if (
-                    "type" not in self.messages[-1]
-                ):  # It was created with a type-less start message
+                if "type" not in self.messages[-1]:  # It was created with a type-less start message
                     self.messages[-1]["type"] = chunk["type"]
                 if (
                     chunk.get("format") and "format" not in self.messages[-1]
@@ -281,9 +261,7 @@ class AsyncInterpreter(OpenInterpreter):
                 )
             ):
                 # Create a new message
-                chunk_copy = (
-                    chunk.copy()
-                )  # So we don't modify the original chunk, which feels wrong.
+                chunk_copy = chunk.copy()  # So we don't modify the original chunk, which feels wrong.
                 if "start" in chunk_copy:
                     chunk_copy.pop("start")
                 if "content" not in chunk_copy:
@@ -318,13 +296,11 @@ def authenticate_function(key):
 OPENAI_CODE_APPROVAL_PROMPT = (
     "\n\n---\n"
     "**[Open Interpreter]** Execution is paused. "
-    'Reply with exactly **yes** to run this code or **no** to skip.\n'
+    "Reply with exactly **yes** to run this code or **no** to skip.\n"
     "\n---\n"
 )
 
-OPENAI_CODE_APPROVAL_DECLINED = (
-    "\n\n---\n**[Open Interpreter]** Okay, I won't run that code.\n\n---\n"
-)
+OPENAI_CODE_APPROVAL_DECLINED = "\n\n---\n**[Open Interpreter]** Okay, I won't run that code.\n\n---\n"
 
 OPENAI_CODE_APPROVAL_INVALID_TEMPLATE = (
     "\n\n---\n**[Open Interpreter]** There is code waiting for your approval. "
@@ -435,8 +411,7 @@ def _openai_apply_request_messages(async_interpreter, request, last_message):
                 if (
                     async_interpreter.messages
                     and async_interpreter.messages[-1].get("role") == "user"
-                    and async_interpreter.messages[-1].get("content")
-                    == user_msg["content"]
+                    and async_interpreter.messages[-1].get("content") == user_msg["content"]
                 ):
                     continue
                 async_interpreter.messages.append(user_msg)
@@ -492,9 +467,7 @@ def _openai_messages_to_lmc(openai_messages):
                     elif part.get("type") == "image_url":
                         url = part.get("image_url", {}).get("url", "")
                         if "base64," not in url:
-                            raise ValueError(
-                                'Image must be "data:image/jpeg;base64,{data}"'
-                            )
+                            raise ValueError('Image must be "data:image/jpeg;base64,{data}"')
                         data = url.split("base64,")[1]
                         fmt = "base64." + url.split(";")[0].split("/")[1]
                         lmc.append(
@@ -505,9 +478,7 @@ def _openai_messages_to_lmc(openai_messages):
                                 "content": data,
                             }
                         )
-    client_system = (
-        "\n\n".join(client_system_parts) if client_system_parts else None
-    )
+    client_system = "\n\n".join(client_system_parts) if client_system_parts else None
     return lmc, client_system
 
 
@@ -549,9 +520,7 @@ def _openai_sse_chunk(
 def _lmc_chunk_to_openai_delta(chunk, interpreter, *, pending_code_language=None):
     if chunk.get("format") == "reasoning":
         return None
-    if chunk.get("type") == "confirmation" and should_require_execution_confirmation(
-        interpreter, chunk
-    ):
+    if chunk.get("type") == "confirmation" and should_require_execution_confirmation(interpreter, chunk):
         return OPENAI_CODE_APPROVAL_PROMPT
     if chunk.get("type") == "message" and "content" in chunk:
         return chunk["content"]
@@ -738,20 +707,13 @@ def create_router(async_interpreter):
                             return
                         data = await websocket.receive()
 
-                        if (
-                            not authenticated
-                            and os.getenv("INTERPRETER_REQUIRE_AUTH") != "False"
-                        ):
+                        if not authenticated and os.getenv("INTERPRETER_REQUIRE_AUTH") != "False":
                             if "text" in data:
                                 data = json.loads(data["text"])
                                 if "auth" in data:
-                                    if async_interpreter.server.authenticate(
-                                        data["auth"]
-                                    ):
+                                    if async_interpreter.server.authenticate(data["auth"]):
                                         authenticated = True
-                                        await websocket.send_text(
-                                            json.dumps({"auth": True})
-                                        )
+                                        await websocket.send_text(json.dumps({"auth": True}))
                             if not authenticated:
                                 await websocket.send_text(json.dumps({"auth": False}))
                             continue
@@ -759,13 +721,8 @@ def create_router(async_interpreter):
                         if data.get("type") == "websocket.receive":
                             if "text" in data:
                                 data = json.loads(data["text"])
-                                if (
-                                    async_interpreter.require_acknowledge
-                                    and "ack" in data
-                                ):
-                                    async_interpreter.acknowledged_outputs.append(
-                                        data["ack"]
-                                    )
+                                if async_interpreter.require_acknowledge and "ack" in data:
+                                    async_interpreter.acknowledged_outputs.append(data["ack"])
                                     continue
                             elif "bytes" in data:
                                 data = data["bytes"]
@@ -789,9 +746,7 @@ def create_router(async_interpreter):
                             await websocket.send_text(json.dumps(complete_message))
                             print("\n\n--- SENT ERROR: ---\n\n")
                         else:
-                            print(
-                                "\n\n--- ERROR (not sent due to disconnected state): ---\n\n"
-                            )
+                            print("\n\n--- ERROR (not sent due to disconnected state): ---\n\n")
                         print(error)
                         print("\n\n--- (ERROR ABOVE) ---\n\n")
 
@@ -817,9 +772,7 @@ def create_router(async_interpreter):
                             if not success:
                                 async_interpreter.unsent_messages.append(output)
                                 if async_interpreter.debug:
-                                    print(
-                                        f"Added message to unsent_messages queue after failed attempts: {output}"
-                                    )
+                                    print(f"Added message to unsent_messages queue after failed attempts: {output}")
 
                     except Exception as e:
                         error = traceback.format_exc() + "\n" + str(e)
@@ -832,19 +785,14 @@ def create_router(async_interpreter):
                         async_interpreter.unsent_messages.append(complete_message)
                         print("\n\n--- ERROR (will be sent when possible): ---\n\n")
                         print(error)
-                        print(
-                            "\n\n--- (ERROR ABOVE WILL BE SENT WHEN POSSIBLE) ---\n\n"
-                        )
+                        print("\n\n--- (ERROR ABOVE WILL BE SENT WHEN POSSIBLE) ---\n\n")
 
             async def send_message(output):
                 if isinstance(output, dict) and "id" in output:
                     id = output["id"]
                 else:
                     id = shortuuid.uuid()
-                    if (
-                        isinstance(output, dict)
-                        and async_interpreter.require_acknowledge
-                    ):
+                    if isinstance(output, dict) and async_interpreter.require_acknowledge:
                         output["id"] = id
 
                 for attempt in range(20):
@@ -887,9 +835,7 @@ def create_router(async_interpreter):
                             return True
 
                     except Exception as e:
-                        print(
-                            f"Failed to send output on attempt number: {attempt + 1}. Output was: {output}"
-                        )
+                        print(f"Failed to send output on attempt number: {attempt + 1}. Output was: {output}")
                         print(f"Error: {str(e)}")
                         traceback.print_exc()
                         await asyncio.sleep(0.01)
@@ -944,9 +890,7 @@ def create_router(async_interpreter):
                         if hasattr(getattr(async_interpreter, key), sub_key):
                             setattr(getattr(async_interpreter, key), sub_key, sub_value)
                         else:
-                            return {
-                                "error": f"Sub-setting {sub_key} not found in {key}"
-                            }, 404
+                            return {"error": f"Sub-setting {sub_key} not found in {key}"}, 404
                 else:
                     return {"error": f"Setting {key} not found"}, 404
             elif hasattr(async_interpreter, key):
@@ -994,9 +938,7 @@ def create_router(async_interpreter):
         @router.get("/download/{filename}")
         async def download_file(filename: str):
             try:
-                return StreamingResponse(
-                    open(filename, "rb"), media_type="application/octet-stream"
-                )
+                return StreamingResponse(open(filename, "rb"), media_type="application/octet-stream")
             except Exception as e:
                 return {"error": str(e)}, 500
 
@@ -1016,9 +958,7 @@ def create_router(async_interpreter):
     async def _stream_openai_assistant_text(text):
         completion_id = _new_openai_completion_id()
         created = int(time.time())
-        yield _openai_sse_chunk(
-            completion_id, created, delta_content=text, role="assistant"
-        )
+        yield _openai_sse_chunk(completion_id, created, delta_content=text, role="assistant")
         yield _openai_sse_chunk(completion_id, created, finish_reason="stop")
         yield "data: [DONE]\n\n"
 
@@ -1028,9 +968,7 @@ def create_router(async_interpreter):
             "object": "chat.completion",
             "created": int(time.time()),
             "model": model,
-            "choices": [
-                {"index": 0, "message": {"role": "assistant", "content": text}}
-            ],
+            "choices": [{"index": 0, "message": {"role": "assistant", "content": text}}],
         }
 
     async def _stream_openai_title(content_str):
@@ -1040,23 +978,16 @@ def create_router(async_interpreter):
             {
                 "role": "system",
                 "type": "message",
-                "content": (
-                    "Output only a short conversation title (max 10 words). "
-                    "No quotes, no explanation."
-                ),
+                "content": ("Output only a short conversation title (max 10 words). No quotes, no explanation."),
             },
             {"role": "user", "type": "message", "content": content_str},
         ]
-        for chunk in async_interpreter.llm.run(
-            title_messages, auxiliary_title_request=True
-        ):
+        for chunk in async_interpreter.llm.run(title_messages, auxiliary_title_request=True):
             if chunk.get("format") == "reasoning":
                 continue
             if chunk.get("type") == "message" and chunk.get("content"):
                 await asyncio.sleep(0)
-                yield _openai_sse_chunk(
-                    completion_id, created, delta_content=chunk["content"]
-                )
+                yield _openai_sse_chunk(completion_id, created, delta_content=chunk["content"])
         yield _openai_sse_chunk(completion_id, created, finish_reason="stop")
         yield "data: [DONE]\n\n"
 
@@ -1071,9 +1002,7 @@ def create_router(async_interpreter):
             if role:
                 sent_role = True
             await asyncio.sleep(0)
-            return _openai_sse_chunk(
-                completion_id, created, delta_content=text, role=role
-            )
+            return _openai_sse_chunk(completion_id, created, delta_content=text, role=role)
 
         pending_lang = _pending_code_language(async_interpreter)
 
@@ -1091,9 +1020,7 @@ def create_router(async_interpreter):
                 "Can you respond?",
                 "Please reply.",
             ]:
-                for chunk in async_interpreter.chat(
-                    message=message, stream=True, display=False
-                ):
+                for chunk in async_interpreter.chat(message=message, stream=True, display=False):
                     await asyncio.sleep(0)
                     made_chunk = True
                     output_content = _lmc_chunk_to_openai_delta(
@@ -1188,11 +1115,7 @@ def create_router(async_interpreter):
             async_interpreter.auto_run = False
             return
 
-        content_str = (
-            last_message.content
-            if isinstance(last_message.content, str)
-            else None
-        )
+        content_str = last_message.content if isinstance(last_message.content, str) else None
 
         if content_str and _is_openai_auxiliary_title_request(content_str):
             if request.stream:
@@ -1204,17 +1127,12 @@ def create_router(async_interpreter):
                 {
                     "role": "system",
                     "type": "message",
-                    "content": (
-                        "Output only a short conversation title (max 10 words). "
-                        "No quotes, no explanation."
-                    ),
+                    "content": ("Output only a short conversation title (max 10 words). No quotes, no explanation."),
                 },
                 {"role": "user", "type": "message", "content": content_str},
             ]
             content = ""
-            for chunk in async_interpreter.llm.run(
-                title_messages, auxiliary_title_request=True
-            ):
+            for chunk in async_interpreter.llm.run(title_messages, auxiliary_title_request=True):
                 if chunk.get("format") == "reasoning":
                     continue
                 if chunk.get("type") == "message" and chunk.get("content"):
@@ -1225,9 +1143,7 @@ def create_router(async_interpreter):
                 "object": "chat.completion",
                 "created": int(time.time()),
                 "model": request.model,
-                "choices": [
-                    {"index": 0, "message": {"role": "assistant", "content": content}}
-                ],
+                "choices": [{"index": 0, "message": {"role": "assistant", "content": content}}],
             }
 
         run_code = False
@@ -1254,13 +1170,9 @@ def create_router(async_interpreter):
                         _stream_openai_assistant_text(OPENAI_CODE_APPROVAL_DECLINED),
                         media_type="text/event-stream",
                     )
-                return _openai_assistant_text_response(
-                    OPENAI_CODE_APPROVAL_DECLINED, request.model
-                )
+                return _openai_assistant_text_response(OPENAI_CODE_APPROVAL_DECLINED, request.model)
             else:
-                retry_text = OPENAI_CODE_APPROVAL_INVALID_TEMPLATE.format(
-                    reply=content_str.strip()[:200]
-                )
+                retry_text = OPENAI_CODE_APPROVAL_INVALID_TEMPLATE.format(reply=content_str.strip()[:200])
                 print(">", content_str, "(invalid approval reply)")
                 if request.stream:
                     return StreamingResponse(
@@ -1277,10 +1189,7 @@ def create_router(async_interpreter):
                     if async_interpreter.messages[-1]["content"] == "{START}":
                         async_interpreter.messages = async_interpreter.messages[:-1]
                     last_start_time = time.time()
-                    if (
-                        async_interpreter.messages
-                        and async_interpreter.messages[-1].get("role") != "user"
-                    ):
+                    if async_interpreter.messages and async_interpreter.messages[-1].get("role") != "user":
                         return
                 else:
                     current_time = time.time()
@@ -1325,9 +1234,7 @@ def create_router(async_interpreter):
                 "object": "chat.completion",
                 "created": int(time.time()),
                 "model": request.model,
-                "choices": [
-                    {"index": 0, "message": {"role": "assistant", "content": content}}
-                ],
+                "choices": [{"index": 0, "message": {"role": "assistant", "content": content}}],
             }
 
     return router
@@ -1340,8 +1247,7 @@ class Server:
     def __init__(self, async_interpreter, host=None, port=None):
         if FastAPI is None or uvicorn is None or janus is None:
             raise ImportError(
-                "Server mode requires fastapi, uvicorn, and janus. "
-                "Install with: pip install fastapi uvicorn janus"
+                "Server mode requires fastapi, uvicorn, and janus. Install with: pip install fastapi uvicorn janus"
             )
         self.app = FastAPI()
         router = create_router(async_interpreter)
@@ -1396,9 +1302,7 @@ class Server:
 
         # Print server information
         if self.host == "0.0.0.0":
-            print(
-                "Warning: Using host `0.0.0.0` will expose Open Interpreter over your local network."
-            )
+            print("Warning: Using host `0.0.0.0` will expose Open Interpreter over your local network.")
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             s.connect(("8.8.8.8", 80))  # Google's public DNS server
             print(f"Server will run at http://{s.getsockname()[0]}:{self.port}")

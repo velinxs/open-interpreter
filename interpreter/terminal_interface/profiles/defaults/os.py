@@ -239,7 +239,9 @@ interpreter.display_message("> `OS Control` enabled")
 # console.print(Panel("[bold italic white on black]OS CONTROL[/bold italic white on black] Enabled", box=box.SQUARE, expand=False), style="white on black")
 
 if not interpreter.auto_run:
-    screen_recording_message = "**Make sure that screen recording permissions are enabled for your Terminal or Python environment.**"
+    screen_recording_message = (
+        "**Make sure that screen recording permissions are enabled for your Terminal or Python environment.**"
+    )
     interpreter.display_message(screen_recording_message)
     print("")
 

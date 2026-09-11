@@ -4,6 +4,7 @@ NAME ends with a secret-like suffix (_KEY, _SECRET, _TOKEN, _PASSWORD, etc.).
 Used so os.environ / .env dumps are sanitized even when format-specific
 detectors miss.
 """
+
 import re
 from collections.abc import Generator
 

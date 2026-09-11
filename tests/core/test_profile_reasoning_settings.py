@@ -13,9 +13,7 @@ def capture_text_params(monkeypatch):
 
     def fake_run_text_llm(self, params):
         captured["params"] = params
-        return iter(
-            [("message", {"role": "assistant", "type": "message", "content": "stubbed"})]
-        )
+        return iter([("message", {"role": "assistant", "type": "message", "content": "stubbed"})])
 
     monkeypatch.setattr(llm_mod, "run_text_llm", fake_run_text_llm)
     return captured
@@ -53,9 +51,7 @@ def _run_one_turn(interpreter):
     next(interpreter.llm.run(messages))
 
 
-def test_profile_reasoning_effort_flows_to_request(
-    capture_text_params, stub_openrouter_entry
-):
+def test_profile_reasoning_effort_flows_to_request(capture_text_params, stub_openrouter_entry):
     """A profile's llm.reasoning_effort reaches the outgoing request.
 
     The profile YAML is the user-facing way to tune how hard reasoning models
@@ -84,9 +80,7 @@ def test_profile_reasoning_effort_flows_to_request(
     assert params["extra_body"]["reasoning"]["effort"] == "low"
 
 
-def test_profile_include_reasoning_false_disables_effort(
-    capture_text_params, stub_openrouter_entry
-):
+def test_profile_include_reasoning_false_disables_effort(capture_text_params, stub_openrouter_entry):
     """include_reasoning: false disables reasoning and drops any reasoning_effort.
 
     Turning reasoning off is the profile-level escape hatch for models that think
@@ -119,9 +113,7 @@ def test_profile_include_reasoning_false_disables_effort(
 
 
 @pytest.mark.network
-def test_mandatory_reasoning_ignores_include_reasoning_false(
-    capture_text_params, stub_openrouter_entry
-):
+def test_mandatory_reasoning_ignores_include_reasoning_false(capture_text_params, stub_openrouter_entry):
     """Endpoints with mandatory reasoning never receive reasoning.enabled:false.
 
     GLM-5.3-family endpoints (z-ai/glm-5.3-flash and friends) report
@@ -167,9 +159,7 @@ def test_mandatory_reasoning_ignores_include_reasoning_false(
 
 
 @pytest.mark.network
-def test_mandatory_reasoning_still_sends_supported_effort(
-    capture_text_params, stub_openrouter_entry
-):
+def test_mandatory_reasoning_still_sends_supported_effort(capture_text_params, stub_openrouter_entry):
     """On a mandatory-reasoning endpoint, a supported effort is still forwarded.
 
     Reasoning cannot be disabled on GLM-5.3-family endpoints, but effort CAN be
@@ -208,9 +198,7 @@ def test_mandatory_reasoning_still_sends_supported_effort(
 
 
 @pytest.mark.network
-def test_unsupported_effort_dropped_with_warning(
-    capture_text_params, stub_openrouter_entry
-):
+def test_unsupported_effort_dropped_with_warning(capture_text_params, stub_openrouter_entry):
     """An effort level the model doesn't support is dropped, not sent.
 
     GLM-5.3-family endpoints only accept low/high/max and 400 on anything else
@@ -245,9 +233,7 @@ def test_unsupported_effort_dropped_with_warning(
     params = capture_text_params["params"]
     assert "reasoning_effort" not in params
     extra_body = params.get("extra_body") or {}
-    assert extra_body.get("reasoning") is None or (
-        "effort" not in extra_body["reasoning"]
-    )
+    assert extra_body.get("reasoning") is None or ("effort" not in extra_body["reasoning"])
 
 
 def test_profile_reasoning_validation_accepts_reasoning_effort(capfd):

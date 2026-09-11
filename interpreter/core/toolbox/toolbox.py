@@ -56,9 +56,7 @@ class Toolbox:
 
         self.import_skills = False
         self._has_imported_skills = False
-        self.max_output = (
-            self.interpreter.max_output
-        )  # Should mirror interpreter.max_output
+        self.max_output = self.interpreter.max_output  # Should mirror interpreter.max_output
 
         self._system_message_override = None
 
@@ -75,9 +73,7 @@ class Toolbox:
 
     @property
     def system_message(self):
-        toolbox_tools = "\n".join(
-            self._get_all_toolbox_tools_signature_and_description()
-        )
+        toolbox_tools = "\n".join(self._get_all_toolbox_tools_signature_and_description())
         mac_only_note = ""
         if platform.system() != "Darwin":
             mac_only_note = "\n\nNote: `toolbox.mail`, `toolbox.sms`, `toolbox.calendar`, and `toolbox.contacts` are macOS-only and cannot be used on this system.\n"
@@ -141,9 +137,7 @@ Use help(toolbox.module.method) to see detailed documentation, parameters, and e
             self.files,
         ]
         if platform.system() == "Darwin":
-            tools = (
-                tools[:4] + [self.mail, self.sms, self.calendar, self.contacts] + tools[4:]
-            )
+            tools = tools[:4] + [self.mail, self.sms, self.calendar, self.contacts] + tools[4:]
         return tools
 
     def _get_all_toolbox_tools_signature_and_description(self):
@@ -178,10 +172,11 @@ Use help(toolbox.module.method) to see detailed documentation, parameters, and e
         if tool.__class__.__module__:
             try:
                 import sys
+
                 module = sys.modules.get(tool.__class__.__module__)
                 if module and module.__doc__:
                     # Get first line of module docstring
-                    first_line = module.__doc__.strip().split('\n')[0].strip()
+                    first_line = module.__doc__.strip().split("\n")[0].strip()
                     if first_line:
                         tool_info["module_doc"] = first_line
             except:
@@ -199,12 +194,7 @@ Use help(toolbox.module.method) to see detailed documentation, parameters, and e
                     and not isinstance(attr, property)
                 ):
                     # Construct the method signature manually
-                    param_str = ", ".join(
-                        param
-                        for param in attr.__code__.co_varnames[
-                            : attr.__code__.co_argcount
-                        ]
-                    )
+                    param_str = ", ".join(param for param in attr.__code__.co_varnames[: attr.__code__.co_argcount])
                     full_signature = f"toolbox.{tool.__class__.__name__.lower()}.{name}({param_str})"
                     # Get the method description (first line only)
                     method_description = self._get_first_line(attr.__doc__)
@@ -228,15 +218,11 @@ Use help(toolbox.module.method) to see detailed documentation, parameters, and e
                 method_signature = inspect.signature(method)
                 # Construct the signature string without *args and **kwargs
                 param_str = ", ".join(
-                    f"{param.name}"
-                    if param.default == param.empty
-                    else f"{param.name}={param.default!r}"
+                    f"{param.name}" if param.default == param.empty else f"{param.name}={param.default!r}"
                     for param in method_signature.parameters.values()
                     if param.kind not in (param.VAR_POSITIONAL, param.VAR_KEYWORD)
                 )
-                full_signature = (
-                    f"toolbox.{tool.__class__.__name__.lower()}.{name}({param_str})"
-                )
+                full_signature = f"toolbox.{tool.__class__.__name__.lower()}.{name}({param_str})"
                 # Get the method description (first line only)
                 method_description = self._get_first_line(method.__doc__)
                 # Get return format information if available
@@ -256,9 +242,7 @@ Use help(toolbox.module.method) to see detailed documentation, parameters, and e
         # ------------------------------------------------------------------
         for attr_name, attr_value in inspect.getmembers(tool.__class__):
             if isinstance(attr_value, property) and not attr_name.startswith("_"):
-                full_signature = (
-                    f"toolbox.{tool.__class__.__name__.lower()}.{attr_name}"
-                )
+                full_signature = f"toolbox.{tool.__class__.__name__.lower()}.{attr_name}"
                 prop_doc = self._get_first_line(attr_value.fget.__doc__)
                 # Get return format information if available
                 return_format = self._extract_return_format(attr_value.fget.__doc__)
@@ -277,7 +261,7 @@ Use help(toolbox.module.method) to see detailed documentation, parameters, and e
         if not docstring:
             return ""
         # Split on double newline (paragraph break) or single newline
-        first_line = docstring.strip().split('\n\n')[0].split('\n')[0].strip()
+        first_line = docstring.strip().split("\n\n")[0].split("\n")[0].strip()
         return first_line
 
     def _extract_return_format(self, docstring):
@@ -286,14 +270,25 @@ Use help(toolbox.module.method) to see detailed documentation, parameters, and e
             return ""
 
         # Look for "Returns:" section
-        lines = docstring.split('\n')
+        lines = docstring.split("\n")
         in_returns_section = False
         return_lines = []
-        section_keywords = ['Example:', 'Examples:', 'Args:', 'Arguments:', 'Parameters:', 'Raises:', 'Note:', 'Notes:', 'See also:', 'See Also:']
+        section_keywords = [
+            "Example:",
+            "Examples:",
+            "Args:",
+            "Arguments:",
+            "Parameters:",
+            "Raises:",
+            "Note:",
+            "Notes:",
+            "See also:",
+            "See Also:",
+        ]
 
         for line in lines:
             stripped = line.strip()
-            if stripped.startswith('Returns:'):
+            if stripped.startswith("Returns:"):
                 in_returns_section = True
                 # Get the content after "Returns:"
                 content = stripped[8:].strip()  # Remove "Returns:"
@@ -303,7 +298,7 @@ Use help(toolbox.module.method) to see detailed documentation, parameters, and e
 
             if in_returns_section:
                 # Stop at empty line if we already have content
-                if stripped == '':
+                if stripped == "":
                     if return_lines:
                         break
                     continue
@@ -320,7 +315,7 @@ Use help(toolbox.module.method) to see detailed documentation, parameters, and e
                 break
 
         if return_lines:
-            return ' '.join(return_lines).strip()
+            return " ".join(return_lines).strip()
         return ""
 
     def run(self, *args, **kwargs):

@@ -88,9 +88,7 @@ class Keyboard:
         if "darwin" in platform.system().lower() and len(args) == 2:
             # pyautogui.hotkey seems to not work, so we use applescript
             # Determine which argument is the keystroke and which is the modifier
-            keystroke, modifier = (
-                args if args[0].lower() not in modifiers else args[::-1]
-            )
+            keystroke, modifier = args if args[0].lower() not in modifiers else args[::-1]
 
             modifier = modifier.lower()
 

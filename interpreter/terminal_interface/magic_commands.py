@@ -23,6 +23,7 @@ def handle_undo(self, arguments):
 
     if len(self.messages) == 0:
         return
+
     def should_preserve_terminal_message(message):
         # Only preserve conversation-resume alerts.
         # Other terminal-injected entries (e.g. declined-run markers) are
@@ -88,7 +89,7 @@ def handle_undo(self, arguments):
             preview = " ".join(str(message["content"]).split())
             preview = preview.replace("`", "'")
             preview = preview[:30] + "..."
-            self.display_message(f"**Removed {label}:** `\"{preview}\"`")
+            self.display_message(f'**Removed {label}:** `"{preview}"`')
         else:
             self.display_message(f"**Removed {label}.**")
 
@@ -140,9 +141,7 @@ def handle_verbose(self, arguments=None):
                 "path",
                 "description",
             ]:
-                message["content"] = (
-                    message["content"][:30] + "..." + message["content"][-30:]
-                )
+                message["content"] = message["content"][:30] + "..." + message["content"][-30:]
             print(message, "\n")
         print("\n")
         self.verbose = True
@@ -163,9 +162,7 @@ def handle_debug(self, arguments=None):
                 "path",
                 "description",
             ]:
-                message["content"] = (
-                    message["content"][:30] + "..." + message["content"][-30:]
-                )
+                message["content"] = message["content"][:30] + "..." + message["content"][-30:]
             print(message, "\n")
         print("\n")
         self.debug = True
@@ -255,11 +252,7 @@ def handle_load_message(self, json_path):
     with open(json_path) as f:
         self.messages = json.load(f)
 
-    resume_idxs = [
-        i
-        for i, m in enumerate(self.messages)
-        if m.get("alert_kind") == "conversation_resumed"
-    ]
+    resume_idxs = [i for i, m in enumerate(self.messages) if m.get("alert_kind") == "conversation_resumed"]
     if len(resume_idxs) > 1:
         drop = set(resume_idxs[:-1])
         self.messages = [m for i, m in enumerate(self.messages) if i not in drop]
@@ -285,27 +278,17 @@ def handle_count_tokens(self, prompt):
     outputs = []
 
     if len(self.messages) == 0:
-        (conversation_tokens, conversation_cost) = count_messages_tokens(
-            messages=messages, model=self.llm.model
-        )
+        (conversation_tokens, conversation_cost) = count_messages_tokens(messages=messages, model=self.llm.model)
     else:
-        (conversation_tokens, conversation_cost) = count_messages_tokens(
-            messages=messages, model=self.llm.model
-        )
+        (conversation_tokens, conversation_cost) = count_messages_tokens(messages=messages, model=self.llm.model)
 
     outputs.append(
-
-            f"> Tokens sent with next request as context: {conversation_tokens} (Estimated Cost: ${conversation_cost})"
-
+        f"> Tokens sent with next request as context: {conversation_tokens} (Estimated Cost: ${conversation_cost})"
     )
 
     if prompt:
-        (prompt_tokens, prompt_cost) = count_messages_tokens(
-            messages=[prompt], model=self.llm.model
-        )
-        outputs.append(
-            f"> Tokens used by this prompt: {prompt_tokens} (Estimated Cost: ${prompt_cost})"
-        )
+        (prompt_tokens, prompt_cost) = count_messages_tokens(messages=[prompt], model=self.llm.model)
+        outputs.append(f"> Tokens used by this prompt: {prompt_tokens} (Estimated Cost: ${prompt_cost})")
 
         total_tokens = conversation_tokens + prompt_tokens
         total_cost = conversation_cost + prompt_cost
@@ -388,9 +371,7 @@ def jupyter(self, arguments):
         nbformat.write(nb, f)
 
     print("")
-    self.display_message(
-        f"Jupyter notebook file exported to {os.path.abspath(notebook_path)}"
-    )
+    self.display_message(f"Jupyter notebook file exported to {os.path.abspath(notebook_path)}")
 
 
 def handle_rename_conversation(self, arguments):
@@ -410,9 +391,7 @@ def markdown(self, export_path: str):
 
     # If user doesn't specify the export path, then save under the default Downloads folder
     if not export_path:
-        export_path = os.path.join(
-            get_downloads_path(), self.conversation_filename[:-4] + "md"
-        )
+        export_path = os.path.join(get_downloads_path(), self.conversation_filename[:-4] + "md")
 
     export_to_markdown(self.messages, export_path)
 
@@ -425,9 +404,7 @@ def markdown_final(self, export_path: str):
         return
 
     if not export_path:
-        export_path = os.path.join(
-            get_downloads_path(), self.conversation_filename[:-4] + "md"
-        )
+        export_path = os.path.join(get_downloads_path(), self.conversation_filename[:-4] + "md")
 
     export_to_markdown(self.messages, export_path, include_reasoning=False)
 
@@ -468,13 +445,9 @@ def handle_magic_command(self, user_input):
     arguments = user_input[len(command) :].strip()
 
     if command == "debug":
-        print(
-            "\n`%debug` / `--debug_mode` has been renamed to `%verbose` / `--verbose`.\n"
-        )
+        print("\n`%debug` / `--debug_mode` has been renamed to `%verbose` / `--verbose`.\n")
         time.sleep(1.5)
         command = "verbose"
 
-    action = switch.get(
-        command, default_handle
-    )  # Get the function from the dictionary, or default_handle if not found
+    action = switch.get(command, default_handle)  # Get the function from the dictionary, or default_handle if not found
     action(self, arguments)  # Execute the function

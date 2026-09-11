@@ -203,10 +203,7 @@ ip.display_formatter.active_types = ['text/markdown', 'text/plain']
                     self.km.interrupt_kernel()
                     return
                 # For async usage
-                if (
-                    hasattr(self.interpreter, "stop_event")
-                    and self.interpreter.stop_event.is_set()
-                ):
+                if hasattr(self.interpreter, "stop_event") and self.interpreter.stop_event.is_set():
                     self.km.interrupt_kernel()
                     self.finish_flag = True
                     return
@@ -226,10 +223,7 @@ ip.display_formatter.active_types = ['text/markdown', 'text/plain']
                     print("Message received:", msg["content"])
                     print("-----------" * 10)
 
-                if (
-                    msg["header"]["msg_type"] == "status"
-                    and msg["content"]["execution_state"] == "idle"
-                ):
+                if msg["header"]["msg_type"] == "status" and msg["content"]["execution_state"] == "idle":
                     # Set finish_flag and return when the kernel becomes idle
                     if DEBUG_MODE:
                         print("from thread: kernel is idle")
@@ -240,10 +234,7 @@ ip.display_formatter.active_types = ['text/markdown', 'text/plain']
 
                 if msg["msg_type"] == "stream":
                     line, active_line = self.detect_active_line(content["text"])
-                    active_line_enabled = (
-                        os.environ.get("INTERPRETER_ACTIVE_LINE_DETECTION", "True").lower()
-                        == "true"
-                    )
+                    active_line_enabled = os.environ.get("INTERPRETER_ACTIVE_LINE_DETECTION", "True").lower() == "true"
                     if active_line and active_line_enabled:
                         message_queue.put(
                             {
@@ -252,9 +243,7 @@ ip.display_formatter.active_types = ['text/markdown', 'text/plain']
                                 "content": active_line,
                             }
                         )
-                    message_queue.put(
-                        {"type": "console", "format": "output", "content": line}
-                    )
+                    message_queue.put({"type": "console", "format": "output", "content": line})
                 elif msg["msg_type"] == "error":
                     content = "\n".join(content["traceback"])
                     # Remove color codes
@@ -315,9 +304,7 @@ ip.display_formatter.active_types = ['text/markdown', 'text/plain']
         self.listener_thread.start()
 
         if DEBUG_MODE:
-            print(
-                "thread is on:", self.listener_thread.is_alive(), self.listener_thread
-            )
+            print("thread is on:", self.listener_thread.is_alive(), self.listener_thread)
 
         self.kc.execute(code)
 
@@ -340,10 +327,7 @@ ip.display_formatter.active_types = ['text/markdown', 'text/plain']
             time.sleep(0.1)
 
             # For async usage
-            if (
-                hasattr(self.interpreter, "stop_event")
-                and self.interpreter.stop_event.is_set()
-            ):
+            if hasattr(self.interpreter, "stop_event") and self.interpreter.stop_event.is_set():
                 self.finish_flag = True
                 break
 
@@ -562,11 +546,7 @@ def strip_redundant_imports(code, imported_modules):
                 if not names or any(" as " in name or "." in name for name in names):
                     kept_lines.append(line)
                     continue
-                if all(
-                    name in imported_modules
-                    and name in REMOVABLE_BOILERPLATE_IMPORTS
-                    for name in names
-                ):
+                if all(name in imported_modules and name in REMOVABLE_BOILERPLATE_IMPORTS for name in names):
                     removed.extend(names)  # redundant boilerplate — drop the line
                     continue
                 kept_lines.append(line)
@@ -591,8 +571,7 @@ def preprocess_python(code):
     # but don't do this if any line starts with ! or %
     if (
         not any(line.strip().startswith(("!", "%")) for line in code.split("\n"))
-        and os.environ.get("INTERPRETER_ACTIVE_LINE_DETECTION", "True").lower()
-        == "true"
+        and os.environ.get("INTERPRETER_ACTIVE_LINE_DETECTION", "True").lower() == "true"
     ):
         code = add_active_line_prints(code)
 
@@ -766,7 +745,7 @@ def string_to_python(code_as_string):
     for func in functions:
         # Consolidating import statements and function definition
         function_content = "\n".join(import_statements) + "\n\n"
-        function_content += f"def {func['name']}():\n    \"\"\"{func['docstring']}\"\"\"\n    {func['body']}\n"
+        function_content += f'def {func["name"]}():\n    """{func["docstring"]}"""\n    {func["body"]}\n'
 
         # Adding to dictionary
         functions_dict[func["name"]] = function_content

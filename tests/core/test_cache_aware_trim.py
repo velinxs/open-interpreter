@@ -14,11 +14,7 @@ def _big_user(ts, marker):
 def _placeholder(out):
     """Return the omission placeholder message, or None if there is none."""
     return next(
-        (
-            m
-            for m in out
-            if isinstance(m.get("content"), str) and "omitted" in m["content"]
-        ),
+        (m for m in out if isinstance(m.get("content"), str) and "omitted" in m["content"]),
         None,
     )
 
@@ -54,8 +50,7 @@ def test_trims_to_retention_target_dropping_whole_turns():
     assert note is not None
     assert note["role"] == "user"
     assert note["content"] == (
-        "[… 3 messages omitted from 2026-08-10 09:00 "
-        "to 2026-08-11 09:00 to fit context window …]"
+        "[… 3 messages omitted from 2026-08-10 09:00 to 2026-08-11 09:00 to fit context window …]"
     )
     # Whole messages are kept — the retained tail is an exact suffix of the input.
     # The cut lands on the plain-assistant "answer two" (a safe head), so the
@@ -146,12 +141,8 @@ def test_retention_ratio_controls_how_aggressively_history_is_dropped():
         {"role": "assistant", "content": "answer three"},
         {"role": "user", "content": "[2026-08-13 09:00] current"},
     ]
-    out_loose = cache_aware_trim(
-        messages, SYSTEM, token_limit=500, retention_ratio=1.0
-    )
-    out_aggressive = cache_aware_trim(
-        messages, SYSTEM, token_limit=500, retention_ratio=0.3
-    )
+    out_loose = cache_aware_trim(messages, SYSTEM, token_limit=500, retention_ratio=1.0)
+    out_aggressive = cache_aware_trim(messages, SYSTEM, token_limit=500, retention_ratio=0.3)
     assert len(out_loose) > len(out_aggressive)
     assert "3 messages omitted" in _placeholder(out_loose)["content"]
     assert "5 messages omitted" in _placeholder(out_aggressive)["content"]
@@ -163,9 +154,7 @@ def test_count_message_tokens_counts_reasoning_content():
     counted as a handful of tokens and cache-aware trimming never fired.  The
     counter must include it so these turns are trimmed correctly."""
     plain = [{"role": "assistant", "content": "ok"}]
-    thinking = [
-        {"role": "assistant", "content": "ok", "reasoning_content": "r" * 10000}
-    ]
+    thinking = [{"role": "assistant", "content": "ok", "reasoning_content": "r" * 10000}]
     plain_tokens = _count_message_tokens(plain, None)
     thinking_tokens = _count_message_tokens(thinking, None)
     assert thinking_tokens > plain_tokens * 10
@@ -273,9 +262,7 @@ def test_cut_lands_on_plain_assistant_boundary_to_keep_full_budget():
         {"role": "user", "content": "[2026-08-01 09:00] start"},
     ]
     for _ in range(12):
-        messages.append(
-            {"role": "assistant", "content": "ok", "reasoning_content": "r" * 4000}
-        )
+        messages.append({"role": "assistant", "content": "ok", "reasoning_content": "r" * 4000})
         messages.append(
             {
                 "role": "assistant",
@@ -283,9 +270,7 @@ def test_cut_lands_on_plain_assistant_boundary_to_keep_full_budget():
                 "function_call": {"name": "execute", "arguments": "{}"},
             }
         )
-        messages.append(
-            {"role": "function", "name": "execute", "content": "output " + "x" * 3000}
-        )
+        messages.append({"role": "function", "name": "execute", "content": "output " + "x" * 3000})
     messages.append({"role": "user", "content": "[2026-08-02 09:00] current prompt"})
 
     out = cache_aware_trim(messages, SYSTEM, token_limit=10000, retention_ratio=0.8)

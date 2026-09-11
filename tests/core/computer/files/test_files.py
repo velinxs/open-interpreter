@@ -105,7 +105,7 @@ class TestTextFileReader(unittest.TestCase):
 
         # Assert
         self.assertEqual(chars, "Line ")
-        self.assertEqual(chars_with_numbers, [(0, 'L'), (1, 'i'), (2, 'n'), (3, 'e'), (4, ' ')])
+        self.assertEqual(chars_with_numbers, [(0, "L"), (1, "i"), (2, "n"), (3, "e"), (4, " ")])
 
     def test_search(self):
         # Arrange

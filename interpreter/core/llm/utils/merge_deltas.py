@@ -15,10 +15,10 @@ def normalize_delta_to_dict(delta):
         return delta
 
     # Convert Pydantic Delta object to dict
-    if hasattr(delta, 'model_dump'):
+    if hasattr(delta, "model_dump"):
         # Pydantic v2
         return delta.model_dump(exclude_unset=True)
-    elif hasattr(delta, 'dict'):
+    elif hasattr(delta, "dict"):
         # Pydantic v1
         return delta.dict(exclude_unset=True)
     else:
@@ -53,9 +53,9 @@ def merge_deltas(original, delta):
                     original[key] = value
                 else:
                     merge_deltas(original[key], value)
-            elif hasattr(value, 'model_dump') or hasattr(value, 'dict'):
+            elif hasattr(value, "model_dump") or hasattr(value, "dict"):
                 # Pydantic object - convert to dict first
-                if hasattr(value, 'model_dump'):
+                if hasattr(value, "model_dump"):
                     value = value.model_dump(exclude_unset=True)
                 else:
                     value = value.dict(exclude_unset=True)
