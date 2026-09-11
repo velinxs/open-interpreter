@@ -1,9 +1,10 @@
+from ..default_system_message import model_information
 from ..render_message import render_message
 
 
 def assemble_system_message(interpreter):
     """Build the rendered system prompt before tool/text-mode appendices (matches respond.py)."""
-    system_message = interpreter.system_message
+    system_message = interpreter.system_message.replace("{model_line}", model_information(interpreter))
 
     for language in interpreter.terminal.languages:
         if hasattr(language, "system_message"):

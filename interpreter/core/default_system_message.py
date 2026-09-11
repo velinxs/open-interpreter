@@ -26,6 +26,18 @@ def get_location_info():
     return "\n".join(location_parts) if location_parts else "Location: Unknown"
 
 
+def model_information(interpreter):
+    """The line naming the running model, for the System Information section.
+
+    Without it the model has no way to answer "what are you running on" and
+    invents an answer, which is worse than saying nothing. Rendered at assembly
+    time rather than baked in at import, because the profile or --model flag
+    picks the model long after this module loads.
+    """
+    model = getattr(getattr(interpreter, "llm", None), "model", None)
+    return f"- Model you are running on: {model}" if model else ""
+
+
 _cli_lang = "cmd" if platform.system() == "Windows" else "bash"
 
 default_system_message = f"""
@@ -108,8 +120,9 @@ The same shape applies to the `toolbox` object: `help(toolbox.display)` to see w
 - User's Name: {getpass.getuser()}
 - User's OS: {platform.system()}
 {get_location_info()}
+{{model_line}}
 
 ## Available Python Packages
 
-Many are installed, including matplotlib, pandas, selenium, fastapi and jupyter. Search with `help('modules keyword')`, and install anything else you need.
+Many are installed, including pandas, matplotlib and jupyter. Search with `help('modules keyword')`, and install anything else you need.
 """.strip()

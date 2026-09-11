@@ -13,11 +13,14 @@ import tiktoken
 from tests.support.fake_llm import install_fake_llm
 from tests.support.scripted_session import SCRIPT
 
-# Includes the per-language notes appended after the base prompt. Raised from
-# 1,500 to buy the worked command shapes in Execution Style: one truncated
-# output costs ~700 tokens and is re-sent with every later request, so teaching
-# the model to ask a command for its answer pays for itself within one session.
-SYSTEM_PROMPT_TOKEN_BUDGET = 1600
+# Includes the per-language notes appended after the base prompt. The budget is
+# a guard against drift, not a target: it buys the worked command shapes in
+# Execution Style and the line naming the running model, both of which earn
+# their tokens back (one truncated output costs ~700 tokens and rides along in
+# every later request; without the model line the model invents an answer when
+# asked what it runs on). Raise it only for a stated addition, never to make a
+# red test green.
+SYSTEM_PROMPT_TOKEN_BUDGET = 1650
 _enc = tiktoken.get_encoding("cl100k_base")
 
 
