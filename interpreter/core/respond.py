@@ -14,9 +14,9 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 
 from ..terminal_interface.utils.display_markdown_message import display_markdown_message
-from .utils.assemble_system_message import assemble_system_message
+from .toolbox.web.web import ApiKeyError, WebToolboxError
 from .tools.file_edit import dry_run_edit, run_edit
-from .toolbox.web.web import WebToolboxError, ApiKeyError
+from .utils.assemble_system_message import assemble_system_message
 from .utils.prompt_choice import (
     NoInteractiveInput,
     prompt_choice,
@@ -116,6 +116,7 @@ def respond(interpreter):
 
     last_unsupported_code = ""
     insert_loop_message = False
+    loop_message = None  # set from interpreter.loop_message when loop mode re-prompts
     always_retry_provider_errors = False
     temporary_provider_error_retries = 0
     last_temporary_provider_error_signature = None
@@ -367,7 +368,7 @@ def respond(interpreter):
                          "insufficient_quota" in str(e).lower())
                 ):
                     display_markdown_message(
-                        f""" > You ran out of current quota for OpenAI's API, please check your plan and billing details. You can either wait for the quota to reset or upgrade your plan.
+                        """ > You ran out of current quota for OpenAI's API, please check your plan and billing details. You can either wait for the quota to reset or upgrade your plan.
 
                         To check your current usage and billing details, visit the [OpenAI billing page](https://platform.openai.com/settings/organization/billing/overview).
 
@@ -403,7 +404,7 @@ def respond(interpreter):
 
                     if response == "y":
                         interpreter.llm.model = "i"
-                        interpreter.display_message(f"> Model set to `i`")
+                        interpreter.display_message("> Model set to `i`")
                         interpreter.display_message(
                             "***Note:*** *Conversations with this model will be used to train our open-source model.*\n"
                         )

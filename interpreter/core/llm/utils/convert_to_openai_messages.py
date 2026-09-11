@@ -184,7 +184,7 @@ def convert_to_openai_messages(
                 new_message["role"] = "function"
                 new_message["name"] = last_tool_name
                 if "content" not in message:
-                    print("What is this??", content)
+                    print("What is this??", message)
                 if type(message["content"]) != str:
                     if interpreter.debug:
                         print("\n\n\nStrange chunk found:", message, "\n\n\n")
