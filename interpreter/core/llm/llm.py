@@ -33,15 +33,11 @@ _TOOL_CALLING_INSTRUCTIONS = (
 # from .run_function_calling_llm import run_function_calling_llm
 from .completions import _litellm, fixed_litellm_completions  # noqa: E402
 from .errors import AccessDeniedError, FunctionCallingNotSupportedError, ModelNotFoundError  # noqa: E402
+from .providers import configure, openrouter_model_entry  # noqa: E402
 from .tool_calling import run_tool_calling_llm
 from .utils.cache_aware_trim import cache_aware_trim
 from .utils.convert_to_openai_messages import convert_to_openai_messages
 from .utils.sanitize_secrets import sanitize_messages, should_sanitize_for_model
-
-# Cache of OpenRouter /api/v1/models entries keyed by model slug. Reasoning
-# contract and modalities are fetched at most once per process; the list rarely
-# changes within a session and a network round-trip per probe is wasteful.
-_openrouter_model_entries = {}
 
 # Models already warned about during this process (mandatory reasoning / an
 # unsupported effort value), so the note is printed once instead of every turn.
@@ -557,41 +553,7 @@ Continuing...
         self._is_loaded = False
 
     def _openrouter_model_entry(self, model):
-        """
-        Fetch the OpenRouter /api/v1/models entry for an openrouter model.
-
-        OpenRouter proxies any provider's models, so LiteLLM's registry often
-        doesn't list new ones (e.g. openrouter/qwen/qwen3.7-plus). OpenRouter's
-        model list is authoritative for input modalities AND for the reasoning
-        contract (mandatory reasoning, supported_efforts, default_effort), so a
-        single cached fetch serves both the vision probe and the reasoning
-        param-guarding below. Returns the entry dict, or None if the model is
-        not openrouter/ or the list can't be fetched.
-        """
-        if not model.lower().startswith("openrouter/"):
-            return None
-        slug = model.split("openrouter/", 1)[-1]
-        if slug in _openrouter_model_entries:
-            return _openrouter_model_entries[slug]
-        try:
-            response = requests.get(
-                "https://openrouter.ai/api/v1/models",
-                headers={
-                    "HTTP-Referer": os.environ.get("OR_SITE_URL", ""),
-                    "X-Title": os.environ.get("OR_APP_NAME", "Open Interpreter"),
-                },
-                timeout=10,
-            )
-            response.raise_for_status()
-            for entry in response.json().get("data", []):
-                if entry.get("id") == slug:
-                    _openrouter_model_entries[slug] = entry
-                    return entry
-        except Exception as e:
-            if self.interpreter.verbose:
-                print(f"Could not fetch OpenRouter model entry: {e}")
-        _openrouter_model_entries[slug] = None
-        return None
+        return openrouter_model_entry(model, verbose=self.interpreter.verbose)
 
     def _openrouter_supports_vision(self, model):
         """
@@ -608,110 +570,6 @@ Continuing...
         return "image" in modalities
 
     def load(self):
-        litellm = _litellm()
-
         if self._is_loaded:
             return
-
-        # Route explicit DashScope models to DashScope defaults (OpenAI-compatible).
-        # Prefixes avoid ambiguous auto-routing vs other providers (e.g. deepseek/*).
-        # Slugs:
-        # - dashscope-intl/<model> (Singapore ap-southeast-1)
-        # - dashscope-us/<model> (Virginia, US us-east-1)
-        model_lower = self.model.lower()
-        dashscope_route = None
-        if model_lower.startswith("dashscope-intl/"):
-            dashscope_route = (
-                self.model.split("/", 1)[1].lower(),
-                "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
-            )
-        elif model_lower.startswith("dashscope-us/"):
-            dashscope_route = (
-                self.model.split("/", 1)[1].lower(),
-                "https://dashscope-us.aliyuncs.com/compatible-mode/v1",
-            )
-        if dashscope_route is not None:
-            model_name, _dashscope_default_base = dashscope_route
-            if self.api_base is None:
-                self.api_base = _dashscope_default_base
-            if self.api_key is None:
-                self.api_key = os.environ.get("DASHSCOPE_API_KEY")
-            # Qwen3.5 is a unified vision-language architecture — there are no separate
-            # VL variants because every model in the family natively supports image input.
-            # LiteLLM's registry does not know this yet, so we set it explicitly.
-            if model_name.startswith("qwen3.5") and self.supports_vision is None:
-                self.supports_vision = True
-            # Route through OpenAI-compatible formatting for DashScope's compatible endpoint.
-            self.model = f"openai/{model_name}"
-
-        # DeepSeek API (OpenAI-compatible). Keep deepseek/<model> for LiteLLM routing.
-        if model_lower.startswith("deepseek/"):
-            if self.api_base is None:
-                self.api_base = os.environ.get("DEEPSEEK_API_BASE", "https://api.deepseek.com")
-            if self.api_key is None:
-                self.api_key = os.environ.get("DEEPSEEK_API_KEY")
-
-        if self.model.startswith("ollama/") and not ":" in self.model:
-            self.model = self.model + ":latest"
-
-        self._is_loaded = True
-
-        if self.model.startswith("ollama/"):
-            model_name = self.model.replace("ollama/", "")
-            api_base = getattr(self, "api_base", None) or os.getenv("OLLAMA_HOST", "http://localhost:11434")
-            names = []
-            try:
-                # List out all downloaded ollama models. Will fail if ollama isn't installed
-                response = requests.get(f"{api_base}/api/tags")
-                if response.ok:
-                    data = response.json()
-                    names = [model["name"] for model in data["models"] if "name" in model and model["name"]]
-
-            except Exception as e:
-                print(str(e))
-                self.interpreter.display_message(
-                    f"> Ollama not found\n\nPlease download Ollama from [ollama.com](https://ollama.com/) to use `{model_name}`.\n"
-                )
-                exit()
-
-            # Download model if not already installed
-            if model_name not in names:
-                self.interpreter.display_message(f"\nDownloading {model_name}...\n")
-                requests.post(f"{api_base}/api/pull", json={"name": model_name})
-
-            # Get context window if not set
-            if self.context_window == None:
-                response = requests.post(f"{api_base}/api/show", json={"name": model_name})
-                model_info = response.json().get("model_info", {})
-                context_length = None
-                for key in model_info:
-                    if "context_length" in key:
-                        context_length = model_info[key]
-                        break
-                if context_length is not None:
-                    self.context_window = context_length
-            if self.max_tokens == None:
-                if self.context_window != None:
-                    self.max_tokens = int(self.context_window * 0.2)
-
-            # Send a ping, which will actually load the model
-            model_name = model_name.replace(":latest", "")
-            print(f"Loading {model_name}...\n")
-
-            old_max_tokens = self.max_tokens
-            self.max_tokens = 1
-            self.interpreter.toolbox.ai.chat("ping")
-            self.max_tokens = old_max_tokens
-
-            self.interpreter.display_message("*Model loaded.*\n")
-
-        # Validate LLM should be moved here!!
-
-        if self.context_window == None:
-            try:
-                model_info = litellm.get_model_info(model=self.model)
-                self.context_window = model_info["max_input_tokens"]
-                if self.max_tokens == None:
-                    self.max_tokens = min(int(self.context_window * 0.2), model_info["max_output_tokens"])
-            except:
-                pass
+        configure(self)

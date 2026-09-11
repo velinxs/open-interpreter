@@ -1,6 +1,7 @@
 import pytest
 
 import interpreter.core.llm.llm as llm_mod
+import interpreter.core.llm.providers as providers_mod
 from interpreter.core.core import OpenInterpreter
 from interpreter.terminal_interface.profiles import profiles
 
@@ -37,7 +38,7 @@ def stub_openrouter_entry(monkeypatch):
         return state["entry"]
 
     monkeypatch.setattr(llm_mod.Llm, "_openrouter_model_entry", fake_entry)
-    monkeypatch.setattr(llm_mod, "_openrouter_model_entries", {})
+    monkeypatch.setattr(providers_mod, "_openrouter_model_entries", {})
     monkeypatch.setattr(llm_mod, "_warned_mandatory_reasoning", set())
     monkeypatch.setattr(llm_mod, "_warned_unsupported_effort", set())
     return state
