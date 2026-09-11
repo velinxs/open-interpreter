@@ -48,6 +48,30 @@ except ImportError:
     HTTP_403_FORBIDDEN = 403
 
 
+# Settings that decide whether code runs without a human being asked first. The
+# operator picks these when starting the server (a profile, -y, --auto_run_mode);
+# a client on the far end of the API does not get to change them, or the approval
+# prompt it is meant to answer becomes advisory.
+PROTECTED_SETTINGS = frozenset(
+    {
+        "auto_run",
+        "auto_run_mode",
+        "auto_run_allowlist_file",
+        "auto_run_allowlist_rules",
+        "auto_run_allowlist_replace_builtin",
+        "auto_run_denylist_file",
+        "auto_run_denylist_rules",
+        "auto_run_denylist_replace_builtin",
+        "safe_mode",
+    }
+)
+
+
+def _error(status_code, message):
+    """An HTTP error with the {"error": ...} body this API has always returned."""
+    return JSONResponse(status_code=status_code, content={"error": message})
+
+
 def create_router(async_interpreter):
     router = APIRouter()
 
@@ -368,30 +392,28 @@ def create_router(async_interpreter):
             async_interpreter.input(payload)
             return {"status": "success"}
         except Exception as e:
-            return {"error": str(e)}, 500
+            return _error(500, str(e))
 
     @router.post("/settings")
     async def set_settings(payload: dict[str, Any]):
         for key, value in payload.items():
-            print("Updating settings...")
-            # print(f"Updating settings: {key} = {value}")
-            if key in ["llm", "toolbox"] and isinstance(value, dict):
-                if key == "auto_run":
-                    return {
-                        "error": f"The setting {key} is not modifiable through the server due to security constraints."
-                    }, 403
-                if hasattr(async_interpreter, key):
-                    for sub_key, sub_value in value.items():
-                        if hasattr(getattr(async_interpreter, key), sub_key):
-                            setattr(getattr(async_interpreter, key), sub_key, sub_value)
-                        else:
-                            return {"error": f"Sub-setting {sub_key} not found in {key}"}, 404
-                else:
-                    return {"error": f"Setting {key} not found"}, 404
+            if key in PROTECTED_SETTINGS:
+                return _error(
+                    403, f"The setting {key} is not modifiable through the server due to security constraints."
+                )
+
+            if key in ("llm", "toolbox") and isinstance(value, dict):
+                if not hasattr(async_interpreter, key):
+                    return _error(404, f"Setting {key} not found")
+                section = getattr(async_interpreter, key)
+                for sub_key, sub_value in value.items():
+                    if not hasattr(section, sub_key):
+                        return _error(404, f"Sub-setting {sub_key} not found in {key}")
+                    setattr(section, sub_key, sub_value)
             elif hasattr(async_interpreter, key):
                 setattr(async_interpreter, key, value)
             else:
-                return {"error": f"Setting {key} not found"}, 404
+                return _error(404, f"Setting {key} not found")
 
         return {"status": "success"}
 
@@ -402,9 +424,9 @@ def create_router(async_interpreter):
             try:
                 return json.dumps({setting: setting_value})
             except TypeError:
-                return {"error": "Failed to serialize the setting value"}, 500
+                return _error(500, "Failed to serialize the setting value")
         else:
-            return json.dumps({"error": "Setting not found"}), 404
+            return _error(404, "Setting not found")
 
     if os.getenv("INTERPRETER_INSECURE_ROUTES", "").lower() == "true":
 
@@ -412,14 +434,14 @@ def create_router(async_interpreter):
         async def run_code(payload: dict[str, Any]):
             language, code = payload.get("language"), payload.get("code")
             if not (language and code):
-                return {"error": "Both 'language' and 'code' are required."}, 400
+                return _error(400, "Both 'language' and 'code' are required.")
             try:
                 print(f"Running {language}:", code)
                 output = async_interpreter.terminal.run(language, code)
                 print("Output:", output)
                 return {"output": output}
             except Exception as e:
-                return {"error": str(e)}, 500
+                return _error(500, str(e))
 
         @router.post("/upload")
         async def upload_file(file: UploadFile = File(...), path: str = Form(...)):
@@ -428,14 +450,14 @@ def create_router(async_interpreter):
                     shutil.copyfileobj(file.file, output_file)
                 return {"status": "success"}
             except Exception as e:
-                return {"error": str(e)}, 500
+                return _error(500, str(e))
 
         @router.get("/download/{filename}")
         async def download_file(filename: str):
             try:
                 return StreamingResponse(open(filename, "rb"), media_type="application/octet-stream")
             except Exception as e:
-                return {"error": str(e)}, 500
+                return _error(500, str(e))
 
     ### OPENAI COMPATIBLE ENDPOINT
 

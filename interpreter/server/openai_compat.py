@@ -417,14 +417,6 @@ def create_openai_router(async_interpreter):
             async_interpreter.stop_event.clear()
             return
 
-        if last_message.content == "{AUTO_RUN_ON}":
-            async_interpreter.auto_run = True
-            return
-
-        if last_message.content == "{AUTO_RUN_OFF}":
-            async_interpreter.auto_run = False
-            return
-
         content_str = last_message.content if isinstance(last_message.content, str) else None
 
         if content_str and _is_openai_auxiliary_title_request(content_str):

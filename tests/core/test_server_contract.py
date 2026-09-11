@@ -240,3 +240,54 @@ def test_the_server_never_speaks_as_the_user(server):
 
     sent = [m["content"] for m in ai.messages if m.get("role") == "user" and m.get("type") == "message"]
     assert sent == ["{CONTEXT_MODE_ON}", "hello"], sent
+
+
+def test_settings_refuses_to_change_the_approval_policy(server):
+    """Whether code runs without a human is the operator's call, not a client's.
+
+    The guard for this existed but was nested inside the branch for the llm and
+    toolbox sub-dicts, where a key named auto_run can never appear, so it never
+    ran and the setting was writable by anyone who could reach the server.
+    """
+    ai, client = server
+    ai.auto_run_mode = "prompt"
+
+    for payload in ({"auto_run": True}, {"auto_run_mode": "all"}, {"safe_mode": "off"}):
+        r = client.post("/settings", json=payload)
+        assert r.status_code == 403, (payload, r.status_code, r.text)
+        assert "not modifiable" in r.json()["error"]
+
+    assert ai.auto_run_mode == "prompt"
+    assert ai.auto_run is False
+
+
+def test_settings_still_applies_ordinary_settings(server):
+    """Everything that does not govern execution is still settable."""
+    ai, client = server
+
+    assert client.post("/settings", json={"verbose": True}).status_code == 200
+    assert ai.verbose is True
+
+    assert client.post("/settings", json={"llm": {"temperature": 0.5}}).status_code == 200
+    assert ai.llm.temperature == 0.5
+
+
+def test_settings_reports_unknown_names_with_a_real_status(server):
+    """An error is an HTTP error, not a 200 whose body happens to say 404."""
+    _, client = server
+
+    assert client.post("/settings", json={"nonexistent": 1}).status_code == 404
+    assert client.post("/settings", json={"llm": {"nonexistent": 1}}).status_code == 404
+    assert client.get("/settings/nonexistent").status_code == 404
+
+
+def test_auto_run_cannot_be_switched_on_through_a_chat_message(server):
+    """{AUTO_RUN_ON} was the same change through the back door."""
+    ai, client = server
+    install_fake_llm(ai, ["Noted."])
+    ai.auto_run_mode = "prompt"
+
+    _chat(client, "{AUTO_RUN_ON}")
+
+    assert ai.auto_run is False
+    assert ai.auto_run_mode == "prompt"
