@@ -41,9 +41,9 @@ def run_text_llm(llm, params):
 
     ## Convert output to LMC format
 
-    inside_code_block = False
-    accumulated_block = ""
-    language = None
+    # OS mode was meant to default bare fences to "text", but the original
+    # condition never fired, so "python" has always been the effective default.
+    parser = FenceParser(default_language="python")
 
     for chunk in llm.completions(**params):
         if llm.interpreter.verbose:
@@ -62,49 +62,104 @@ def run_text_llm(llm, params):
             continue
 
         content = delta.get("content", "")
-        if content == None:
+        if content is None:
             continue
 
-        accumulated_block += content
-
-        if accumulated_block.endswith("`"):
-            # We might be writing "```" one token at a time.
-            continue
-
-        # Did we just enter a code block?
-        if "```" in accumulated_block and not inside_code_block:
-            inside_code_block = True
-            accumulated_block = accumulated_block.split("```")[1]
-
-        # Did we just exit a code block?
-        if inside_code_block and "```" in accumulated_block:
+        yield from parser.feed(content)
+        if parser.finished:
+            # Stop at the first closing fence: respond() runs the code and asks again.
             return
 
-        # If we're in a code block,
-        if inside_code_block:
-            # If we don't have a `language`, find it
-            if language is None and "\n" in accumulated_block:
-                language = accumulated_block.split("\n")[0]
+    yield from parser.flush()
 
-                # Default to python if not specified
-                if language == "":
-                    if llm.interpreter.os == False:
-                        language = "python"
-                    elif llm.interpreter.os == False:
-                        # OS mode does this frequently. Takes notes with markdown code blocks
-                        language = "text"
-                else:
-                    # Removes hallucinations containing spaces or non letters.
-                    language = "".join(char for char in language if char.isalpha())
 
-            # If we do have a `language`, send it out
-            if language:
-                yield {
-                    "type": "code",
-                    "format": language,
-                    "content": content.replace(language, ""),
-                }
+class FenceParser:
+    """Incremental parser: text pieces in, LMC message/code chunks out.
 
-        # If we're not in a code block, send the output as a message
-        if not inside_code_block:
-            yield {"type": "message", "content": content}
+    Providers stream on arbitrary token boundaries, so the parser must cope
+    with a fence split across pieces ("``" + "`python"), a language tag split
+    across pieces ("```py" + "thon\n"), code glued to the closing fence, and
+    lone backticks in prose. It stops at the first closing fence.
+    """
+
+    def __init__(self, default_language="python"):
+        self.default_language = default_language
+        self.inside_code = False
+        self.language = None
+        self.finished = False
+        self._header = ""  # the language line, accumulated until its newline
+        self._pending = ""  # trailing backticks that may be the start of a fence
+
+    def feed(self, piece):
+        if self.finished or not piece:
+            return []
+        out = []
+        buf = self._pending + piece
+        self._pending = ""
+        while buf:
+            if not self.inside_code:
+                idx = buf.find("```")
+                if idx == -1:
+                    text, self._pending = _split_trailing_backticks(buf)
+                    if text:
+                        out.append({"type": "message", "content": text})
+                    break
+                if idx:
+                    out.append({"type": "message", "content": buf[:idx]})
+                buf = buf[idx + 3 :]
+                self.inside_code = True
+                self.language = None
+                self._header = ""
+                continue
+
+            if self.language is None:
+                newline = buf.find("\n")
+                if newline == -1:
+                    self._header += buf
+                    break
+                self._header += buf[:newline]
+                buf = buf[newline + 1 :]
+                # Drop hallucinated spaces, digits and punctuation from the tag.
+                self.language = "".join(c for c in self._header if c.isalpha()) or self.default_language
+                continue
+
+            idx = buf.find("```")
+            if idx == -1:
+                code, self._pending = _split_trailing_backticks(buf)
+                if code:
+                    out.append({"type": "code", "format": self.language, "content": code})
+                break
+            if idx:
+                out.append({"type": "code", "format": self.language, "content": buf[:idx]})
+            self.finished = True
+            break
+        return out
+
+    def flush(self):
+        """Emit backticks held back at end of stream that never became a fence."""
+        pending, self._pending = self._pending, ""
+        if not pending or self.finished:
+            return []
+        if self.inside_code and self.language is not None:
+            return [{"type": "code", "format": self.language, "content": pending}]
+        if not self.inside_code:
+            return [{"type": "message", "content": pending}]
+        return []
+
+
+def _split_trailing_backticks(text):
+    """Return (emit_now, hold_back): up to two trailing backticks may start a fence."""
+    held = len(text) - len(text.rstrip("`"))
+    if held == 0:
+        return text, ""
+    return text[:-held], text[-held:]
+
+
+def stream_to_lmc(pieces, default_language="python"):
+    """Parse an iterable of text pieces into LMC message/code chunks (test seam)."""
+    parser = FenceParser(default_language)
+    for piece in pieces:
+        yield from parser.feed(piece)
+        if parser.finished:
+            return
+    yield from parser.flush()
