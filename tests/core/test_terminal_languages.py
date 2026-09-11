@@ -1,5 +1,6 @@
 import os
 import platform
+import shutil
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -26,6 +27,9 @@ from interpreter.core.terminal.terminal import (
     _default_terminal_languages,
     _sync_active_line_detection_env,
 )
+
+
+_HAS_PWSH = bool(shutil.which("pwsh") or os.environ.get("INTERPRETER_POWERSHELL"))
 
 
 class _StubCwdShell(CwdTrackingMixin):
@@ -111,6 +115,7 @@ class TestTerminalLanguages(unittest.TestCase):
         self.assertFalse(has_multiline_constructs('$x = "hello"; Write-Host $x'))
         self.assertFalse(has_multiline_constructs("Get-Process"))
 
+    @unittest.skipUnless(_HAS_PWSH, "pwsh not installed")
     def test_powershell_line_postprocessor_filters_prompt_and_continuation(self):
         ps = PowerShell()
         # PS prompt lines are suppressed (with and without conda prefix)
@@ -133,6 +138,7 @@ class TestTerminalLanguages(unittest.TestCase):
             "Path is PS C:\\Users\\foo",
         )
 
+    @unittest.skipUnless(_HAS_PWSH, "pwsh not installed")
     def test_active_line_injection_disabled_when_env_false(self):
         """All language preprocessors respect INTERPRETER_ACTIVE_LINE_DETECTION=false."""
         with patch.dict("os.environ", {"INTERPRETER_ACTIVE_LINE_DETECTION": "false"}):
@@ -164,6 +170,7 @@ class TestTerminalLanguages(unittest.TestCase):
             pw = ps.preprocess_code("Write-Host 1")
             self.assertNotIn("##active_line", pw)
 
+    @unittest.skipUnless(_HAS_PWSH, "pwsh not installed")
     def test_active_line_injection_present_when_env_true(self):
         """All language preprocessors inject markers when INTERPRETER_ACTIVE_LINE_DETECTION=true."""
         with patch.dict("os.environ", {"INTERPRETER_ACTIVE_LINE_DETECTION": "true"}):

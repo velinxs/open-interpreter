@@ -123,6 +123,7 @@ def _run_one_turn(interpreter):
     next(interpreter.llm.run(messages))
 
 
+@pytest.mark.network
 def test_openrouter_qwen37_vision_detected_when_registry_stale(
     interpreter, stub_openrouter_registry
 ):
@@ -143,6 +144,7 @@ def test_openrouter_qwen37_vision_detected_when_registry_stale(
     assert interpreter.llm.supports_vision is True
 
 
+@pytest.mark.network
 def test_openrouter_qwen37_text_only_not_vision(
     interpreter, stub_openrouter_registry
 ):
@@ -163,6 +165,7 @@ def test_openrouter_qwen37_text_only_not_vision(
     assert interpreter.llm.supports_vision is False
 
 
+@pytest.mark.network
 def test_openrouter_vision_helper_skips_non_openrouter_models(
     interpreter, stub_openrouter_registry
 ):

@@ -118,6 +118,7 @@ def test_profile_include_reasoning_false_disables_effort(
     assert "effort" not in params["extra_body"]["reasoning"]
 
 
+@pytest.mark.network
 def test_mandatory_reasoning_ignores_include_reasoning_false(
     capture_text_params, stub_openrouter_entry
 ):
@@ -165,6 +166,7 @@ def test_mandatory_reasoning_ignores_include_reasoning_false(
     assert reasoning is None or reasoning.get("enabled") is not False
 
 
+@pytest.mark.network
 def test_mandatory_reasoning_still_sends_supported_effort(
     capture_text_params, stub_openrouter_entry
 ):
@@ -205,6 +207,7 @@ def test_mandatory_reasoning_still_sends_supported_effort(
     assert "include_reasoning" not in params
 
 
+@pytest.mark.network
 def test_unsupported_effort_dropped_with_warning(
     capture_text_params, stub_openrouter_entry
 ):

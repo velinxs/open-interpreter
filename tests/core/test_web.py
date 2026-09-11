@@ -4,6 +4,7 @@ import json
 from unittest.mock import MagicMock, patch
 
 from interpreter.core.toolbox.web.web import Web, StructuredOutputResult, WebToolboxError
+import pytest
 
 class TestWebToolbox(unittest.TestCase):
     def setUp(self):
@@ -11,6 +12,8 @@ class TestWebToolbox(unittest.TestCase):
         self.web = Web(self.mock_toolbox)
 
     def test_structured_output_linkup(self):
+
+        pytest.importorskip("linkup", reason="linkup-sdk not installed")
         # Mock API key
         with patch.dict(os.environ, {"LINKUP_API_KEY": "fake_key"}):
             # Mock LinkupClient
@@ -58,6 +61,8 @@ class TestWebToolbox(unittest.TestCase):
                 self.assertEqual(result["sources"][0]["title"], "Paper on arXiv")
 
     def test_structured_output_pydantic_flexibility(self):
+
+        pytest.importorskip("linkup", reason="linkup-sdk not installed")
         # Mock API key
         with patch.dict(os.environ, {"LINKUP_API_KEY": "fake_key"}):
             # Mock a Pydantic-like model by inheriting from a real one if available
@@ -86,6 +91,8 @@ class TestWebToolbox(unittest.TestCase):
                 self.assertEqual(call_kwargs["structured_output_schema"], original_schema)
 
     def test_structured_output_no_backend_available(self):
+
+        pytest.importorskip("linkup", reason="linkup-sdk not installed")
         # Ensure no API keys are set
         with patch.dict(os.environ, {}, clear=True):
             with self.assertRaises(WebToolboxError) as context:
