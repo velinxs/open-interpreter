@@ -21,6 +21,7 @@ from .llm.llm import Llm
 from .respond import respond, _is_temporary_provider_error, _render_temporary_retry_status
 from .utils.execution_allowlist import (
     DEFAULT_ALLOWLIST_FILE,
+    DEFAULT_DENYLIST_FILE,
     normalize_auto_run_mode,
     should_require_execution_confirmation,
 )
@@ -163,6 +164,9 @@ class OpenInterpreter:
         self.auto_run_allowlist_rules = None
         self.auto_run_allowlist_replace_builtin = False
         self._session_allowlist_rules = []
+        self.auto_run_denylist_file = DEFAULT_DENYLIST_FILE
+        self.auto_run_denylist_rules = None
+        self.auto_run_denylist_replace_builtin = False
         self.verbose = verbose
         self.debug = debug
         self.max_output = max_output

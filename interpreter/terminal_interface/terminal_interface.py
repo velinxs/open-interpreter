@@ -130,6 +130,12 @@ def terminal_interface(interpreter, message):
                 "**Allowlist mode**: only exact allowlisted commands run without approval."
             )
 
+        if interpreter.auto_run_mode == "denylist":
+            interpreter_intro_message.append(
+                "**Denylist mode**: everything runs without approval "
+                "*except* commands matching a denylist rule."
+            )
+
         if interpreter.safe_mode == "ask" or interpreter.safe_mode == "auto":
             if not check_for_package("semgrep"):
                 interpreter_intro_message.append(

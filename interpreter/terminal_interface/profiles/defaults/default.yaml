@@ -23,8 +23,11 @@ toolbox:
 # custom_instructions: ""  # This will be appended to the system message
 
 # General Configuration
-# auto_run: False  # If True, code will run without asking. Or use prompt | all | allowlist
+# auto_run: False  # If True, code will run without asking. Or use prompt | all | allowlist | denylist
 # auto_run_allowlist_file: ...  # Optional path for user-approved allowlist rules (YAML)
+# auto_run_denylist_file: ...  # Optional path for denylist rules (YAML). In denylist
+#   mode everything runs unprompted EXCEPT code matching a rule, so it is fail-open:
+#   anything the rules do not anticipate runs without asking.
 # safe_mode: "off"  # The safety mode for the LLM — one of "off", "ask", "auto"
 # offline: False  # If True, will disable some online features like checking for updates
 # verbose: False  # If True, will print detailed logs

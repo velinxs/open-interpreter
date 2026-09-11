@@ -186,6 +186,9 @@ def handle_auto_run(self, arguments=None):
     elif arguments == "allowlist":
         self.display_message("> Entered auto_run mode (allowlist)")
         self.auto_run_mode = "allowlist"
+    elif arguments == "denylist":
+        self.display_message("> Entered auto_run mode (denylist)")
+        self.auto_run_mode = "denylist"
     else:
         self.display_message("> Unknown argument to auto_run command.")
 

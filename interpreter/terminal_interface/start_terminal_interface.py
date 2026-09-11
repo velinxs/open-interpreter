@@ -71,9 +71,9 @@ def start_terminal_interface(interpreter):
         },
         {
             "name": "auto_run_mode",
-            "help_text": "when to run code without asking: prompt, all, or allowlist",
+            "help_text": "when to run code without asking: prompt, all, allowlist, or denylist",
             "type": str,
-            "choices": ["prompt", "all", "allowlist"],
+            "choices": ["prompt", "all", "allowlist", "denylist"],
             "default": None,
             "attribute": {"object": interpreter, "attr_name": "auto_run_mode"},
         },
@@ -536,7 +536,8 @@ Use """ to write multi-line messages.
         or bool(args.disable_telemetry)
     )
 
-    # Full auto-run and safe_mode scanning are incompatible; allowlist mode is fine.
+    # Full auto-run and safe_mode scanning are incompatible; allowlist and
+    # denylist modes are fine, since both still gate some code on approval.
     if interpreter.auto_run_mode == "all" and interpreter.safe_mode in ("ask", "auto"):
         interpreter.auto_run_mode = "prompt"
 
