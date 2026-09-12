@@ -305,33 +305,44 @@ def handle_count_tokens(self, prompt):
 
 
 def install_and_import(package):
+    """Import `package`, installing it first if it is not already available.
+
+    Returns the module, or None if the install failed. The pip3 fallback exists
+    for environments where `python -m pip` is absent but pip3 is on the path.
+
+    Both failure paths used to end in UnboundLocalError: a `finally` block ran
+    `globals()[package] = module` even when the installs failed and `module` was
+    never bound, so the user saw a traceback instead of the message written for
+    them; and the pip3 retry never imported the package afterwards, so even a
+    successful fallback install crashed.
+    """
     try:
         module = __import__(package)
     except ImportError:
-        try:
-            # Install the package silently with pip
-            print("")
-            print(f"Installing {package}...")
-            print("")
-            subprocess.check_call(
-                [sys.executable, "-m", "pip", "install", package],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-            module = __import__(package)
-        except subprocess.CalledProcessError:
-            # If pip fails, try pip3
+        print(f"\nInstalling {package}...\n")
+        for installer in ("pip", "pip3"):
             try:
                 subprocess.check_call(
-                    [sys.executable, "-m", "pip3", "install", package],
+                    [sys.executable, "-m", installer, "install", package],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                 )
+                break
             except subprocess.CalledProcessError:
-                print(f"Failed to install package {package}.")
-                return
-    finally:
-        globals()[package] = module
+                continue
+        else:
+            print(f"Failed to install package {package}.")
+            return None
+
+        try:
+            module = __import__(package)
+        except ImportError:
+            # Installed, but not importable under this name (pip name != import
+            # name, or it landed in a different environment).
+            print(f"Installed {package}, but it could not be imported.")
+            return None
+
+    globals()[package] = module
     return module
 
 

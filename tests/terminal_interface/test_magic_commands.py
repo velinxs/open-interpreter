@@ -480,20 +480,49 @@ def test_install_and_import_returns_an_already_installed_module():
     assert install_and_import("json") is json
 
 
-def test_a_failed_install_raises_unbound_local_instead_of_reporting_it(monkeypatch, capsys):
-    """Characterisation bug: the failure path never assigns `module`.
+def test_a_failed_install_reports_itself_and_returns_none(monkeypatch, capsys):
+    """When pip and pip3 both fail, the user gets the message, not a traceback.
 
-    When pip and pip3 both fail, the function prints "Failed to install
-    package" and returns — but the `finally` block then runs
-    `globals()[package] = module`, and `module` was never bound. The user sees
-    an UnboundLocalError traceback instead of the message written for them.
-    The same hole swallows the success case of the pip3 retry.
+    A `finally` block used to run `globals()[package] = module` even on the
+    failure path, where `module` was never bound, so the message written for
+    the user was followed by an UnboundLocalError.
     """
 
     def _fail(*args, **kwargs):
         raise subprocess.CalledProcessError(1, "pip")
 
     monkeypatch.setattr(magic.subprocess, "check_call", _fail)
-    with pytest.raises(UnboundLocalError):
-        install_and_import("definitely_not_a_real_package_xyz")
+
+    assert install_and_import("definitely_not_a_real_package_xyz") is None
     assert "Failed to install package" in capsys.readouterr().out
+
+
+def test_the_pip3_fallback_imports_what_it_installed(monkeypatch):
+    """A package installed by the pip3 retry is imported and returned.
+
+    The retry used to install and then fall straight through to the `finally`
+    block without importing, so even a successful fallback raised.
+    """
+    attempts = []
+
+    def _pip_fails_pip3_works(cmd, **kwargs):
+        attempts.append(cmd[2])
+        if cmd[2] == "pip":
+            raise subprocess.CalledProcessError(1, "pip")
+
+    monkeypatch.setattr(magic.subprocess, "check_call", _pip_fails_pip3_works)
+    real_import = magic.__builtins__["__import__"] if isinstance(magic.__builtins__, dict) else __import__
+    calls = []
+
+    def _import_once(name, *args):
+        calls.append(name)
+        if len(calls) == 1:
+            raise ImportError(name)
+        return real_import("json")
+
+    monkeypatch.setitem(install_and_import.__globals__["__builtins__"], "__import__", _import_once)
+    try:
+        assert install_and_import("json") is json
+    finally:
+        monkeypatch.undo()
+    assert attempts == ["pip", "pip3"]
