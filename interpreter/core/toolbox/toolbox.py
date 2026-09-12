@@ -53,6 +53,9 @@ class Toolbox:
         self.save_skills = True
 
         self.import_toolbox_api = False  # Defaults to false
+        # "names" lists just the callables; "full" restores the signatures and
+        # one-line descriptions, which cost about four times as many tokens.
+        self.api_listing = "names"
         self._has_imported_toolbox_api = False  # Because we only want to do this once
 
         self.import_skills = False
@@ -74,30 +77,43 @@ class Toolbox:
 
     @property
     def system_message(self):
-        toolbox_tools = "\n".join(self._get_all_toolbox_tools_signature_and_description())
-        mac_only_note = ""
-        if platform.system() != "Darwin":
-            mac_only_note = "\n\nNote: `toolbox.mail`, `toolbox.sms`, `toolbox.calendar`, and `toolbox.contacts` are macOS-only and cannot be used on this system.\n"
-        vision_note = ""
-        if getattr(self.interpreter.llm, "supports_vision", None) is False:
-            vision_note = "\n\nNote: The `view_image` tool is not available as this is a non-vision model; use `toolbox.vision.query(path=..., query='...')` for image descriptions.\n"
         if self._system_message_override is not None:
             return self._system_message_override
-        return f"""
 
+        # Names alone, by default. The full catalogue of signatures and
+        # descriptions costs 1,519 tokens in every request, forever, to describe
+        # 61 methods that a given session mostly will not touch; the names alone
+        # cost 346 and are the part that cannot be recovered later. Everything
+        # else is one help() call away at the moment it is needed, and that call
+        # returns the live docstring, which cannot go stale the way a baked
+        # listing can.
+        if self.api_listing == "full":
+            catalogue = "\n".join(self._get_all_toolbox_tools_signature_and_description())
+        else:
+            catalogue = "\n".join(self._get_all_toolbox_tool_names())
+
+        notes = []
+        if platform.system() != "Darwin":
+            notes.append("`toolbox.mail`, `toolbox.sms`, `toolbox.calendar` and `toolbox.contacts` are macOS-only.")
+        if getattr(self.interpreter.llm, "supports_vision", None) is False:
+            notes.append(
+                "The `view_image` tool is unavailable on this non-vision model; "
+                "use `toolbox.vision.query(path=..., query='...')` to describe an image."
+            )
+        note_block = ("\n" + "\n".join(f"Note: {n}" for n in notes) + "\n") if notes else ""
+
+        return f"""
 ## The `toolbox` API
 
-A `toolbox` object is ALREADY AVAILABLE in your execution environment, and can be used for many tasks:
+`toolbox` is already a variable in your Python namespace. Never import it.
 
 ```python
-{toolbox_tools}
+{catalogue}
 ```
-{mac_only_note}{vision_note}
-Do NOT `import toolbox`, or try to import any of its sub-modules. The `toolbox` object is already available as a variable in your namespace.
-
-Use help(toolbox.module.method) to see detailed documentation, parameters, and examples for any tool that you think might be useful to accomplish a task.  Never guess how to use functions or what their return format is.  Always explore and check things first.
-
-    """.strip()
+{note_block}
+Call `help(toolbox.module.method)` before using one, for its parameters, return
+shape and examples. Never guess a signature or a return format.
+""".strip()
 
     @system_message.setter
     def system_message(self, value):
@@ -140,6 +156,18 @@ Use help(toolbox.module.method) to see detailed documentation, parameters, and e
         if platform.system() == "Darwin":
             tools = tools[:4] + [self.mail, self.sms, self.calendar, self.contacts] + tools[4:]
         return tools
+
+    def _get_all_toolbox_tool_names(self):
+        """Every callable as `toolbox.module.method`, with no signature or prose.
+
+        The part of the catalogue a model cannot reconstruct for itself: it can
+        ask help() for any signature, but only if it knows the method is there.
+        """
+        names = []
+        for tool in self._get_all_toolbox_tools_list():
+            for method in self._extract_tool_info(tool)["methods"]:
+                names.append(method["signature"].split("(")[0])
+        return names
 
     def _get_all_toolbox_tools_signature_and_description(self):
         """
