@@ -473,9 +473,18 @@ the parent is running under, and note the import name is `interpreter`:
 "$(python -c 'import sys; print(sys.executable)')" -c "from interpreter import OpenInterpreter"
 ```
 
-Shells that Open Interpreter spawns get that directory prepended to `PATH`
-already, and the system prompt tells the model which Python to use, so this
-mostly matters when you are launching agents from outside.
+A shell that Open Interpreter spawns already resolves `python`/`python3` to the
+Python it is running under, and the system prompt tells the model which one that
+is, so this mostly matters when you launch agents from outside. Only the Python
+goes on `PATH` — never the whole virtualenv `bin`, which would shadow the user's
+own commands with every console script the dependencies installed.
+
+To point commands at a different environment, set `python_path` in your profile
+to a python executable or a virtualenv directory:
+
+```yaml
+python_path: ~/projects/thing/.venv
+```
 
 ## Sample FastAPI Server
 

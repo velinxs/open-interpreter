@@ -119,6 +119,11 @@ class OpenInterpreter:
         self.auto_run_denylist_replace_builtin = False
         self.verbose = verbose
         self.debug = debug
+        # Which Python a `python3` in a shell command reaches. None means "the one
+        # Open Interpreter is itself running under", which is right whether that is
+        # a virtualenv or /usr/bin/python. Set it to a python executable or to a
+        # virtualenv directory to point spawned commands somewhere else.
+        self.python_path = None
         self.max_output = max_output
         # Untruncated console output is appended here, one block per command,
         # created lazily only when output actually overflows max_output.

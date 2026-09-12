@@ -110,3 +110,51 @@ def test_the_python_shim_does_not_shadow_the_users_other_commands(monkeypatch):
     )
     venv_bin = os.path.dirname(sys.executable)
     assert shim != venv_bin, "the shim must be its own directory, not the virtualenv's bin"
+
+
+def test_python_path_points_spawned_commands_at_another_interpreter(tmp_path, monkeypatch):
+    """`python_path` overrides which Python a shell command's `python3` reaches.
+
+    Without it the only choice was the Python Open Interpreter runs under, which
+    is wrong for anyone whose agents should work inside a project's own venv.
+    """
+    import os
+    import subprocess as sp
+
+    from interpreter.core.terminal.languages.bash import Bash
+
+    venv = tmp_path / "project-venv"
+    sp.run([sys.executable, "-m", "venv", "--without-pip", str(venv)], check=True)
+
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    shell = Bash()
+    shell.python_path = str(venv)  # a directory, not a binary: both are accepted
+    try:
+        chunks = list(shell.run('python3 -c "import sys; print(sys.prefix)"'))
+    finally:
+        shell.terminate()
+
+    resolved = "".join(c.get("content", "") for c in chunks if c.get("format") == "output").strip()
+    assert resolved.splitlines()[0] == str(venv), (
+        f"python_path was ignored: spawned shell used {resolved!r}, not {str(venv)!r}"
+    )
+    assert os.path.isdir(venv)
+
+
+def test_python_path_is_a_profile_setting(tmp_path):
+    """A profile may set python_path, so it must exist on the interpreter.
+
+    Profiles now skip keys the interpreter does not have, so an attribute that is
+    never initialised would make the setting silently do nothing.
+    """
+    from interpreter import OpenInterpreter
+    from interpreter.terminal_interface.profiles.profiles import apply_profile_to_object
+
+    oi = OpenInterpreter()
+    try:
+        assert hasattr(oi, "python_path"), "python_path must exist or profiles will skip it"
+        assert oi.python_path is None, "the default must mean 'the Python we run under'"
+        apply_profile_to_object(oi, {"python_path": str(tmp_path)})
+        assert oi.python_path == str(tmp_path)
+    finally:
+        oi.toolbox.terminate()

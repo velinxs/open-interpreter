@@ -27,11 +27,34 @@ def _env_seconds(name, default):
     return value if value > 0 else 0.0
 
 
-_shim_dir = None
+_shim_dirs = {}
 
 
-def _python_shim_dir():
-    """A directory holding only `python`/`python3`, pointing at our own Python.
+def _resolve_python(python_path):
+    """Turn a `python_path` setting into an executable, or None to fall back.
+
+    Accepts a python executable or a virtualenv directory, because both are what
+    people mean by "the venv to use" and guessing wrong is a silent failure.
+    """
+    if not python_path:
+        return None
+    candidate = os.path.expanduser(str(python_path))
+    if os.path.isdir(candidate):
+        for relative in (os.path.join("bin", "python3"), os.path.join("bin", "python"), "python.exe"):
+            binary = os.path.join(candidate, relative)
+            if os.path.isfile(binary):
+                return binary
+        return None
+    return candidate if os.path.isfile(candidate) else None
+
+
+def _python_shim_dir(python_path=None):
+    """A directory holding only `python`/`python3`, pointing at one Python.
+
+    `python_path` is the profile setting: a python executable or a virtualenv
+    directory. When it is unset or cannot be resolved, this falls back to the
+    Python Open Interpreter is running under — which is the right answer whether
+    that is a virtualenv or /usr/bin/python.
 
     Open Interpreter is normally installed in a virtualenv and launched as
     ~/oi-venv/bin/interpreter without that venv being activated, so a bare
@@ -54,27 +77,27 @@ def _python_shim_dir():
     Returns None on Windows, or when the directory cannot be written; the caller
     then leaves PATH alone.
     """
-    global _shim_dir
-    if _shim_dir is not None:
-        return _shim_dir or None  # "" means we already tried and could not
-
-    _shim_dir = ""
     if os.name != "posix":
         return None  # a .bat wrapper has different quoting rules; not worth it yet
+
+    executable = _resolve_python(python_path) or sys.executable
+    if executable in _shim_dirs:
+        return _shim_dirs[executable] or None  # "" means we tried and could not
+
+    _shim_dirs[executable] = ""
     try:
         directory = tempfile.mkdtemp(prefix="oi-python-")
-        target = shlex.quote(sys.executable)
-        script = f'#!/bin/sh\nexec {target} "$@"\n'
+        script = f'#!/bin/sh\nexec {shlex.quote(executable)} "$@"\n'
         for name in {"python", "python3", f"python{sys.version_info.major}.{sys.version_info.minor}"}:
             path = os.path.join(directory, name)
             with open(path, "w", encoding="utf-8") as handle:
                 handle.write(script)
             os.chmod(path, 0o755)
         atexit.register(shutil.rmtree, directory, True)
-        _shim_dir = directory
+        _shim_dirs[executable] = directory
     except Exception:
         pass  # a shell that finds the system python is worse, not broken
-    return _shim_dir or None
+    return _shim_dirs[executable] or None
 
 
 # A command that produces no output for this long is treated as hung and killed.
@@ -90,6 +113,8 @@ class SubprocessLanguage(BaseLanguage):
     # Perl REPL uses a custom __OI_END__ block marker; text=True on Windows turns
     # \n into \r\n and the REPL waits forever. Subclasses set True for byte pipes.
     binary_stdio = False
+    # Set by Terminal from interpreter.python_path. None means the Python we run under.
+    python_path = None
 
     def __init__(self):
         self.start_cmd = []
@@ -195,7 +220,7 @@ class SubprocessLanguage(BaseLanguage):
         my_env = os.environ.copy()
         my_env["PYTHONIOENCODING"] = "utf-8"
 
-        shim = _python_shim_dir()
+        shim = _python_shim_dir(self.python_path)
         if shim:
             path = my_env.get("PATH", "")
             if shim not in path.split(os.pathsep):

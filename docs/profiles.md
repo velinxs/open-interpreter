@@ -223,6 +223,7 @@ These are attributes of `OpenInterpreter` (`interpreter/core/core.py`).
 | `auto_run_denylist_replace_builtin` | bool | `False` | `True` drops the nine built-in deny rules. |
 | `safe_mode` | str | `"off"` | `off`, `ask` or `auto`. `ask`/`auto` run `semgrep` over code first; they require `pip install semgrep`. |
 | `max_output` | int | `2800` | Characters of code output shown to the LLM. Overflow is archived to a spill file. |
+| `python_path` | str \| None | `None` | Which Python a `python3` in a shell command reaches. A python executable or a virtualenv directory. `None` means the Python Open Interpreter is itself running under, which is right whether that is a virtualenv or `/usr/bin/python`. Only the Python goes on `PATH`, never the whole virtualenv `bin`. |
 | `verbose` | bool | `False` | Detailed logging. |
 | `debug` | bool | `False` | Developer debug output. |
 | `multi_line` | bool | `True` | Accept multi-line input delimited by ```` ``` ````. |

@@ -237,9 +237,13 @@ print("__TOOLBOX_API_IMPORTED__")
                 }
                 return
             if lang_class.__init__.__code__.co_argcount > 1:
-                self._active_languages[language] = lang_class(self.interpreter)
+                instance = lang_class(self.interpreter)
             else:
-                self._active_languages[language] = lang_class()
+                instance = lang_class()
+            # Languages that shell out do not take the interpreter, so the setting
+            # is handed over here rather than through every subclass constructor.
+            instance.python_path = getattr(self.interpreter, "python_path", None)
+            self._active_languages[language] = instance
         try:
             for chunk in self._active_languages[language].run(code):
                 # self.format_to_recipient can format some messages as having a certain recipient.
