@@ -412,21 +412,24 @@ def test_a_first_run_download_also_starts_the_server(interpreter, answers, llama
 
 
 @pytest.mark.parametrize("choice", ["Mistral-7B-Instruct (4.40GB)", "Gemma-2-27b (16.70GB)", "TinyLlama-1.1B (0.70GB)"])
-def test_llamafile_sizes_that_need_a_trailing_zero_cannot_be_selected(interpreter, answers, llamafile, choice):
-    """Characterisation bug: menu entries are formatted with %.2f, the lookup is not.
+def test_llamafile_sizes_that_need_a_trailing_zero_can_be_selected(interpreter, answers, llamafile, choice):
+    """Every size in the menu is selectable, including those with a trailing zero.
 
-    The menu is built with f"{size:.2f}GB" but the selected model is found with
-    f"{size}GB", so every size whose repr differs from its two-decimal form
-    (4.40, 16.7, 0.70) raises StopIteration inside download_model. That is
+    The menu was built with f"{size:.2f}GB" and the selection looked up with
+    f"{size}GB", so 4.40, 16.7 and 0.70 never matched. The StopIteration was
     caught by a bare `except Exception`, printed as an empty line, and turned
-    into a None model path, which then crashes on .split(). Three of the
-    twelve offered models are unselectable.
+    into a None model path that crashed on .split(). Three of the twelve
+    offered models were unselectable. Menu and lookup now share one label.
     """
     answers.append({"model": "Llamafile"})
     answers.append({"model": choice})
-    with pytest.raises(AttributeError):
-        local_setup(interpreter)
-    assert llamafile.downloads == []
+    local_setup(interpreter)
+
+    assert len(llamafile.downloads) == 1, f"{choice} did not download"
+    # The download URL is the model's own, not a name match: the upstream file
+    # names differ in case and punctuation from the menu labels.
+    assert llamafile.downloads[0][0].endswith("?download=true")
+    assert llamafile.launched, "the downloaded model was never started"
 
 
 def test_models_too_large_for_the_disk_are_not_offered(interpreter, answers, llamafile, monkeypatch, capsys):

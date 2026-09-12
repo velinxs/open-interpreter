@@ -125,8 +125,12 @@ def local_setup(interpreter, provider=None, model=None):
             if filtered_models:
                 time.sleep(1)
 
-                # Prompt the user to select a model
-                model_choices = [f"{model['name']} ({model['size']:.2f}GB)" for model in filtered_models]
+                # One label per model, built once and reused for the lookup below.
+                # Formatting the menu with .2f and then searching with the bare
+                # repr made every size whose two forms differ (4.40 vs 4.4) impossible
+                # to select.
+                labels = {f"{model['name']} ({model['size']:.2f}GB)": model for model in filtered_models}
+                model_choices = list(labels)
                 questions = [
                     inquirer.List(
                         "model",
@@ -139,10 +143,7 @@ def local_setup(interpreter, provider=None, model=None):
                 if answers == None:
                     exit()
 
-                # Get the selected model
-                selected_model = next(
-                    model for model in filtered_models if f"{model['name']} ({model['size']}GB)" == answers["model"]
-                )
+                selected_model = labels[answers["model"]]
 
                 # Download the selected model
                 model_url = selected_model["url"]
