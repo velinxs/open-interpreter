@@ -64,17 +64,51 @@ def _inline_user_image_in_turn_after_last_assistant_text(messages):
     return False
 
 
+def _existing_tool_ids(messages):
+    """Every tool_call id already present in this conversation.
+
+    A tool_call_id minted for a malformed call (see tool_dispatch.py) is
+    written into a `role: tool` message and stays there, unchanged, on every
+    later request. The sequence below must not later hand that same number to
+    a different, real call — two assistant tool_calls sharing an id is
+    rejected outright by any pairing-strict provider.
+    """
+    ids = set()
+    for message in messages:
+        for tool_call in message.get("tool_calls") or []:
+            call_id = tool_call.get("id") if isinstance(tool_call, dict) else getattr(tool_call, "id", None)
+            if call_id:
+                ids.add(call_id)
+        call_id = message.get("tool_call_id")
+        if call_id:
+            ids.add(call_id)
+    return ids
+
+
 def process_messages(messages, model=None):
     processed_messages = []
+    existing_ids = _existing_tool_ids(messages)
     last_tool_id = 0
+
+    def next_tool_id():
+        # Advances last_tool_id on every call, including when the first
+        # candidate is skipped, so two calls in the same pass never land on
+        # the same number (the bug behind the "two consecutive id-less tool
+        # messages get the same id" case, which predates this fix).
+        nonlocal last_tool_id
+        last_tool_id += 1
+        candidate = generate_tool_id(last_tool_id, model)
+        while candidate in existing_ids:
+            last_tool_id += 1
+            candidate = generate_tool_id(last_tool_id, model)
+        return candidate
 
     i = 0
     while i < len(messages):
         message = messages[i]
 
         if message.get("function_call"):
-            last_tool_id += 1
-            tool_id = generate_tool_id(last_tool_id, model)
+            tool_id = next_tool_id()
 
             # Convert function_call to tool_calls
             function = message.pop("function_call")
@@ -98,8 +132,7 @@ def process_messages(messages, model=None):
 
         elif message.get("role") == "function":
             # This handles orphaned function responses
-            last_tool_id += 1
-            tool_id = generate_tool_id(last_tool_id, model)
+            tool_id = next_tool_id()
 
             # Add a tool call before this orphaned tool response. Providers like Alibaba require
             # function.arguments to be valid JSON; use execute-shaped payload to avoid API errors.
@@ -136,7 +169,7 @@ def process_messages(messages, model=None):
             # Insert a synthetic assistant with tool_calls using this message's tool_call_id.
             prev = processed_messages[-1] if processed_messages else None
             if not prev or "tool_calls" not in prev or not prev.get("tool_calls"):
-                tool_id = message.get("tool_call_id") or generate_tool_id(last_tool_id + 1, model)
+                tool_id = message.get("tool_call_id") or next_tool_id()
                 processed_messages.append(
                     {
                         "role": "assistant",
