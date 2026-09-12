@@ -1,4 +1,5 @@
 import ast
+import difflib
 import glob
 import json
 import os
@@ -161,8 +162,36 @@ class RemoveInterpreter(ast.NodeTransformer):
         return node  # return node otherwise to keep it in the AST
 
 
+def _known_attributes(obj):
+    """Public attribute names on obj, offered as difflib candidates for a typo'd key."""
+    return [attr for attr in dir(obj) if not attr.startswith("_")]
+
+
+def _unknown_key_warning(displayed_key, key, known_attributes, class_name):
+    """One-line warning for a profile key with no matching attribute.
+
+    `displayed_key` is what the user wrote (e.g. "llm.temprature"), `key` is
+    the bare attribute name difflib matches against (e.g. "temprature").
+    get_close_matches names the probable intent (e.g. auto_run_mode for
+    auto_run_moed) so a typo is a one-glance fix. With no close match, only
+    the unknown-key fact is reported — guessing a lookalike would be worse
+    than saying nothing. The setting is actually skipped now (see
+    apply_profile_to_object), so this warning is no longer a false alarm.
+    """
+    match = difflib.get_close_matches(key, known_attributes, n=1)
+    if match:
+        return (
+            f"Profile has '{displayed_key}' but this attribute doesn't exist on the {class_name} class. "
+            f"Did you mean '{match[0]}'? This setting was skipped."
+        )
+    return (
+        f"Profile has '{displayed_key}' but this attribute doesn't exist on the {class_name} class. "
+        "This setting was skipped."
+    )
+
+
 def _validate_profile(interpreter, profile):
-    """Validate profile and warn about invalid attributes that will be silently ignored."""
+    """Validate profile and warn about unknown attributes that will be skipped."""
     warnings = []
 
     # Nested dicts to validate: (profile_key, obj_attribute, obj_class_name, skip_keys)
@@ -173,18 +202,19 @@ def _validate_profile(interpreter, profile):
 
     for profile_key, obj, class_name, skip_keys in nested_dicts:
         if profile_key in profile and isinstance(profile[profile_key], dict):
+            known = _known_attributes(obj)
             for key in profile[profile_key]:
                 if key.startswith("_") or key in skip_keys:
                     continue
                 if not hasattr(obj, key):
-                    warnings.append(
-                        f"Profile has '{profile_key}.{key}' but this attribute doesn't exist on the {class_name} class. "
-                        "This setting will be ignored."
-                    )
+                    warnings.append(_unknown_key_warning(f"{profile_key}.{key}", key, known, class_name))
 
     # Check for invalid top-level attributes
-    # Skip known nested dicts and special keys
-    skip_keys = {"llm", "computer", "wtf", "version", "start_script"}
+    # Skip known nested dicts and special keys. "version" and "start_script" are
+    # metadata the loader consumes elsewhere (see apply_profile) and are never
+    # attributes on the interpreter, so they must never be reported as unknown.
+    skip_keys = {"llm", "computer", "toolbox", "wtf", "version", "start_script"}
+    known = _known_attributes(interpreter)
     for key in profile:
         if key in skip_keys:
             continue
@@ -193,10 +223,7 @@ def _validate_profile(interpreter, profile):
         if key.startswith("_"):
             continue  # Skip private attributes
         if not hasattr(interpreter, key):
-            warnings.append(
-                f"Profile has '{key}' but this attribute doesn't exist on the Interpreter class. "
-                "This setting will be ignored."
-            )
+            warnings.append(_unknown_key_warning(key, key, known, "Interpreter"))
 
     if warnings:
         print("\n⚠️  Profile validation warnings:")
@@ -302,6 +329,14 @@ def apply_profile(interpreter, profile, profile_path):
         del profile["llm"]["truncation_step"]
         profile["llm"].setdefault("retention_ratio", 0.8)
 
+    # "version" and "start_script" are metadata the loader has already consumed
+    # (the version check above, the exec at the top of this function) — neither
+    # is an attribute on the interpreter. Strip them before validating/applying
+    # so they are never reported as unknown and never setattr'd as dead
+    # attributes nothing reads.
+    profile.pop("version", None)
+    profile.pop("start_script", None)
+
     # Validate profile for common mistakes
     _validate_profile(interpreter, profile)
 
@@ -320,6 +355,15 @@ def apply_profile_to_object(obj, profile):
                 continue
             apply_profile_to_object(getattr(obj, key), value)
         else:
+            # A key with no matching attribute is a typo or a setting that
+            # never existed. setattr would happily invent it as a new,
+            # unread attribute — the profile would look applied while doing
+            # nothing, which for a restriction (e.g. auto_run_mode) is a
+            # silent security downgrade, not just a cosmetic no-op. The
+            # matching warning is emitted by _validate_profile before this
+            # runs; here we only need to not create the attribute.
+            if not hasattr(obj, key):
+                continue
             setattr(obj, key, value)
 
 

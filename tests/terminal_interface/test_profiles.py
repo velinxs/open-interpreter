@@ -253,11 +253,17 @@ def test_max_output_is_rehomed_from_the_llm_section(interpreter):
     assert interpreter.max_output == 1234
 
 
-def test_unknown_keys_are_reported_rather_than_silently_dropped(interpreter, capsys):
-    """A key that matches no attribute produces a warning naming it.
+def test_unknown_keys_are_reported_and_skipped_not_invented_as_attributes(interpreter, capsys):
+    """A key that matches no attribute is warned about and never set.
 
-    setattr would happily create interpreter.temprature. The warning is the
-    only signal that a typo'd setting is doing nothing.
+    setattr used to run unconditionally, so a typo like this created
+    interpreter.not_a_real_setting and interpreter.llm.temprature as new, dead
+    attributes nothing reads, while the warning claimed the setting would be
+    "ignored" — it was actually applied, just to a name nobody checks. For a
+    restriction (auto_run_mode, an allowlist) that direction is a silent
+    security downgrade: the user believes they locked something down and
+    have not. The fix is to make apply_profile_to_object skip the setattr
+    when the attribute doesn't exist, so the warning's claim is true.
     """
     profiles.apply_profile(
         interpreter,
@@ -267,6 +273,78 @@ def test_unknown_keys_are_reported_rather_than_silently_dropped(interpreter, cap
     output = capsys.readouterr().out
     assert "not_a_real_setting" in output
     assert "temprature" in output
+    assert not hasattr(interpreter, "not_a_real_setting")
+    assert not hasattr(interpreter.llm, "temprature")
+
+
+def test_a_typo_in_a_security_relevant_key_does_not_silently_apply(interpreter, capsys):
+    """`auto_run_moed` leaves auto_run_mode at its default and names the likely fix.
+
+    This is the concrete security scenario: a user restricting auto-run with
+    a typo'd key must not end up thinking they succeeded. The dead attribute
+    must not be created, the real setting must be untouched, and the warning
+    must name auto_run_mode via difflib so the fix is a one-glance change.
+    """
+    default_auto_run_mode = interpreter.auto_run_mode
+    profiles.apply_profile(
+        interpreter,
+        {**CURRENT, "auto_run_moed": "all"},
+        "/tmp/x.yaml",
+    )
+    output = capsys.readouterr().out
+    assert interpreter.auto_run_mode == default_auto_run_mode
+    assert not hasattr(interpreter, "auto_run_moed")
+    assert "auto_run_moed" in output
+    assert "auto_run_mode" in output
+
+
+def test_a_valid_profile_with_llm_and_toolbox_blocks_still_applies_fully(interpreter, capsys):
+    """Real keys under llm: and toolbox: are unaffected by the unknown-key skip.
+
+    The unknown-key check must only fire on keys that truly don't exist. A
+    false positive here would silently drop legitimate settings from the
+    user's own profile, which uses exactly this shape.
+    """
+    profiles.apply_profile(
+        interpreter,
+        {
+            **CURRENT,
+            "llm": {"model": "gpt-4.1", "temperature": 0.2},
+            "toolbox": {"import_computer_api": True},
+            "offline": True,
+            "disable_telemetry": True,
+            "auto_run_mode": "allowlist",
+        },
+        "/tmp/x.yaml",
+    )
+    assert interpreter.llm.model == "gpt-4.1"
+    assert interpreter.llm.temperature == 0.2
+    assert interpreter.toolbox.import_computer_api is True
+    assert interpreter.offline is True
+    assert interpreter.disable_telemetry is True
+    assert interpreter.auto_run_mode == "allowlist"
+    assert "doesn't exist" not in capsys.readouterr().out
+
+
+def test_version_and_start_script_never_produce_an_unknown_key_warning(interpreter, capsys):
+    """The loader's own metadata keys are exempt from the unknown-key check.
+
+    Every profile carries `version`, and a .py profile's `start_script` is
+    handled by exec, not setattr. Neither is an interpreter attribute; if the
+    unknown-key check fired on them, every single profile load would print a
+    spurious warning and, before this fix, would have set interpreter.version
+    and interpreter.start_script as unread dead attributes.
+    """
+    profiles.apply_profile(
+        interpreter,
+        {**CURRENT, "start_script": "pass"},
+        "/tmp/x.yaml",
+    )
+    output = capsys.readouterr().out
+    assert "version" not in output
+    assert "start_script" not in output
+    assert not hasattr(interpreter, "version")
+    assert not hasattr(interpreter, "start_script")
 
 
 def test_the_wtf_section_is_left_alone(interpreter):
