@@ -326,9 +326,6 @@ def respond(interpreter):
                         time.sleep(2)
                         continue
 
-                        interpreter._stopped_retrying = True
-                        return
-
                     interpreter._stopped_retrying = True
                     return
 

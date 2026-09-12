@@ -307,22 +307,42 @@ def test_ctrl_c_during_a_supplied_message_ends_the_turn(interpreter):
     assert [c["content"] for c in _run(interpreter)] == ["partial"]
 
 
-def test_declining_a_provider_retry_exits_and_removes_the_unanswered_message(interpreter, monkeypatch, capsys):
-    """Answering "n" at the API retry prompt exits, dropping the message that never got a reply.
+def test_declining_a_provider_retry_returns_to_the_prompt_and_drops_the_unanswered_message(
+    interpreter, monkeypatch, capsys
+):
+    """Answering "n" at the API retry prompt goes back to the prompt, not out of the program.
 
-    Leaving it in history means the next session resends a message the user
-    has already given up on, and pays for it.
+    "n = stop" means stop retrying. Exiting threw away the whole conversation
+    over one provider error, which is the opposite of what someone asking to
+    stop a retry loop wants. The unanswered message is still dropped: leaving it
+    would resend a message the user has given up on, and some providers reject a
+    history that ends with two user turns.
     """
-    monkeypatch.setattr("builtins.input", lambda prompt="": "hello")
+    prompts = iter(["hello"])
+
+    def _input(prompt=""):
+        try:
+            return next(prompts)
+        except StopIteration:
+            # Back at the prompt is exactly what we are testing for. Ctrl-C from
+            # here is the ordinary way out, and proves the loop is live rather
+            # than having torn the session down.
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr("builtins.input", _input)
     interpreter.messages = [{"role": "user", "type": "message", "content": "hello"}]
     interpreter._stopped_retrying = True
     interpreter.script["chunks"] = []
 
-    with pytest.raises(SystemExit) as excinfo:
+    # The loop is back at the prompt asking for input, which is the whole point;
+    # the Ctrl-C raised by the exhausted script is how we leave it.
+    with pytest.raises(KeyboardInterrupt):
         list(terminal_interface(interpreter, None))
-    assert excinfo.value.code == 1
+
     assert interpreter.messages == []
-    assert "Stopped retrying" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "Stopped retrying" in out
+    assert "not sent" in out, "the user must be told their message never went anywhere"
 
 
 def test_an_unexpected_error_propagates(interpreter):
