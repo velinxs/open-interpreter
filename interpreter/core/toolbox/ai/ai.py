@@ -195,26 +195,6 @@ class Ai:
                 response += chunk.get("content")
         return response
 
-        # Old way
-        old_messages = self.toolbox.interpreter.llm.interpreter.messages
-        old_system_message = self.toolbox.interpreter.llm.interpreter.system_message
-        old_import_toolbox_api = self.toolbox.import_toolbox_api
-        old_execution_instructions = self.toolbox.interpreter.llm.execution_instructions
-        try:
-            self.toolbox.interpreter.llm.interpreter.system_message = "You are an AI assistant."
-            self.toolbox.interpreter.llm.interpreter.messages = []
-            self.toolbox.import_toolbox_api = False
-            self.toolbox.interpreter.llm.execution_instructions = ""
-
-            response = self.toolbox.interpreter.llm.interpreter.chat(text)
-        finally:
-            self.toolbox.interpreter.llm.interpreter.messages = old_messages
-            self.toolbox.interpreter.llm.interpreter.system_message = old_system_message
-            self.toolbox.import_toolbox_api = old_import_toolbox_api
-            self.toolbox.interpreter.llm.execution_instructions = old_execution_instructions
-
-            return response[-1].get("content")
-
     def query(self, text, query, custom_reduce_query=None):
         """
         Processes large text by breaking it into chunks and querying each chunk.
