@@ -365,6 +365,11 @@ Open Interpreter supports multiple `yaml` files, allowing you to easily switch b
 interpreter --profile my_profile.yaml
 ```
 
+Profiles can also be JSON or Python. For the full reference — where profiles are
+searched for, every settable key with its type and default, the `version:` key, the
+four auto-run modes, and precedence between profiles, flags and environment
+variables — see [docs/profiles.md](docs/profiles.md).
+
 ## Sample FastAPI Server
 
 The generator update enables Open Interpreter to be controlled via HTTP REST endpoints:

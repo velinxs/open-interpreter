@@ -8,6 +8,20 @@ This repo (`endolith/open-interpreter`) is the community-maintained home of OI C
 
 This is the classic/develop branch which is a mess. Don't bother running tests and stuff, those only work in the main branch.
 
+## Configuration
+
+Runtime settings come from profiles: YAML, JSON or Python files in the user config
+directory (`~/.config/open-interpreter/profiles/` on Linux). `docs/profiles.md` is
+the reference — search order, every settable key with its type and default, the
+`version:` key a headless deployment must pin, the four `auto_run` modes and their
+rule format, precedence between profile/flag/environment, and a list of known rough
+edges in the loader. Read it before changing anything under
+`interpreter/terminal_interface/profiles/` or the flag table in
+`interpreter/terminal_interface/arguments.py`, and update it when those change.
+
+Note that this branch sets `_DEFAULT_PROFILE = "develop.yaml"` in `arguments.py`;
+`main` uses `default.yaml`.
+
 ## Code change guidelines
 
 ### Testing
