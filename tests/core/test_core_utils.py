@@ -38,19 +38,19 @@ def test_a_tagged_message_is_routed_to_its_recipient():
     assert parse_for_recipient(tagged) == ("assistant", "run the next step")
 
 
-def test_content_containing_a_colon_is_truncated():
-    """Characterisation bug: the payload is split on ":" and only one field kept.
+def test_content_containing_a_colon_is_preserved():
+    """Regression: the payload used to be split on ":" with no maxsplit, keeping only one field.
 
-    parse_for_recipient does `parts[2].split(":")[1]`, so a message containing
-    a colon — a URL, a timestamp, a dict repr, a Windows path — loses
-    everything from the second colon onwards. Here "http://example.com" comes
-    back as "http". Nothing in the tree currently sends colons through this
-    path, which is why it has gone unnoticed.
+    parse_for_recipient used to do `parts[2].split(":")[1]`, so a message
+    containing a colon — a URL, a timestamp, a dict repr, a Windows path —
+    lost everything from the second colon onwards: "http://example.com" came
+    back as "http". It now splits on the first colon only, so the remainder
+    of the content survives intact.
     """
     tagged = format_to_recipient("http://example.com", "assistant")
     recipient, content = parse_for_recipient(tagged)
     assert recipient == "assistant"
-    assert content == "http"
+    assert content == "http://example.com"
 
 
 def test_a_truncated_wrapper_is_treated_as_plain_content():
