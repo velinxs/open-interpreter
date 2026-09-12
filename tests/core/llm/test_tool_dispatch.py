@@ -76,37 +76,45 @@ def test_a_dict_of_arguments_is_accepted_as_well_as_a_json_string(llm):
 
 
 @pytest.mark.parametrize(
-    "arguments,expected_fragment",
+    "arguments,expected_fragments",
     [
-        ('{"language": "python"}', "missing required fields"),
-        ('{"language": "python", "code": ""}', "code is empty"),
-        ('{"language": "python", "code": 5}', "code must be a string"),
-        ('"not an object"', "arguments must be a dict"),
+        ('{"language": "python"}', ["missing required fields", "execute requires 'language' and 'code'"]),
+        ('{"language": "python", "code": ""}', ["code is empty", "execute requires a non-empty 'code' string"]),
+        ('{"language": "python", "code": 5}', ["code must be a string", "execute requires 'code' as a string"]),
+        ('"not an object"', ["arguments must be a dict"]),
+        ("not json at all {{{", ["not valid JSON", "execute requires a JSON object with 'language' and 'code'"]),
     ],
 )
-def test_malformed_execute_calls_come_back_as_tool_responses(llm, arguments, expected_fragment):
+def test_malformed_execute_calls_come_back_as_tool_responses(llm, arguments, expected_fragments):
     """Every bad execute payload becomes a role=tool message the model can read.
 
     Raising instead would end the turn with a traceback and no way for the
     model to correct itself; staying silent would leave the API waiting for a
-    tool response that never arrives, which fails the *next* request.
+    tool response that never arrives, which fails the *next* request. Pinning
+    every fragment (not just one) is what would catch a regression that undoes
+    the "say what is required, not just what failed" rewrite of these messages.
     """
     chunks = _dispatch(llm, "execute", arguments)
     assert len(chunks) == 1
     assert chunks[0]["role"] == "tool"
     assert chunks[0]["tool_call_id"] == "call_1"
-    assert expected_fragment in chunks[0]["content"]
+    for fragment in expected_fragments:
+        assert fragment in chunks[0]["content"]
 
 
-def test_an_error_without_a_tool_call_id_still_reaches_the_user(llm):
-    """With no id to answer, the error is shown as an assistant message instead.
+def test_a_missing_tool_call_id_gets_one_minted(llm):
+    """With no id to answer, dispatch_function_call mints one rather than degrading to an assistant message.
 
-    A tool response with no tool_call_id is rejected by the API, so the choice
-    is between telling the user and telling nobody.
+    A tool response with no tool_call_id is rejected by pairing-strict
+    providers, so the old "fall back to role: assistant" behavior told the
+    user but never the model. Minting an id instead means every error still
+    goes out as a properly paired role:tool message, which is what lets
+    respond() give the model a turn to correct itself.
     """
     chunks = _dispatch(llm, "execute", '{"language": "python"}', tool_call_id=None)
-    assert chunks[0]["role"] == "assistant"
-    assert "Error" in chunks[0]["content"]
+    assert chunks[0]["role"] == "tool"
+    assert chunks[0]["tool_call_id"]
+    assert "missing required fields" in chunks[0]["content"]
 
 
 def test_a_missing_tool_call_id_is_recovered_from_the_request(llm):
@@ -125,10 +133,43 @@ def test_a_missing_tool_call_id_is_recovered_from_the_request(llm):
     assert chunks[0]["tool_call_id"] == "recovered_id"
 
 
-def test_an_empty_string_id_is_treated_as_no_id(llm):
-    """"" is not a usable tool_call_id and must not be sent as one."""
+def test_a_minted_id_does_not_collide_with_one_already_in_the_request(llm):
+    """Minting an id checks the request's existing ids first, so two tool_calls never share one.
+
+    A collision would be a new pairing bug layered on top of the one this
+    fixes: the provider would see two different messages claiming the same
+    id. This message has no preceding assistant+tool_calls entry, so the
+    tool_call_id-recovery step above (which looks for exactly that shape)
+    finds nothing and minting is what actually runs; "toolu_1" — the id
+    minting would pick first — is already taken by an orphaned tool message,
+    so the mint must skip it.
+    """
+    request_params = {
+        "messages": [
+            {"role": "tool", "tool_call_id": "toolu_1", "content": "an earlier, unrelated tool response"},
+        ]
+    }
+    chunks = _dispatch(llm, "execute", '{"language": "python"}', tool_call_id=None, request_params=request_params)
+    assert chunks[0]["tool_call_id"] not in ("toolu_1", None, "")
+
+
+def test_an_empty_string_id_is_treated_as_no_id_and_gets_one_minted(llm):
+    """"" is not a usable tool_call_id; it is treated as absent and a real id is minted instead."""
     chunks = _dispatch(llm, "execute", '{"language": "python"}', tool_call_id="")
-    assert chunks[0]["role"] == "assistant"
+    assert chunks[0]["role"] == "tool"
+    assert chunks[0]["tool_call_id"]
+
+
+def test_a_whitespace_only_id_is_treated_as_no_id_and_gets_one_minted(llm):
+    """"   " is not a usable tool_call_id either.
+
+    A bare truthiness check would accept it, and sending it as a
+    tool_call_id is exactly the blank-id pairing failure the id
+    normalisation exists to prevent.
+    """
+    chunks = _dispatch(llm, "execute", '{"language": "python"}', tool_call_id="   ")
+    assert chunks[0]["role"] == "tool"
+    assert chunks[0]["tool_call_id"].strip()
 
 
 # --- edit -------------------------------------------------------------------

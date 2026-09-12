@@ -126,72 +126,99 @@ def test_unknown_tool_call_is_answered_with_a_tool_error(offline_interpreter):
     assert any(m.get("role") == "tool" for m in offline_interpreter.messages)
 
 
-# --- malformed calls with no tool_call_id to pair a response to -------------
+# --- malformed calls where the provider never sent a tool_call_id -----------
 #
 # These three used to end the turn in total silence: parse_partial_json (or the
 # empty/non-string code checks) produced an error string, but the branch that
-# yields it only fired when a tool_call_id was available, and had no fallback.
-# With no id, respond() cannot safely ask the model again — a follow-up request
-# with no matching tool response would be rejected by any provider enforcing
-# the assistant(tool_calls) -> tool() pairing — so the turn ends after one
-# assistant message. The fix is that this message now exists at all; before it,
-# the turn ended with nothing yielded and nothing said to anyone.
+# yielded it only fired when a tool_call_id was available, with no fallback.
+# dispatch_function_call now mints a tool_call_id whenever the provider omits
+# one, so the error goes out as a properly paired role:tool message and
+# respond() — which only re-prompts when the trailing message has role ==
+# "tool" — gives the model a second turn. Scripting and asserting that second
+# turn is what proves the model reads the correction, not just the user.
 
 
-def test_unparseable_execute_arguments_still_reach_someone(offline_interpreter):
-    """Arguments so broken that parse_partial_json gives up no longer vanish silently.
+def test_unparseable_execute_arguments_get_a_minted_id_and_a_second_turn(offline_interpreter):
+    """Arguments so broken that parse_partial_json gives up still reach the model.
 
     Before the fix, this combination (bad JSON + no tool_call_id) fell through
     every branch in dispatch_function_call's "execute" arm without yielding
     anything, so the turn ended with no error and no way for the model to
-    retry.
+    retry. Now a tool_call_id is minted, and the message distinguishes a
+    syntax problem ("not valid JSON") from a shape problem, rather than
+    leaking parse_partial_json's `None` failure sentinel as "got NoneType".
     """
     install_fake_llm(offline_interpreter, [])
     offline_interpreter.llm.supports_functions = True
-    offline_interpreter.llm.completions = ScriptedStreams(
-        [_raw_tool_call_stream("execute", "not json at all {{{", call_id=None)]
+    completions = ScriptedStreams(
+        [
+            _raw_tool_call_stream("execute", "not json at all {{{", call_id=None),
+            _text_stream("Retrying with valid JSON."),
+        ]
     )
+    offline_interpreter.llm.completions = completions
 
     messages = offline_interpreter.chat("run something", display=False, stream=False)
 
-    assert messages[-1]["role"] == "assistant"
-    assert "arguments must be a dict" in messages[-1]["content"]
+    assert len(completions.calls) == 2, "the model was never given a second turn"
+    assert messages[-1]["content"] == "Retrying with valid JSON."
+    tool_errors = [m for m in offline_interpreter.messages if m.get("role") == "tool"]
+    assert tool_errors, offline_interpreter.messages
+    assert tool_errors[0]["tool_call_id"], "a tool response with no id would be rejected by a real provider"
+    assert "not valid JSON" in tool_errors[0]["content"]
 
 
-def test_empty_code_with_no_tool_call_id_still_reaches_someone(offline_interpreter):
-    """An empty `code` string with no id to pair no longer ends the turn in silence.
+def test_empty_code_gets_a_minted_id_and_a_second_turn(offline_interpreter):
+    """An empty `code` string with no provider-supplied id still reaches the model.
 
     Before the fix, the empty-code branch only yielded a message when a
     tool_call_id was present; with none, nothing was yielded at all.
     """
     install_fake_llm(offline_interpreter, [])
     offline_interpreter.llm.supports_functions = True
-    offline_interpreter.llm.completions = ScriptedStreams(
-        [_tool_call_stream("execute", {"language": "python", "code": ""}, call_id=None)]
+    completions = ScriptedStreams(
+        [
+            _tool_call_stream("execute", {"language": "python", "code": ""}, call_id=None),
+            _text_stream("Retrying with code."),
+        ]
     )
+    offline_interpreter.llm.completions = completions
 
     messages = offline_interpreter.chat("run something", display=False, stream=False)
 
-    assert messages[-1]["role"] == "assistant"
-    assert "code is empty" in messages[-1]["content"]
-    assert "non-empty" in messages[-1]["content"]
+    assert len(completions.calls) == 2, "the model was never given a second turn"
+    assert messages[-1]["content"] == "Retrying with code."
+    tool_errors = [m for m in offline_interpreter.messages if m.get("role") == "tool"]
+    assert tool_errors, offline_interpreter.messages
+    assert tool_errors[0]["tool_call_id"]
+    assert "code is empty" in tool_errors[0]["content"]
+    assert "non-empty" in tool_errors[0]["content"]
 
 
-def test_non_string_code_with_no_tool_call_id_still_reaches_someone(offline_interpreter):
-    """`code` sent as a non-string with no id to pair no longer ends the turn in silence.
+def test_non_string_code_gets_a_minted_id_and_a_second_turn(offline_interpreter):
+    """`code` sent as a non-string with no provider-supplied id still reaches the model.
 
     Same missing-fallback bug as the empty-code case, on the adjacent branch.
     """
     install_fake_llm(offline_interpreter, [])
     offline_interpreter.llm.supports_functions = True
-    offline_interpreter.llm.completions = ScriptedStreams(
-        [_tool_call_stream("execute", {"language": "python", "code": 5}, call_id=None)]
+    completions = ScriptedStreams(
+        [
+            _tool_call_stream("execute", {"language": "python", "code": 5}, call_id=None),
+            _text_stream("Retrying with a string."),
+        ]
     )
+    offline_interpreter.llm.completions = completions
 
     messages = offline_interpreter.chat("run something", display=False, stream=False)
 
-    assert messages[-1]["role"] == "assistant"
-    assert "code must be a string" in messages[-1]["content"]
+    assert len(completions.calls) == 2, "the model was never given a second turn"
+    assert messages[-1]["content"] == "Retrying with a string."
+    tool_errors = [m for m in offline_interpreter.messages if m.get("role") == "tool"]
+    assert tool_errors, offline_interpreter.messages
+    assert tool_errors[0]["tool_call_id"]
+    assert "code must be a string" in tool_errors[0]["content"]
+    assert "execute requires 'code' as a string" in tool_errors[0]["content"]
 
 
 def test_a_tool_call_with_no_function_name_is_answered_not_dropped(offline_interpreter):

@@ -10,29 +10,57 @@ import json
 import os
 
 from ..tools.file_edit import EDIT_LANGUAGES
+from .tool_messages import generate_tool_id
 from .tool_schema import VIEW_IMAGE_ALLOWED_EXTENSIONS
 from .utils.parse_partial_json import parse_partial_json
 
 
 def _error_chunk(tool_call_id_for_error, error_msg):
-    """Build the one chunk every malformed-call branch below needs to yield.
+    """Build the tool-response chunk every malformed-call branch below yields.
 
-    Paired to its call with `role: tool` when an id exists, because chat APIs
-    that require assistant(tool_calls) -> tool(response) pairing reject the
-    next request outright if a tool response shows up without one. With no id
-    to pair, falling back to `role: assistant` at least gets the message in
-    front of the user instead of dropping it — a bare `if tool_call_id_for_error`
-    check is enough because callers already normalise the value to a non-empty
-    str or None before any branch runs (see the block below).
+    dispatch_function_call mints a tool_call_id before any of these branches
+    run (see the block right after id normalisation), so there is no longer a
+    "no id" case to fall back from here — every call into this function has
+    one. That matters because respond() only gives the model another turn
+    when the last message has role == "tool"; a role: assistant message would
+    end the turn with the user seeing the error and the model never reading
+    it, which is the failure this whole function exists to avoid.
     """
-    if tool_call_id_for_error:
-        return {
-            "role": "tool",
-            "tool_call_id": tool_call_id_for_error,
-            "type": "message",
-            "content": error_msg,
-        }
-    return {"role": "assistant", "type": "message", "content": f"**Error:** {error_msg}"}
+    return {
+        "role": "tool",
+        "tool_call_id": tool_call_id_for_error,
+        "type": "message",
+        "content": error_msg,
+    }
+
+
+def _mint_tool_call_id(request_params, model):
+    """Mint a tool_call_id for a call the provider didn't attach one to.
+
+    Delegates the format to generate_tool_id (tool_messages.py owns the
+    Mistral 9-char-alphanumeric rule; hand-rolling a second format here would
+    just be a new place for that rule to drift out of sync). The candidate is
+    checked against every id already present in request_params["messages"] —
+    both on an assistant's tool_calls and on any tool response — and bumped
+    until it is unique, so this never hands out an id that collides with one
+    already in flight for this request.
+    """
+    existing_ids = set()
+    for message in request_params.get("messages") or []:
+        for tool_call in message.get("tool_calls") or []:
+            call_id = tool_call.get("id") if isinstance(tool_call, dict) else getattr(tool_call, "id", None)
+            if call_id:
+                existing_ids.add(call_id)
+        call_id = message.get("tool_call_id")
+        if call_id:
+            existing_ids.add(call_id)
+
+    n = 1
+    candidate = generate_tool_id(n, model)
+    while candidate in existing_ids:
+        n += 1
+        candidate = generate_tool_id(n, model)
+    return candidate
 
 
 def dispatch_function_call(llm, accumulated_deltas, request_params, tool_call_id_for_error, verbose, language):
@@ -58,16 +86,27 @@ def dispatch_function_call(llm, accumulated_deltas, request_params, tool_call_id
                             tool_call_id_for_error = tool_call.id
                             break
 
-        # Ensure tool_call_id is a non-empty string if we have it
-        if tool_call_id_for_error and not isinstance(tool_call_id_for_error, str):
+        # Ensure tool_call_id is a real, non-blank string, or None. Whitespace-only
+        # ids are treated as absent too: a bare truthiness check would let "   "
+        # through as if it were usable, and a blank id in a tool response is the
+        # exact pairing failure this normalisation exists to prevent.
+        if tool_call_id_for_error is not None and not isinstance(tool_call_id_for_error, str):
             tool_call_id_for_error = str(tool_call_id_for_error)
-        if tool_call_id_for_error == "":
+        if isinstance(tool_call_id_for_error, str) and not tool_call_id_for_error.strip():
             tool_call_id_for_error = None
+
+        # The provider gave us no usable id. Mint one rather than leaving this
+        # call id-less: every branch below needs a real tool_call_id to answer
+        # with a properly paired role:tool message, which is what lets respond()
+        # give the model a corrective turn instead of ending in silence.
+        if tool_call_id_for_error is None:
+            tool_call_id_for_error = _mint_tool_call_id(request_params, getattr(llm, "model", None))
 
         # Only "execute" is supported as a direct tool call
         # Other functions (like toolbox.web.search) must be called from within Python code
         if function_name == "execute":
-            arguments = function_call.get("arguments")
+            raw_arguments = function_call.get("arguments")
+            arguments = raw_arguments
             if isinstance(arguments, str):
                 arguments = parse_partial_json(arguments)
 
@@ -115,10 +154,32 @@ def dispatch_function_call(llm, accumulated_deltas, request_params, tool_call_id
                     )
                     if verbose:
                         print(f"[ERROR] {error_msg}. Arguments: {json.dumps(arguments, default=str)}", flush=True)
-                    yield _error_chunk(tool_call_id_for_error, error_msg)
+                        print(
+                            f"[ERROR] tool_call_id_for_error: {repr(tool_call_id_for_error)}, type: {type(tool_call_id_for_error)}",
+                            flush=True,
+                        )
+                    tool_response = _error_chunk(tool_call_id_for_error, error_msg)
+                    if verbose:
+                        print(f"[ERROR] Yielding tool response: {json.dumps(tool_response, default=str)}", flush=True)
+                    yield tool_response
             else:
-                # Arguments is not a dict - yield error as tool response
-                error_msg = f"Invalid execute call: arguments must be a dict, got {type(arguments).__name__}"
+                # Arguments is not a dict. Distinguish a syntax problem (the JSON
+                # could not be parsed or repaired, so parse_partial_json handed
+                # back its None sentinel) from a shape problem (it parsed fine but
+                # to something other than an object) — a model told "got NoneType"
+                # for a syntax error has no way to know it sent bad JSON at all,
+                # and will likely resend the same broken payload.
+                if isinstance(raw_arguments, str) and arguments is None:
+                    error_msg = (
+                        "Invalid execute call: arguments were not valid JSON and could not be repaired. "
+                        "execute requires a JSON object with 'language' and 'code', "
+                        'e.g. {"language": "python", "code": "print(1)"}.'
+                    )
+                else:
+                    error_msg = (
+                        f"Invalid execute call: arguments must be a dict, got {type(arguments).__name__}. "
+                        "execute requires a JSON object with 'language' and 'code'."
+                    )
                 yield _error_chunk(tool_call_id_for_error, error_msg)
                 if verbose:
                     print(f"[ERROR] {error_msg}. Function call: {json.dumps(function_call, default=str)}", flush=True)
@@ -128,18 +189,22 @@ def dispatch_function_call(llm, accumulated_deltas, request_params, tool_call_id
                 arguments = parse_partial_json(arguments)
             path = isinstance(arguments, dict) and arguments.get("path")
             if not path or not isinstance(path, str):
-                content = "view_image: path is required and must be a string."
+                yield _error_chunk(tool_call_id_for_error, "view_image: path is required and must be a string.")
             elif not os.path.isabs(path):
-                content = "view_image: path must be absolute (e.g. C:\\Users\\... on Windows, /home/... on Linux/Mac)."
+                yield _error_chunk(
+                    tool_call_id_for_error,
+                    "view_image: path must be absolute (e.g. C:\\Users\\... on Windows, /home/... on Linux/Mac).",
+                )
             elif not os.path.exists(path):
-                content = f"view_image: file not found: {path}"
+                yield _error_chunk(tool_call_id_for_error, f"view_image: file not found: {path}")
             else:
                 ext = os.path.splitext(path)[1].lstrip(".").lower()
                 if ext not in VIEW_IMAGE_ALLOWED_EXTENSIONS:
-                    content = (
+                    yield _error_chunk(
+                        tool_call_id_for_error,
                         f"view_image: unsupported file format '.{ext}'. "
                         f"Supported formats: {', '.join(sorted(VIEW_IMAGE_ALLOWED_EXTENSIONS))}. "
-                        "PDF and other document formats are not supported."
+                        "PDF and other document formats are not supported.",
                     )
                 else:
                     # Store the assistant's view_image call before the approval prompt.
@@ -163,15 +228,14 @@ def dispatch_function_call(llm, accumulated_deltas, request_params, tool_call_id
                         content = "Image added; you will see it when you continue."
                     else:
                         content = "User declined to show image."
-            if tool_call_id_for_error:
-                yield {
-                    "role": "tool",
-                    "tool_call_id": tool_call_id_for_error,
-                    "type": "message",
-                    "content": content,
-                }
-            else:
-                yield {"role": "assistant", "type": "message", "content": content}
+                    # Not an error — approval outcomes go straight out as role:tool,
+                    # unlike the branches above which route through _error_chunk.
+                    yield {
+                        "role": "tool",
+                        "tool_call_id": tool_call_id_for_error,
+                        "type": "message",
+                        "content": content,
+                    }
         elif function_name == "edit":
             arguments = function_call.get("arguments")
             if isinstance(arguments, str):
