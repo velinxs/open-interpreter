@@ -303,14 +303,21 @@ def test_a_valid_profile_with_llm_and_toolbox_blocks_still_applies_fully(interpr
 
     The unknown-key check must only fire on keys that truly don't exist. A
     false positive here would silently drop legitimate settings from the
-    user's own profile, which uses exactly this shape.
+    user's own profile, which uses exactly this shape — including
+    import_toolbox_api and api_listing, the actual attributes on the Toolbox
+    class, and import_computer_api, the backward-compatible alias for the
+    same setting used before the rename.
     """
     profiles.apply_profile(
         interpreter,
         {
             **CURRENT,
             "llm": {"model": "gpt-4.1", "temperature": 0.2},
-            "toolbox": {"import_computer_api": True},
+            "toolbox": {
+                "import_computer_api": True,
+                "import_toolbox_api": True,
+                "api_listing": "full",
+            },
             "offline": True,
             "disable_telemetry": True,
             "auto_run_mode": "allowlist",
@@ -320,10 +327,35 @@ def test_a_valid_profile_with_llm_and_toolbox_blocks_still_applies_fully(interpr
     assert interpreter.llm.model == "gpt-4.1"
     assert interpreter.llm.temperature == 0.2
     assert interpreter.toolbox.import_computer_api is True
+    assert interpreter.toolbox.import_toolbox_api is True
+    assert interpreter.toolbox.api_listing == "full"
     assert interpreter.offline is True
     assert interpreter.disable_telemetry is True
     assert interpreter.auto_run_mode == "allowlist"
     assert "doesn't exist" not in capsys.readouterr().out
+
+
+def test_a_typo_inside_toolbox_now_warns_and_is_skipped(interpreter, capsys):
+    """An unknown key under toolbox: is reported and does not set an attribute.
+
+    Before this fix, _validate_profile's nested_dicts list checked "computer",
+    which apply_profile had already renamed to "toolbox" by the time the
+    validator ran — so `"computer" in profile` was always False and this
+    branch never fired. A typo like import_toolbx_api produced no warning at
+    all and (before the apply_profile_to_object fix) would have been set as
+    a dead attribute on the toolbox object. Both failures must be gone: the
+    warning must appear, name the likely intent, and the attribute must not
+    be created.
+    """
+    profiles.apply_profile(
+        interpreter,
+        {**CURRENT, "toolbox": {"import_toolbx_api": True}},
+        "/tmp/x.yaml",
+    )
+    output = capsys.readouterr().out
+    assert "import_toolbx_api" in output
+    assert "import_toolbox_api" in output
+    assert not hasattr(interpreter.toolbox, "import_toolbx_api")
 
 
 def test_version_and_start_script_never_produce_an_unknown_key_warning(interpreter, capsys):

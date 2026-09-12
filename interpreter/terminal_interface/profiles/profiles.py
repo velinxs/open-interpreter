@@ -195,9 +195,14 @@ def _validate_profile(interpreter, profile):
     warnings = []
 
     # Nested dicts to validate: (profile_key, obj_attribute, obj_class_name, skip_keys)
+    # This used to list "computer" here, which was dead: apply_profile renames
+    # "computer" to "toolbox" in the profile dict before _validate_profile ever
+    # runs (see the "Map 'computer' key to 'toolbox'" comment below), so
+    # `"computer" in profile` was always False and a typo'd toolbox key never
+    # warned. Validate the post-rename key it actually arrives as.
     nested_dicts = [
         ("llm", interpreter.llm, "Llm", set()),
-        ("computer", interpreter.computer, "Computer", {"languages"}),
+        ("toolbox", interpreter.toolbox, "Toolbox", {"languages"}),
     ]
 
     for profile_key, obj, class_name, skip_keys in nested_dicts:
