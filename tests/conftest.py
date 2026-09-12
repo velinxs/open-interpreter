@@ -31,6 +31,10 @@ def offline_interpreter():
     interp.offline = True
     interp.disable_telemetry = True
     interp.auto_run = True
+    # chat() persists the message list on every turn, and the default path is
+    # the developer's real ~/.config/open-interpreter/conversations. Tests must
+    # not leave files there, and none of them read the saved copy back.
+    interp.conversation_history = False
     interp.script = lambda replies: install_fake_llm(interp, replies)
     yield interp
     try:

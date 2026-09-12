@@ -54,7 +54,12 @@ def render_past_conversation(messages):
         chunk_type = chunk.get("type")
         content = chunk.get("content", "")
 
-        if chunk_type == "view_image_call":
+        # A tool_call record exists only so the provider sees a real assistant
+        # tool call before the tool response; there is nothing in it the user
+        # has not already seen as a code block, an image, or an error line.
+        # "view_image_call" is its pre-generalisation name, still present in
+        # conversations saved before the rename.
+        if chunk_type in ("tool_call", "view_image_call"):
             continue
 
         if role == "user":

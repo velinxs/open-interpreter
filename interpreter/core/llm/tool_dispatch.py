@@ -34,6 +34,52 @@ def _error_chunk(tool_call_id_for_error, error_msg):
     }
 
 
+def _tool_call_chunk(tool_call_id, function_call):
+    """Record the tool call the model actually made, ahead of the response to it.
+
+    Without this, ``interpreter.messages`` holds a ``role: tool`` response with
+    no assistant tool call before it, and process_messages has to invent one to
+    satisfy the provider's pairing rule. What it invents is
+    ``execute(code="pass  # (synthetic; do not run)")``, so the model reads its
+    own history as "I called execute with `pass`" immediately followed by "that
+    call was invalid" — two statements that contradict each other about a call
+    it never made. In the nameless-function case it was worse still: the model
+    was shown a call *named* execute and then told its function name was
+    missing. Recording the real call is what makes the corrective turn readable.
+
+    ``arguments`` is kept exactly as the model sent it, unparseable JSON
+    included. It is paired with an error that says the JSON was bad, so
+    "repairing" it here would put a call the model never made in front of that
+    error and reintroduce the contradiction.
+    """
+    arguments = function_call.get("arguments")
+    if not isinstance(arguments, (str, dict, list, int, float, bool, type(None))):
+        # Conversations are saved as JSON; an exotic provider object here would
+        # make the whole history unsaveable. str() is the closest honest thing.
+        arguments = str(arguments)
+    return {
+        "role": "assistant",
+        "type": "tool_call",
+        "tool_call_id": tool_call_id,
+        # Empty when the provider sent no function name. That is the honest
+        # record: the paired error says the name was missing, and naming a tool
+        # here would be the fabrication described above.
+        "name": function_call.get("name") or "",
+        "arguments": arguments,
+    }
+
+
+def _malformed_call(tool_call_id_for_error, function_call, error_msg):
+    """Every chunk a malformed tool call produces, in the order history needs.
+
+    The call the model really made, then the error answering it. Branches must
+    yield both together: one that yields only the error leaves the response
+    unpaired, and process_messages then invents the assistant message.
+    """
+    yield _tool_call_chunk(tool_call_id_for_error, function_call)
+    yield _error_chunk(tool_call_id_for_error, error_msg)
+
+
 def _mint_tool_call_id(request_params, model):
     """Mint a tool_call_id for a call the provider didn't attach one to.
 
@@ -132,7 +178,7 @@ def dispatch_function_call(llm, accumulated_deltas, request_params, tool_call_id
                                 "Invalid execute call: code is empty. "
                                 "execute requires a non-empty 'code' string."
                             )
-                            yield _error_chunk(tool_call_id_for_error, error_msg)
+                            yield from _malformed_call(tool_call_id_for_error, function_call, error_msg)
                             if verbose:
                                 print(
                                     f"[ERROR] {error_msg}. Arguments: {json.dumps(arguments, default=str)}", flush=True
@@ -143,7 +189,7 @@ def dispatch_function_call(llm, accumulated_deltas, request_params, tool_call_id
                             f"Invalid execute call: code must be a string, got {type(code_value).__name__}. "
                             "execute requires 'code' as a string."
                         )
-                        yield _error_chunk(tool_call_id_for_error, error_msg)
+                        yield from _malformed_call(tool_call_id_for_error, function_call, error_msg)
                         if verbose:
                             print(f"[ERROR] {error_msg}. Arguments: {json.dumps(arguments, default=str)}", flush=True)
                 else:
@@ -158,10 +204,7 @@ def dispatch_function_call(llm, accumulated_deltas, request_params, tool_call_id
                             f"[ERROR] tool_call_id_for_error: {repr(tool_call_id_for_error)}, type: {type(tool_call_id_for_error)}",
                             flush=True,
                         )
-                    tool_response = _error_chunk(tool_call_id_for_error, error_msg)
-                    if verbose:
-                        print(f"[ERROR] Yielding tool response: {json.dumps(tool_response, default=str)}", flush=True)
-                    yield tool_response
+                    yield from _malformed_call(tool_call_id_for_error, function_call, error_msg)
             else:
                 # Arguments is not a dict. Distinguish a syntax problem (the JSON
                 # could not be parsed or repaired, so parse_partial_json handed
@@ -180,7 +223,7 @@ def dispatch_function_call(llm, accumulated_deltas, request_params, tool_call_id
                         f"Invalid execute call: arguments must be a dict, got {type(arguments).__name__}. "
                         "execute requires a JSON object with 'language' and 'code'."
                     )
-                yield _error_chunk(tool_call_id_for_error, error_msg)
+                yield from _malformed_call(tool_call_id_for_error, function_call, error_msg)
                 if verbose:
                     print(f"[ERROR] {error_msg}. Function call: {json.dumps(function_call, default=str)}", flush=True)
         elif function_name == "view_image":
@@ -189,33 +232,38 @@ def dispatch_function_call(llm, accumulated_deltas, request_params, tool_call_id
                 arguments = parse_partial_json(arguments)
             path = isinstance(arguments, dict) and arguments.get("path")
             if not path or not isinstance(path, str):
-                yield _error_chunk(tool_call_id_for_error, "view_image: path is required and must be a string.")
+                yield from _malformed_call(
+                    tool_call_id_for_error, function_call, "view_image: path is required and must be a string."
+                )
             elif not os.path.isabs(path):
-                yield _error_chunk(
+                yield from _malformed_call(
                     tool_call_id_for_error,
+                    function_call,
                     "view_image: path must be absolute (e.g. C:\\Users\\... on Windows, /home/... on Linux/Mac).",
                 )
             elif not os.path.exists(path):
-                yield _error_chunk(tool_call_id_for_error, f"view_image: file not found: {path}")
+                yield from _malformed_call(
+                    tool_call_id_for_error, function_call, f"view_image: file not found: {path}"
+                )
             else:
                 ext = os.path.splitext(path)[1].lstrip(".").lower()
                 if ext not in VIEW_IMAGE_ALLOWED_EXTENSIONS:
-                    yield _error_chunk(
+                    yield from _malformed_call(
                         tool_call_id_for_error,
+                        function_call,
                         f"view_image: unsupported file format '.{ext}'. "
                         f"Supported formats: {', '.join(sorted(VIEW_IMAGE_ALLOWED_EXTENSIONS))}. "
                         "PDF and other document formats are not supported.",
                     )
                 else:
-                    # Store the assistant's view_image call before the approval prompt.
-                    # Without this, interpreter.messages has an orphaned role:tool response
-                    # with no preceding assistant+tool_calls, causing process_messages to
-                    # insert a synthetic execute call that the LLM echoes on the next turn.
-                    yield {
-                        "type": "view_image_call",
-                        "tool_call_id": tool_call_id_for_error,
-                        "path": path,
-                    }
+                    # Store the assistant's view_image call before the approval prompt,
+                    # for the same reason every malformed branch records its call: an
+                    # orphaned role:tool response makes process_messages invent an
+                    # assistant message, and what it invents is an execute() call the
+                    # model never made. This used to be its own "view_image_call" chunk
+                    # type; it is the general tool_call record now, because one mechanism
+                    # covering both is what stops the two drifting apart.
+                    yield _tool_call_chunk(tool_call_id_for_error, function_call)
                     yield {
                         "type": "view_image_approval",
                         "paths": [path],
@@ -229,7 +277,7 @@ def dispatch_function_call(llm, accumulated_deltas, request_params, tool_call_id
                     else:
                         content = "User declined to show image."
                     # Not an error — approval outcomes go straight out as role:tool,
-                    # unlike the branches above which route through _error_chunk.
+                    # unlike the branches above which route through _malformed_call.
                     yield {
                         "role": "tool",
                         "tool_call_id": tool_call_id_for_error,
@@ -266,7 +314,7 @@ def dispatch_function_call(llm, accumulated_deltas, request_params, tool_call_id
                     error_msg = None
 
                 if error_msg:
-                    yield _error_chunk(tool_call_id_for_error, error_msg)
+                    yield from _malformed_call(tool_call_id_for_error, function_call, error_msg)
                 else:
                     yield {
                         "role": "assistant",
@@ -277,7 +325,7 @@ def dispatch_function_call(llm, accumulated_deltas, request_params, tool_call_id
                     }
             else:
                 error_msg = f"edit: arguments must be a JSON object, got: {type(arguments).__name__}"
-                yield _error_chunk(tool_call_id_for_error, error_msg)
+                yield from _malformed_call(tool_call_id_for_error, function_call, error_msg)
 
         elif function_name:
             # Unsupported function call - yield error as tool response to maintain proper message ordering
@@ -291,16 +339,17 @@ def dispatch_function_call(llm, accumulated_deltas, request_params, tool_call_id
 
             # Yield error as tool response so the model sees it and message ordering stays correct (assistant → tool → …).
             # Any assistant message content the model sent before this tool call is already yielded above with role "assistant".
-            yield _error_chunk(tool_call_id_for_error, error_msg)
+            yield from _malformed_call(tool_call_id_for_error, function_call, error_msg)
 
             if verbose:
                 print(f"[ERROR] {error_msg}", flush=True)
                 print(f"[ERROR] Function call details: {json.dumps(function_call, default=str)}", flush=True)
-                if tool_call_id_for_error:
-                    print(
-                        f"[ERROR] Yielding error as tool response with tool_call_id: {tool_call_id_for_error}",
-                        flush=True,
-                    )
+                # No `if tool_call_id_for_error:` guard here: an id is always minted
+                # above, so the condition was dead and read as if it could be absent.
+                print(
+                    f"[ERROR] Yielding error as tool response with tool_call_id: {tool_call_id_for_error}",
+                    flush=True,
+                )
         else:
             # function_call present but its name is missing or empty. Every branch
             # above is keyed on function_name, so without this arm the call falls
@@ -310,6 +359,6 @@ def dispatch_function_call(llm, accumulated_deltas, request_params, tool_call_id
                 "Malformed tool call: function name is missing. "
                 "Call one of 'execute', 'edit', or 'view_image' (vision models only)."
             )
-            yield _error_chunk(tool_call_id_for_error, error_msg)
+            yield from _malformed_call(tool_call_id_for_error, function_call, error_msg)
             if verbose:
                 print(f"[ERROR] {error_msg}. Function call: {json.dumps(function_call, default=str)}", flush=True)

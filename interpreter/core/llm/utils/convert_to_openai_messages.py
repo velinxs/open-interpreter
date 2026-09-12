@@ -19,6 +19,28 @@ def image_path_exceeds_shrink_threshold(path: str) -> bool:
     return data_url_exceeds_shrink_threshold(content)
 
 
+def _tool_call_arguments_string(arguments):
+    """The arguments string to put back on a rebuilt assistant tool call.
+
+    A string is passed through verbatim, invalid JSON included: that is exactly
+    what the model sent, and the tool response paired with it is the one saying
+    the JSON could not be parsed. Repairing or re-serialising it here would show
+    the model a call it never made, which is the fabrication this whole rebuild
+    exists to remove. (OpenAI documents `arguments` as model-generated text that
+    is not always valid JSON, so passing it through is in spec.)
+    """
+    if isinstance(arguments, str):
+        return arguments
+    if arguments is None:
+        # The model sent no arguments at all. "" is the honest record of that;
+        # "{}" would claim it sent an empty object.
+        return ""
+    try:
+        return json.dumps(arguments)
+    except (TypeError, ValueError):
+        return str(arguments)
+
+
 def _lmc_role_to_api_role(role):
     # LMC history uses role "computer" for tool/output chunks; chat APIs only accept
     # system, user, assistant, tool (and provider-specific extras like latest_reminder).
@@ -341,19 +363,33 @@ def convert_to_openai_messages(
                     if ts is not None:
                         new_message["content"].insert(0, {"type": "text", "text": f"[{ts}] "})
 
-        elif message["type"] == "view_image_call":
-            # Reconstructs the assistant's view_image tool call so process_messages finds a
-            # proper assistant+tool_calls before the tool response, avoiding a synthetic execute.
-            tool_call_id = message.get("tool_call_id") or "view_image_0"
+        elif message["type"] in ("tool_call", "view_image_call"):
+            # Rebuilds the tool call the model actually made, so process_messages finds a
+            # real assistant+tool_calls before the tool response and never invents one.
+            # What it invents is execute(code="pass  # (synthetic; do not run)"), which the
+            # model then reads as a call it never made, directly contradicting the error
+            # paired with it.
+            #
+            # "view_image_call" is the name this chunk had before it was generalised to
+            # cover every recorded tool call. Conversations saved back then still contain
+            # it and would otherwise hit the raise at the end of this chain; it carries the
+            # path instead of name/arguments, so it is translated here rather than given a
+            # second rebuild path of its own.
+            if message["type"] == "view_image_call":
+                function_name = "view_image"
+                arguments = json.dumps({"path": message.get("path", "")})
+            else:
+                function_name = message.get("name") or ""
+                arguments = _tool_call_arguments_string(message.get("arguments"))
             new_message["role"] = "assistant"
             new_message["content"] = ""
             new_message["tool_calls"] = [
                 {
-                    "id": tool_call_id,
+                    "id": message.get("tool_call_id") or "tool_call_0",
                     "type": "function",
                     "function": {
-                        "name": "view_image",
-                        "arguments": json.dumps({"path": message["path"]}),
+                        "name": function_name,
+                        "arguments": arguments,
                     },
                 }
             ]
@@ -400,8 +436,8 @@ def convert_to_openai_messages(
         # separator that respond() stores in history, or whitespace-padded content
         # left over from a partial stream — would otherwise be emitted as `content: ""`
         # with no tool_calls. It carries no information to the model, so drop it rather
-        # than send a malformed request. Messages with tool_calls (e.g. the synthetic
-        # view_image_call reconstruction) or non-empty content are always kept.
+        # than send a malformed request. Messages with tool_calls (e.g. the tool_call
+        # reconstruction above) or non-empty content are always kept.
         if (
             new_message.get("role") == "assistant"
             and not new_message.get("tool_calls")

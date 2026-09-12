@@ -201,3 +201,83 @@ def test_user_message_boundary_resets_pending_reasoning():
     function_calls = [m for m in out if "function_call" in m]
     assert len(function_calls) == 1
     assert "reasoning_content" not in function_calls[0]
+def test_a_tool_call_record_is_rebuilt_as_a_real_assistant_tool_call():
+    """The recorded call goes out as assistant+tool_calls, arguments unrepaired.
+
+    Without this rebuild the role:tool error that follows has no assistant
+    tool call before it, and process_messages inserts
+    execute(code="pass  # (synthetic; do not run)") to satisfy the provider's
+    pairing rule — a call the model never made, shown immediately above the
+    error saying its call was invalid. The arguments must stay exactly as the
+    model sent them (here, JSON it truncated) for the pair to make sense.
+    """
+    messages = [
+        {
+            "role": "assistant",
+            "type": "tool_call",
+            "tool_call_id": "call_7",
+            "name": "execute",
+            "arguments": '{"language": "python", "code": ',
+        },
+        {
+            "role": "tool",
+            "type": "message",
+            "tool_call_id": "call_7",
+            "content": "Invalid execute call: arguments were not valid JSON.",
+        },
+    ]
+
+    out = convert_to_openai_messages(messages, function_calling=True, vision=False, interpreter=_FakeInterpreter())
+
+    assert out[0]["role"] == "assistant"
+    assert out[0]["tool_calls"] == [
+        {
+            "id": "call_7",
+            "type": "function",
+            "function": {"name": "execute", "arguments": '{"language": "python", "code": '},
+        }
+    ]
+    assert out[1]["role"] == "tool"
+    assert out[1]["tool_call_id"] == "call_7"
+
+
+def test_a_tool_call_record_with_dict_arguments_is_serialised():
+    """Arguments already parsed into a dict become a JSON string.
+
+    Providers require function.arguments to be a string; some of them reject the
+    whole request when it is an object.
+    """
+    messages = [
+        {
+            "role": "assistant",
+            "type": "tool_call",
+            "tool_call_id": "call_1",
+            "name": "view_image",
+            "arguments": {"path": "/tmp/a.png"},
+        }
+    ]
+
+    out = convert_to_openai_messages(messages, function_calling=True, vision=False, interpreter=_FakeInterpreter())
+
+    assert out[0]["tool_calls"][0]["function"]["arguments"] == '{"path": "/tmp/a.png"}'
+
+
+def test_a_legacy_view_image_call_still_converts():
+    """Conversations saved before the tool_call rename are still convertible.
+
+    "view_image_call" was this chunk's name until it was generalised to record
+    every tool call. It is written into saved conversations forever; dropping
+    the name would send an old conversation into the "Unable to convert this
+    message type" raise at the end of the chain, breaking resume entirely.
+    """
+    messages = [{"role": "assistant", "type": "view_image_call", "tool_call_id": "call_2", "path": "/tmp/b.png"}]
+
+    out = convert_to_openai_messages(messages, function_calling=True, vision=False, interpreter=_FakeInterpreter())
+
+    assert out[0]["tool_calls"] == [
+        {
+            "id": "call_2",
+            "type": "function",
+            "function": {"name": "view_image", "arguments": '{"path": "/tmp/b.png"}'},
+        }
+    ]

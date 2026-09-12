@@ -89,15 +89,17 @@ def respond_and_store(interpreter):
                 # )
                 continue
 
-            # view_image_call: records the assistant's view_image tool call so it can be
-            # reconstructed as assistant+tool_calls in convert_to_openai_messages, preventing
-            # process_messages from inserting a synthetic execute call on the next turn.
-            if chunk.get("type") == "view_image_call":
+            # tool_call: records the tool call the model actually made (view_image, or
+            # any malformed call) so convert_to_openai_messages can rebuild it as a real
+            # assistant+tool_calls. Without it process_messages invents an assistant
+            # message to pair with the tool response, and what it invents is an execute()
+            # call the model never made, contradicting the error right below it.
+            if chunk.get("type") == "tool_call":
                 interpreter.messages.append(chunk)
                 continue
 
-            # role:tool messages are API-internal (pairing for view_image_call, unsupported
-            # function calls, etc.) and must not be displayed to the user.
+            # role:tool messages are API-internal (pairing for tool_call records,
+            # unsupported function calls, etc.) and must not be displayed to the user.
             if chunk.get("role") == "tool" and chunk.get("type") == "message":
                 if last_flag_base:
                     yield {**last_flag_base, "end": True}

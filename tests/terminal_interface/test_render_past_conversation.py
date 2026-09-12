@@ -144,11 +144,35 @@ def test_blank_system_alert_renders_nothing(render):
     assert out.strip() == ""
 
 
-def test_view_image_call_chunks_are_skipped(render):
-    """Image tool-call plumbing is not part of the transcript.
+def test_tool_call_chunks_are_skipped(render):
+    """Tool-call plumbing is not part of the transcript.
 
-    A view_image_call carries the request, not the picture. Rendering it would
-    show raw call machinery in the middle of the conversation.
+    A tool_call record carries the request, not its result: the picture, the
+    code block or the error line the user actually cares about is a separate
+    message. Rendering it would show raw call machinery mid-conversation.
+    """
+    out = render(
+        [
+            {
+                "role": "assistant",
+                "type": "tool_call",
+                "tool_call_id": "call_1",
+                "name": "view_image",
+                "arguments": '{"path": "/tmp/x.png"}',
+            },
+            {"role": "assistant", "type": "message", "content": "after"},
+        ]
+    )
+    assert "/tmp/x.png" not in out
+    assert "after" in out
+
+
+def test_legacy_view_image_call_chunks_are_still_skipped(render):
+    """Conversations saved before the tool_call rename still replay cleanly.
+
+    "view_image_call" was the chunk type before it was generalised. Saved
+    conversations keep it forever, so dropping the name here would print raw
+    call machinery when an old conversation is resumed.
     """
     out = render(
         [

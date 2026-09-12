@@ -34,6 +34,18 @@ def _dispatch(llm, name, arguments, tool_call_id="call_1", request_params=None, 
     )
 
 
+def _tool_response(chunks):
+    """The one role=tool chunk in a malformed call's output.
+
+    A malformed call yields two chunks now — the assistant tool_call record of
+    what the model really sent, then the tool response it reads — so tests that
+    care about the message the model reads ask for it by role, not by position.
+    """
+    responses = [chunk for chunk in chunks if chunk.get("role") == "tool"]
+    assert len(responses) == 1, chunks
+    return responses[0]
+
+
 def test_no_pending_call_yields_nothing(llm):
     """A reply with no function call produces no chunks.
 
@@ -95,11 +107,10 @@ def test_malformed_execute_calls_come_back_as_tool_responses(llm, arguments, exp
     the "say what is required, not just what failed" rewrite of these messages.
     """
     chunks = _dispatch(llm, "execute", arguments)
-    assert len(chunks) == 1
-    assert chunks[0]["role"] == "tool"
-    assert chunks[0]["tool_call_id"] == "call_1"
+    response = _tool_response(chunks)
+    assert response["tool_call_id"] == "call_1"
     for fragment in expected_fragments:
-        assert fragment in chunks[0]["content"]
+        assert fragment in response["content"]
 
 
 def test_a_missing_tool_call_id_gets_one_minted(llm):
@@ -112,9 +123,9 @@ def test_a_missing_tool_call_id_gets_one_minted(llm):
     respond() give the model a turn to correct itself.
     """
     chunks = _dispatch(llm, "execute", '{"language": "python"}', tool_call_id=None)
-    assert chunks[0]["role"] == "tool"
-    assert chunks[0]["tool_call_id"]
-    assert "missing required fields" in chunks[0]["content"]
+    response = _tool_response(chunks)
+    assert response["tool_call_id"]
+    assert "missing required fields" in response["content"]
 
 
 def test_a_missing_tool_call_id_is_recovered_from_the_request(llm):
@@ -130,7 +141,7 @@ def test_a_missing_tool_call_id_is_recovered_from_the_request(llm):
         ]
     }
     chunks = _dispatch(llm, "execute", '{"language": "python"}', tool_call_id=None, request_params=request_params)
-    assert chunks[0]["tool_call_id"] == "recovered_id"
+    assert _tool_response(chunks)["tool_call_id"] == "recovered_id"
 
 
 def test_a_minted_id_does_not_collide_with_one_already_in_the_request(llm):
@@ -150,14 +161,13 @@ def test_a_minted_id_does_not_collide_with_one_already_in_the_request(llm):
         ]
     }
     chunks = _dispatch(llm, "execute", '{"language": "python"}', tool_call_id=None, request_params=request_params)
-    assert chunks[0]["tool_call_id"] not in ("toolu_1", None, "")
+    assert _tool_response(chunks)["tool_call_id"] not in ("toolu_1", None, "")
 
 
 def test_an_empty_string_id_is_treated_as_no_id_and_gets_one_minted(llm):
     """"" is not a usable tool_call_id; it is treated as absent and a real id is minted instead."""
     chunks = _dispatch(llm, "execute", '{"language": "python"}', tool_call_id="")
-    assert chunks[0]["role"] == "tool"
-    assert chunks[0]["tool_call_id"]
+    assert _tool_response(chunks)["tool_call_id"]
 
 
 def test_a_whitespace_only_id_is_treated_as_no_id_and_gets_one_minted(llm):
@@ -168,8 +178,7 @@ def test_a_whitespace_only_id_is_treated_as_no_id_and_gets_one_minted(llm):
     normalisation exists to prevent.
     """
     chunks = _dispatch(llm, "execute", '{"language": "python"}', tool_call_id="   ")
-    assert chunks[0]["role"] == "tool"
-    assert chunks[0]["tool_call_id"].strip()
+    assert _tool_response(chunks)["tool_call_id"].strip()
 
 
 # --- edit -------------------------------------------------------------------
@@ -212,15 +221,14 @@ def test_malformed_edit_calls_come_back_as_tool_responses(llm, arguments, expect
     the kernel happens to be in would write to a file nobody named.
     """
     chunks = _dispatch(llm, "edit", arguments)
-    assert chunks[0]["role"] == "tool"
-    assert expected_fragment in chunks[0]["content"]
+    assert expected_fragment in _tool_response(chunks)["content"]
 
 
 def test_the_edit_language_list_is_named_in_the_error(llm):
     """A wrong language error lists the valid ones, so the model can retry correctly."""
     chunks = _dispatch(llm, "edit", {"language": "nope", "code": "x", "target": "/tmp/a"})
     for language in EDIT_LANGUAGES:
-        assert language in chunks[0]["content"]
+        assert language in _tool_response(chunks)["content"]
 
 
 # --- view_image -------------------------------------------------------------
@@ -242,8 +250,8 @@ def test_bad_view_image_paths_are_rejected_before_any_prompt(llm, path, expected
     one thing the prompt is for.
     """
     chunks = _dispatch(llm, "view_image", {"path": path} if path is not None else {})
-    assert len(chunks) == 1
-    assert expected_fragment in chunks[0]["content"]
+    assert expected_fragment in _tool_response(chunks)["content"]
+    assert not any(chunk.get("type") == "view_image_approval" for chunk in chunks)
 
 
 def test_an_unsupported_image_format_is_rejected_with_the_supported_list(llm, tmp_path):
@@ -255,25 +263,32 @@ def test_an_unsupported_image_format_is_rejected_with_the_supported_list(llm, tm
     document = tmp_path / "report.pdf"
     document.write_bytes(b"%PDF")
     chunks = _dispatch(llm, "view_image", {"path": str(document)})
-    assert "unsupported file format" in chunks[0]["content"]
-    assert "png" in chunks[0]["content"]
+    response = _tool_response(chunks)
+    assert "unsupported file format" in response["content"]
+    assert "png" in response["content"]
 
 
 def test_a_valid_image_asks_for_approval_and_records_the_call(llm, tmp_path):
-    """view_image emits the call record *before* the approval prompt.
+    """view_image emits the tool_call record *before* the approval prompt.
 
-    Without the view_image_call chunk, history holds a role=tool response with
-    no preceding assistant tool call, and process_messages synthesises a fake
-    execute call that the model then echoes on its next turn.
+    Without that record, history holds a role=tool response with no preceding
+    assistant tool call, and process_messages synthesises a fake execute call
+    that the model then echoes on its next turn. The record carries the call
+    as the model sent it — name and raw arguments — because it is the same
+    record every malformed branch writes; view_image no longer has a chunk
+    type of its own.
     """
     image = tmp_path / "photo.png"
     image.write_bytes(b"\x89PNG")
     chunks = _dispatch(llm, "view_image", {"path": str(image)})
 
-    assert chunks[0]["type"] == "view_image_call"
-    assert chunks[0]["path"] == str(image)
+    assert chunks[0]["type"] == "tool_call"
+    assert chunks[0]["name"] == "view_image"
+    assert chunks[0]["tool_call_id"] == "call_1"
+    assert chunks[0]["arguments"] == {"path": str(image)}
     assert chunks[1]["type"] == "view_image_approval"
     assert chunks[2]["role"] == "tool"
+    assert chunks[2]["tool_call_id"] == "call_1"
     assert "declined" in chunks[2]["content"]
 
 
@@ -316,7 +331,63 @@ def test_an_unknown_function_is_explained_rather_than_ignored(llm):
     what stops the model repeating the same call.
     """
     chunks = _dispatch(llm, "toolbox.web.search", '{"query": "x"}')
-    assert chunks[0]["role"] == "tool"
-    assert "Unsupported function call" in chunks[0]["content"]
-    assert "execute" in chunks[0]["content"]
-    assert "toolbox.web.search" in chunks[0]["content"]
+    response = _tool_response(chunks)
+    assert "Unsupported function call" in response["content"]
+    assert "execute" in response["content"]
+    assert "toolbox.web.search" in response["content"]
+# --- the record of the call the model actually made -------------------------
+
+
+def test_a_malformed_call_yields_the_real_call_then_the_error(llm):
+    """A bad call produces two chunks: the model's own call, then the error.
+
+    dispatch_function_call used to yield only the tool response. process_messages
+    then had to invent an assistant message to pair with it, and what it invented
+    was execute(code="pass  # (synthetic; do not run)") — so the model read its own
+    history as "I called execute with `pass`" immediately followed by "that call was
+    invalid", two statements that contradict each other about a call it never made.
+    """
+    chunks = _dispatch(llm, "execute", "not json at all {{{")
+
+    assert [chunk["type"] for chunk in chunks] == ["tool_call", "message"]
+    record, response = chunks
+    assert record["role"] == "assistant"
+    assert record["name"] == "execute"
+    assert record["tool_call_id"] == response["tool_call_id"] == "call_1"
+    assert "not valid JSON" in response["content"]
+
+
+def test_the_recorded_arguments_are_the_unrepaired_ones_the_model_sent(llm):
+    """Unparseable arguments are recorded verbatim, not repaired into valid JSON.
+
+    The recorded call is paired with an error saying the JSON could not be parsed.
+    Substituting anything parseable would put a call the model never made in front
+    of that error and bring back the contradiction this record exists to remove.
+    """
+    chunks = _dispatch(llm, "execute", '{"language": "python", "code": ')
+    assert chunks[0]["arguments"] == '{"language": "python", "code": '
+
+
+def test_a_call_with_no_function_name_is_recorded_without_inventing_one(llm):
+    """A nameless call is recorded with an empty name, never with a tool's name.
+
+    This was the worst case of the fabricated pairing: the model was shown a tool
+    call *named* execute and then told, in the very next message, that its function
+    name was missing.
+    """
+    chunks = _dispatch(llm, "", '{"language": "python", "code": "print(1)"}')
+
+    assert chunks[0]["type"] == "tool_call"
+    assert chunks[0]["name"] == ""
+    assert "function name is missing" in _tool_response(chunks)["content"]
+
+
+def test_a_valid_call_records_no_tool_call_chunk(llm):
+    """A call that works yields its code chunk and nothing else.
+
+    The code chunk is already rebuilt as an assistant tool call by
+    convert_to_openai_messages, so an extra record here would put the same call
+    into history twice.
+    """
+    chunks = _dispatch(llm, "execute", '{"language": "python", "code": "print(1)"}')
+    assert [chunk["type"] for chunk in chunks] == ["code"]

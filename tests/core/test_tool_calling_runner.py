@@ -245,3 +245,67 @@ def test_a_tool_call_with_no_function_name_is_answered_not_dropped(offline_inter
     assert tool_errors, offline_interpreter.messages
     assert "function name is missing" in tool_errors[0]["content"]
     assert tool_errors[0]["tool_call_id"] == "call_1"
+# --- what the model, and the user, are shown afterwards ---------------------
+
+
+def test_the_corrective_turn_shows_the_call_the_model_really_made(offline_interpreter):
+    """The second request pairs the model's own bad call with the real error.
+
+    dispatch_function_call used to yield only the role:tool error. process_messages
+    then had to invent an assistant message to satisfy provider pairing, and what it
+    invented was execute(code="pass  # (synthetic; do not run)"), so the model read
+    its own history as "I called execute with `pass`" immediately followed by "that
+    call was invalid" — about a call it never made. Asserting on the outgoing request
+    payload (not on interpreter.messages) is what pins the thing the model actually
+    reads. Reproduces
+    .superpowers/sdd/2026-09-12-remaining-defects/probe-malformed-call-pairing.py.
+    """
+    install_fake_llm(offline_interpreter, [])
+    offline_interpreter.llm.supports_functions = True
+    completions = ScriptedStreams(
+        [
+            _raw_tool_call_stream("execute", "not json at all {{{", call_id=None),
+            _text_stream("Retrying with valid JSON."),
+        ]
+    )
+    offline_interpreter.llm.completions = completions
+
+    offline_interpreter.chat("run something", display=False, stream=False)
+
+    assert len(completions.calls) == 2, "the model was never given a second turn"
+    outgoing = completions.calls[1]["messages"]
+    assert "synthetic; do not run" not in json.dumps(outgoing, default=str)
+
+    assistant_calls = [m for m in outgoing if m.get("tool_calls")]
+    tool_responses = [m for m in outgoing if m.get("role") == "tool"]
+    assert len(assistant_calls) == 1 and len(tool_responses) == 1, outgoing
+    call = assistant_calls[0]["tool_calls"][0]
+    assert call["function"]["name"] == "execute"
+    assert call["function"]["arguments"] == "not json at all {{{"
+    assert call["id"] == tool_responses[0]["tool_call_id"]
+    assert "not valid JSON" in tool_responses[0]["content"]
+
+
+def test_a_nameless_call_is_not_shown_to_the_model_as_an_execute_call(offline_interpreter):
+    """A call with no function name is paired with a call carrying no name.
+
+    The worst case of the invented pairing: the model was shown a tool call *named*
+    execute and then told, in the very next message, that its function name was
+    missing.
+    """
+    install_fake_llm(offline_interpreter, [])
+    offline_interpreter.llm.supports_functions = True
+    completions = ScriptedStreams(
+        [
+            _nameless_tool_call_stream({"language": "python", "code": "print(1)"}),
+            _text_stream("Understood."),
+        ]
+    )
+    offline_interpreter.llm.completions = completions
+
+    offline_interpreter.chat("run something", display=False, stream=False)
+
+    outgoing = completions.calls[1]["messages"]
+    assistant_calls = [m for m in outgoing if m.get("tool_calls")]
+    assert len(assistant_calls) == 1, outgoing
+    assert assistant_calls[0]["tool_calls"][0]["function"]["name"] == ""
