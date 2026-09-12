@@ -141,18 +141,17 @@ def test_reset_profile_with_a_name_resets_that_profile_and_stops(cli):
     assert cli.chats == []
 
 
-def test_bare_reset_profile_does_not_reset_anything(cli):
-    """Characterisation: `--reset_profile` with no argument starts a session instead.
+def test_bare_reset_profile_resets_every_default_and_stops(cli):
+    """`--reset_profile` with no argument does what its help text promises.
 
-    The help text promises it "reset[s] all default profiles", and the code
-    comment says the value "will be None if they just ran --reset_profile" —
-    but nargs="?" with no const makes that None, and the guard explicitly
-    excludes None, so reset_profile() is never called. This pins today's
-    behaviour; it looks like a bug, not a decision.
+    nargs="?" with no const makes the value None when the flag is passed
+    bare, and the guard used to exclude None as well as the absent-flag
+    sentinel, so the documented form fell through and started a chat session
+    instead. reset_profile(None) means "every default profile".
     """
     cli("--reset_profile")
-    assert cli.reset_profiles == []
-    assert len(cli.chats) == 1
+    assert cli.reset_profiles == [None]
+    assert cli.chats == []
 
 
 # --- argv rewriting ---------------------------------------------------------

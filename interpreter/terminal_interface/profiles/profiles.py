@@ -372,8 +372,12 @@ def reset_profile(specific_default_profile=None):
         if specific_default_profile and filename != specific_default_profile:
             continue
 
-        # Only reset default.yaml, all else are loaded from python package
-        if specific_default_profile != "default.yaml":
+        # Python profiles are read from the package at load time, so there is
+        # no user copy to reset; only the YAML ones exist as files. This used to
+        # read `if specific_default_profile != "default.yaml": continue`, which
+        # skipped every file whenever the flag was used as documented, and
+        # skipped the named file whenever it was anything but default.yaml.
+        if not filename.endswith((".yaml", ".yml")):
             continue
 
         target_file = os.path.join(profile_dir, filename)

@@ -371,20 +371,28 @@ def test_reset_profile_rejects_a_name_that_is_not_a_bundled_profile():
         profiles.reset_profile("made_up.yaml")
 
 
-def test_reset_profile_only_ever_touches_default_yaml(_isolate_profile_dir, monkeypatch):
-    """Characterisation: every profile except default.yaml is skipped, including "reset all".
+def test_reset_profile_restores_every_yaml_default(_isolate_profile_dir, monkeypatch):
+    """reset_profile(None) restores the shipped YAML profiles, and only those.
 
-    The loop body starts `if specific_default_profile != "default.yaml":
-    continue`, so reset_profile(None) — the documented "reset all default
-    profiles" behaviour — resets nothing at all. Combined with the CLI never
-    passing None (see test_bare_reset_profile_does_not_reset_anything), the
-    "reset all" feature is unreachable. This pins today's behaviour.
+    The loop used to start `if specific_default_profile != "default.yaml":
+    continue`, so "reset all" reset nothing and naming any other profile was a
+    no-op. Python profiles are still skipped: they are read from the package at
+    load time, so there is no user copy to restore.
     """
     profiles.reset_profile(None)
-    assert list(_isolate_profile_dir.iterdir()) == []
 
-    profiles.reset_profile("default.yaml")
-    assert (_isolate_profile_dir / "default.yaml").exists()
+    written = sorted(p.name for p in _isolate_profile_dir.iterdir())
+    assert "default.yaml" in written
+    assert "develop.yaml" in written
+    assert not [name for name in written if name.endswith(".py")]
+
+
+def test_reset_profile_can_restore_one_named_profile(_isolate_profile_dir, monkeypatch):
+    """Naming a profile restores that one and leaves the others absent."""
+    profiles.reset_profile("fast.yaml")
+
+    assert (_isolate_profile_dir / "fast.yaml").exists()
+    assert not (_isolate_profile_dir / "default.yaml").exists()
 
 
 def test_resetting_an_existing_default_asks_before_trashing_it(_isolate_profile_dir, monkeypatch, capsys):

@@ -134,8 +134,11 @@ Use """ to write multi-line messages.
         open_storage_dir("models")
         return
 
-    if args.reset_profile is not None and args.reset_profile != "NOT_PROVIDED":
-        reset_profile(args.reset_profile)  # This will be None if they just ran `--reset_profile`
+    # nargs="?" gives None when the flag is passed with no value, and the
+    # sentinel default when it is absent. Testing for None as well meant the
+    # documented bare `--reset_profile` fell through and started a session.
+    if args.reset_profile != "NOT_PROVIDED":
+        reset_profile(args.reset_profile)  # None means "every default profile"
         return
 
     if args.version:
