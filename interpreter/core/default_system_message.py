@@ -1,4 +1,5 @@
 import getpass
+import os
 import platform
 import time
 from datetime import datetime
@@ -26,16 +27,44 @@ def get_location_info():
     return "\n".join(location_parts) if location_parts else "Location: Unknown"
 
 
-def model_information(interpreter):
-    """The line naming the running model, for the System Information section.
+def system_information(interpreter):
+    """The block appended to the very end of every system prompt.
 
-    Without it the model has no way to answer "what are you running on" and
-    invents an answer, which is worse than saying nothing. Rendered at assembly
-    time rather than baked in at import, because the profile or --model flag
-    picks the model long after this module loads.
+    Last on purpose. Providers cache a prompt prefix, and the working directory
+    is the one line that can change mid-session, so everything stable — the
+    instructions, the language notes, the toolbox listing — sits in front of it
+    and keeps matching the cache after a `cd`.
     """
+    lines = [
+        "## System Information",
+        "",
+        f"- User's Name: {getpass.getuser()}",
+        f"- User's OS: {platform.system()}",
+        get_location_info().rstrip(),
+    ]
     model = getattr(getattr(interpreter, "llm", None), "model", None)
-    return f"- Model you are running on: {model}" if model else ""
+    if model:
+        lines.append(f"- Model you are running on: {model}")
+    lines.append(f"- Working directory, where your code will run: {working_directory()}")
+    return "\n".join(line for line in lines if line)
+
+
+def working_directory():
+    """Where code will run, as of this turn.
+
+    The prompt tells the model to confirm the working directory before anything
+    destructive, which it could not do: nothing told it where it was. Python
+    learned it from the REPL state line appended after a run, bash never did,
+    and neither knew before the first command.
+
+    This is the one line of the prompt that changes mid-session, so it is kept
+    last: a provider caches a prefix, and a change here costs only the tokens
+    after it.
+    """
+    try:
+        return os.getcwd()
+    except OSError:
+        return "unknown (the working directory was deleted)"
 
 
 _cli_lang = "cmd" if platform.system() == "Windows" else "bash"
@@ -66,9 +95,9 @@ In a persistent REPL, work like a careful programmer, one small step at a time:
 - **Verify each step** before moving on. Confirm the output is what you expected and covers the whole task, not a subset.
 - **Reuse what you are already holding.** Before writing a block, think about which variables and imports are live; do not re-extract or hardcode data you have. Once you have inspected a structure, access its fields directly instead of guarding them. Never guess an API, signature or return type — `help()` the object. Avoid try/except chains; break the problem into steps you can verify.
 
-Prefer a well-tested library to an ad-hoc implementation. Try `encoding='utf-8'` first when opening text files. Use absolute paths when in doubt, and confirm the working directory before anything destructive.
+Prefer a well-tested library to an ad-hoc implementation, and try `encoding='utf-8'` first when opening text files.
 
-If a command could make an irreversible change, run its dry-run or plain-output form first and tell the user what it would do. Never run a command that blocks on a y/n prompt; do the dry run, then ask whether to re-run it with the flag.
+Before anything irreversible, prove it is the right target: print the path you are about to delete or overwrite and confirm it is the one you mean, preferring absolute paths, because a relative path plus an assumed working directory is how the wrong tree gets removed. Run the dry-run or plain-output form first and say what it would do. Never run a command that blocks on a y/n prompt; dry-run it, then ask whether to re-run with the flag.
 
 **Ask a command for the answer, not for its output.** Everything it prints stays in the conversation and is re-sent with every later request, so shape the command around the question:
 
@@ -115,14 +144,9 @@ You are capable of **any** task.
 
 The same shape applies to the `toolbox` object: `help(toolbox.display)` to see what it offers, then call it, rather than guessing.
 
-## System Information
-
-- User's Name: {getpass.getuser()}
-- User's OS: {platform.system()}
-{get_location_info()}
-{{model_line}}
 
 ## Available Python Packages
 
 Many are installed, including pandas, matplotlib and jupyter. Search with `help('modules keyword')`, and install anything else you need.
+
 """.strip()
