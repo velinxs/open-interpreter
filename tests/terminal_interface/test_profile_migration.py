@@ -60,19 +60,16 @@ def test_a_migrated_profile_keeps_a_version_marker_and_the_documentation_comment
     assert "All options: https://docs.openinterpreter.com/settings" in text
 
 
-def test_old_attribute_names_are_not_actually_renamed(tmp_path):
-    """Characterisation bug: the renaming table is computed and then thrown away.
+def test_old_attribute_names_are_renamed_and_nested(tmp_path):
+    """A 0.1.x profile's settings survive migration under their current names.
 
     migrate_profile builds `mapped_profile` from attribute_mapping (model ->
-    llm.model, api_key -> llm.api_key, local -> offline, ...) and then never
-    uses it: the reformatting loop directly below iterates `profile`, the
-    original dict, so the mapped names are discarded. The migrated file keeps
-    the flat 0.1.x keys, which the current loader does not read.
-
-    The effect on a real migration is that the model, API key, API base,
-    temperature, context window, max tokens and offline flag all silently
-    revert to defaults, and apply_profile prints "this attribute doesn't exist
-    on the Interpreter class" warnings for each. This pins what it does today.
+    llm.model, api_key -> llm.api_key, local -> offline, ...). The reformatting
+    loop below it used to iterate `profile`, the original dict, throwing the
+    renaming away: the migrated file kept the flat 0.1.x keys, which the loader
+    does not read, so the model, API key, API base, temperature, context
+    window, max tokens and offline flag all silently reverted to defaults,
+    with an "attribute doesn't exist" warning printed for each.
     """
     old = _old_profile(tmp_path, model="gpt-4", api_key="sk-secret", local=True)
     new = tmp_path / "migrated.yaml"
@@ -80,10 +77,11 @@ def test_old_attribute_names_are_not_actually_renamed(tmp_path):
     migrate.migrate_profile(str(old), str(new))
     migrated = yaml.safe_load(new.read_text())
 
-    assert migrated["model"] == "gpt-4"
-    assert "llm" not in migrated
-    assert migrated["local"] is True
-    assert "offline" not in migrated
+    assert migrated["llm"]["model"] == "gpt-4"
+    assert migrated["llm"]["api_key"] == "sk-secret"
+    assert migrated["offline"] is True
+    assert "model" not in migrated, "the flat 0.1.x key should be gone"
+    assert "local" not in migrated
 
 
 def test_a_stock_old_system_message_is_dropped(tmp_path):
