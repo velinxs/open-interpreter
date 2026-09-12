@@ -388,15 +388,15 @@ def test_an_already_downloaded_llamafile_is_launched(interpreter, answers, llama
     assert interpreter.llm.temperature == 0
 
 
-def test_a_first_run_download_never_starts_the_server(interpreter, answers, llamafile, tmp_path):
-    """Characterisation bug: on a first run the model downloads but is never launched.
+def test_a_first_run_download_also_starts_the_server(interpreter, answers, llamafile, tmp_path):
+    """A model downloaded on the first run is launched, like an existing one.
 
-    The `if model_path:` block that starts the llamafile process lives inside
-    the `else:` branch taken when models already exist on disk. A user with no
-    models therefore downloads one, has api_base set to localhost:8080, and
-    then gets a connection error on every message because nothing is
-    listening. Compare test_an_already_downloaded_llamafile_is_launched: the
-    only difference is whether a file was already there.
+    The block that starts the llamafile process used to sit inside the `else:`
+    branch taken when models already exist on disk, so a user with no models
+    downloaded one, had api_base pointed at localhost:8080, and then got a
+    connection error on every message because nothing was listening. The only
+    difference from test_an_already_downloaded_llamafile_is_launched should be
+    whether the file was already there.
     """
     answers.append({"model": "Llamafile"})
     answers.append({"model": "Phi-3-mini (2.42GB)"})
@@ -407,7 +407,8 @@ def test_a_first_run_download_never_starts_the_server(interpreter, answers, llam
     assert "Phi-3-mini" in url
     assert path.startswith(str(tmp_path / "models"))
     assert interpreter.llm.api_base == "http://localhost:8080/v1"
-    assert llamafile.launched == [], "a fix would start the downloaded llamafile here"
+    assert llamafile.launched, "the freshly downloaded model was never started"
+    assert path in llamafile.launched[0]
 
 
 @pytest.mark.parametrize("choice", ["Mistral-7B-Instruct (4.40GB)", "Gemma-2-27b (16.70GB)", "TinyLlama-1.1B (0.70GB)"])

@@ -421,24 +421,25 @@ def local_setup(interpreter, provider=None, model=None):
             else:
                 model_path = os.path.join(models_dir, answers["model"])
 
-            if model_path:
-                try:
-                    # Run the selected model and hide its output
-                    process = subprocess.Popen(
-                        f'"{model_path}" ' + " ".join(["--nobrowser", "-ngl", "9999"]),
-                        shell=True,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.STDOUT,
-                        text=True,
-                    )
 
-                    for line in process.stdout:
-                        if "llama server listening at " in line:
-                            break  # Exit the loop once the server is ready
-                except Exception as e:
-                    process.kill()  # Force kill if not terminated after timeout
-                    print(e)
-                    print("Model process terminated.")
+        if model_path:
+            try:
+                # Run the selected model and hide its output
+                process = subprocess.Popen(
+                    f'"{model_path}" ' + " ".join(["--nobrowser", "-ngl", "9999"]),
+                    shell=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                )
+
+                for line in process.stdout:
+                    if "llama server listening at " in line:
+                        break  # Exit the loop once the server is ready
+            except Exception as e:
+                process.kill()  # Force kill if not terminated after timeout
+                print(e)
+                print("Model process terminated.")
 
         # Set flags for Llamafile to work with interpreter
         interpreter.llm.model = "openai/local"
