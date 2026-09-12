@@ -62,27 +62,51 @@ def test_runtimes_are_terminated_at_interpreter_exit(tmp_path):
     assert not survivors, f"processes survived interpreter exit: {survivors}"
 
 
+
 def test_a_spawned_shell_resolves_python_to_the_one_open_interpreter_runs_under(monkeypatch):
-    """A shell we spawn must reach our own Python, even from a stripped PATH.
+    """`python3` in a command must be our Python, even from a stripped PATH.
 
-    Open Interpreter is normally launched as ~/somevenv/bin/interpreter without
-    that venv activated. A bare `python3` in a command then resolved to the
-    system Python, where `import interpreter` fails, and the model concluded
-    Open Interpreter was not installed on the machine it was running on.
+    Open Interpreter is normally launched as ~/oi-venv/bin/interpreter without
+    that venv activated, so a bare `python3` resolved to the system Python where
+    `import interpreter` fails, and the model concluded Open Interpreter was not
+    installed on the machine it was itself running on.
     """
-    import os
-
     from interpreter.core.terminal.languages.bash import Bash
 
     monkeypatch.setenv("PATH", "/usr/bin:/bin")
     shell = Bash()
     try:
-        chunks = list(shell.run("command -v python3"))
+        # sys.prefix, not sys.executable: Python reports the path it was invoked
+        # as, which is the shim link. The prefix is what says "the same venv".
+        chunks = list(shell.run('python3 -c "import sys; print(sys.prefix)"'))
     finally:
         shell.terminate()
 
     resolved = "".join(c.get("content", "") for c in chunks if c.get("format") == "output").strip()
-    assert resolved.startswith(os.path.dirname(sys.executable)), (
-        f"spawned shell resolved python3 to {resolved!r}, "
-        f"not to our own {os.path.dirname(sys.executable)!r}"
+    assert resolved.splitlines()[0] == sys.prefix, (
+        f"spawned shell ran a Python from {resolved!r}, not our own env {sys.prefix!r}"
     )
+
+
+def test_the_python_shim_does_not_shadow_the_users_other_commands(monkeypatch):
+    """Only python links go on PATH, never the whole virtualenv bin directory.
+
+    A venv's bin holds a console script for every dependency that ships one —
+    `jupyter`, `httpx`, `litellm`, and single-letter ones like `i`. Putting that
+    directory ahead of the user's PATH would silently replace their commands
+    with ours, so the fix prepends a directory holding nothing but the Python.
+    """
+    import os
+
+    from interpreter.core.terminal.languages.subprocess_language import _python_shim_dir
+
+    shim = _python_shim_dir()
+    if shim is None:  # platform could not make the links; PATH is left alone
+        return
+
+    entries = set(os.listdir(shim))
+    assert entries <= {"python", "python3", f"python{sys.version_info.major}.{sys.version_info.minor}"}, (
+        f"the shim directory exposes more than python: {sorted(entries)}"
+    )
+    venv_bin = os.path.dirname(sys.executable)
+    assert shim != venv_bin, "the shim must be its own directory, not the virtualenv's bin"

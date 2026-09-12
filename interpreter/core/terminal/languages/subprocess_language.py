@@ -1,9 +1,13 @@
+import atexit
 import os
 import queue
 import re
+import shlex
+import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import traceback
@@ -21,6 +25,56 @@ def _env_seconds(name, default):
     except (TypeError, ValueError):
         return float(default)
     return value if value > 0 else 0.0
+
+
+_shim_dir = None
+
+
+def _python_shim_dir():
+    """A directory holding only `python`/`python3`, pointing at our own Python.
+
+    Open Interpreter is normally installed in a virtualenv and launched as
+    ~/oi-venv/bin/interpreter without that venv being activated, so a bare
+    `python3` in a command resolved to the system Python, where `import
+    interpreter` fails.
+
+    Prepending the venv's own bin directory would fix that, but it is far too
+    blunt: a venv's bin holds every console script its dependencies installed —
+    `jupyter`, `httpx`, `litellm`, and single-letter ones like `i` — and putting
+    all of them ahead of the user's PATH would shadow their commands with ours.
+    So we prepend a directory containing nothing but the Python wrappers, and the
+    rest of the venv stays invisible.
+
+    The entries are exec wrappers, not symlinks. A symlink would defeat the
+    point: Python looks for `pyvenv.cfg` beside the path it was invoked as, so a
+    link in a temp directory resolves to the *base* prefix and hands back the
+    system site-packages — the very failure this is here to fix. Running the
+    real path keeps the virtualenv.
+
+    Returns None on Windows, or when the directory cannot be written; the caller
+    then leaves PATH alone.
+    """
+    global _shim_dir
+    if _shim_dir is not None:
+        return _shim_dir or None  # "" means we already tried and could not
+
+    _shim_dir = ""
+    if os.name != "posix":
+        return None  # a .bat wrapper has different quoting rules; not worth it yet
+    try:
+        directory = tempfile.mkdtemp(prefix="oi-python-")
+        target = shlex.quote(sys.executable)
+        script = f'#!/bin/sh\nexec {target} "$@"\n'
+        for name in {"python", "python3", f"python{sys.version_info.major}.{sys.version_info.minor}"}:
+            path = os.path.join(directory, name)
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write(script)
+            os.chmod(path, 0o755)
+        atexit.register(shutil.rmtree, directory, True)
+        _shim_dir = directory
+    except Exception:
+        pass  # a shell that finds the system python is worse, not broken
+    return _shim_dir or None
 
 
 # A command that produces no output for this long is treated as hung and killed.
@@ -141,17 +195,11 @@ class SubprocessLanguage(BaseLanguage):
         my_env = os.environ.copy()
         my_env["PYTHONIOENCODING"] = "utf-8"
 
-        # A shell we spawn should reach the same Python we are running under. OI is
-        # usually launched as ~/somevenv/bin/interpreter without that venv being
-        # activated, so a bare `python3` in a command resolved to the system Python,
-        # where `import interpreter` fails — and the model reasonably concluded that
-        # Open Interpreter was not installed on the machine it is running on. Putting
-        # our own bin directory first is what activating the venv would have done.
-        bin_dir = os.path.dirname(sys.executable)
-        if bin_dir:
+        shim = _python_shim_dir()
+        if shim:
             path = my_env.get("PATH", "")
-            if bin_dir not in path.split(os.pathsep):
-                my_env["PATH"] = bin_dir + os.pathsep + path if path else bin_dir
+            if shim not in path.split(os.pathsep):
+                my_env["PATH"] = shim + os.pathsep + path if path else shim
         popen_kwargs = {
             "stdin": subprocess.PIPE,
             "stdout": subprocess.PIPE,
