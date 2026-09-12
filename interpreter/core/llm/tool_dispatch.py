@@ -14,6 +14,27 @@ from .tool_schema import VIEW_IMAGE_ALLOWED_EXTENSIONS
 from .utils.parse_partial_json import parse_partial_json
 
 
+def _error_chunk(tool_call_id_for_error, error_msg):
+    """Build the one chunk every malformed-call branch below needs to yield.
+
+    Paired to its call with `role: tool` when an id exists, because chat APIs
+    that require assistant(tool_calls) -> tool(response) pairing reject the
+    next request outright if a tool response shows up without one. With no id
+    to pair, falling back to `role: assistant` at least gets the message in
+    front of the user instead of dropping it — a bare `if tool_call_id_for_error`
+    check is enough because callers already normalise the value to a non-empty
+    str or None before any branch runs (see the block below).
+    """
+    if tool_call_id_for_error:
+        return {
+            "role": "tool",
+            "tool_call_id": tool_call_id_for_error,
+            "type": "message",
+            "content": error_msg,
+        }
+    return {"role": "assistant", "type": "message", "content": f"**Error:** {error_msg}"}
+
+
 def dispatch_function_call(llm, accumulated_deltas, request_params, tool_call_id_for_error, verbose, language):
     """Yield the chunks for the pending function call, if there is one."""
     # Process the converted function_call (if any) to yield code
@@ -68,100 +89,37 @@ def dispatch_function_call(llm, accumulated_deltas, request_params, tool_call_id
                             }
                         else:
                             # Empty code - yield error as tool response
-                            error_msg = "Invalid execute call: code is empty"
-                            if (
-                                tool_call_id_for_error
-                                and isinstance(tool_call_id_for_error, str)
-                                and tool_call_id_for_error.strip()
-                            ):
-                                yield {
-                                    "role": "tool",
-                                    "tool_call_id": tool_call_id_for_error,
-                                    "type": "message",
-                                    "content": error_msg,
-                                }
-                            elif verbose:
-                                print(
-                                    f"[ERROR] Cannot yield tool response: missing tool_call_id. Error: {error_msg}",
-                                    flush=True,
-                                )
+                            error_msg = (
+                                "Invalid execute call: code is empty. "
+                                "execute requires a non-empty 'code' string."
+                            )
+                            yield _error_chunk(tool_call_id_for_error, error_msg)
                             if verbose:
                                 print(
                                     f"[ERROR] {error_msg}. Arguments: {json.dumps(arguments, default=str)}", flush=True
                                 )
                     else:
                         # Code is not a string - yield error as tool response
-                        error_msg = f"Invalid execute call: code must be a string, got {type(code_value).__name__}"
-                        if (
-                            tool_call_id_for_error
-                            and isinstance(tool_call_id_for_error, str)
-                            and tool_call_id_for_error.strip()
-                        ):
-                            yield {
-                                "role": "tool",
-                                "tool_call_id": tool_call_id_for_error,
-                                "type": "message",
-                                "content": error_msg,
-                            }
-                        elif verbose:
-                            print(
-                                f"[ERROR] Cannot yield tool response: missing tool_call_id. Error: {error_msg}",
-                                flush=True,
-                            )
+                        error_msg = (
+                            f"Invalid execute call: code must be a string, got {type(code_value).__name__}. "
+                            "execute requires 'code' as a string."
+                        )
+                        yield _error_chunk(tool_call_id_for_error, error_msg)
                         if verbose:
                             print(f"[ERROR] {error_msg}. Arguments: {json.dumps(arguments, default=str)}", flush=True)
                 else:
                     # Missing language or code - yield error as tool response
-                    error_msg = f"Invalid execute call: missing required fields. Got: {list(arguments.keys())}"
+                    error_msg = (
+                        f"Invalid execute call: missing required fields. "
+                        f"execute requires 'language' and 'code'. Got: {list(arguments.keys())}"
+                    )
                     if verbose:
                         print(f"[ERROR] {error_msg}. Arguments: {json.dumps(arguments, default=str)}", flush=True)
-                        print(
-                            f"[ERROR] tool_call_id_for_error: {repr(tool_call_id_for_error)}, type: {type(tool_call_id_for_error)}",
-                            flush=True,
-                        )
-
-                    if (
-                        tool_call_id_for_error
-                        and isinstance(tool_call_id_for_error, str)
-                        and tool_call_id_for_error.strip()
-                    ):
-                        tool_response = {
-                            "role": "tool",
-                            "tool_call_id": tool_call_id_for_error,
-                            "type": "message",
-                            "content": error_msg,
-                        }
-                        if verbose:
-                            print(
-                                f"[ERROR] Yielding tool response: {json.dumps(tool_response, default=str)}", flush=True
-                            )
-                        yield tool_response
-                    else:
-                        # No tool_call_id available - this should not happen, but log it
-                        if verbose:
-                            print(
-                                f"[ERROR] Cannot yield tool response: missing tool_call_id. Error: {error_msg}",
-                                flush=True,
-                            )
-                            print(f"[ERROR] tool_call_id_for_error value: {repr(tool_call_id_for_error)}", flush=True)
-                        # Still yield as assistant message so user sees the error
-                        yield {"role": "assistant", "type": "message", "content": f"**Error:** {error_msg}"}
+                    yield _error_chunk(tool_call_id_for_error, error_msg)
             else:
                 # Arguments is not a dict - yield error as tool response
                 error_msg = f"Invalid execute call: arguments must be a dict, got {type(arguments).__name__}"
-                if (
-                    tool_call_id_for_error
-                    and isinstance(tool_call_id_for_error, str)
-                    and tool_call_id_for_error.strip()
-                ):
-                    yield {
-                        "role": "tool",
-                        "tool_call_id": tool_call_id_for_error,
-                        "type": "message",
-                        "content": error_msg,
-                    }
-                elif verbose:
-                    print(f"[ERROR] Cannot yield tool response: missing tool_call_id. Error: {error_msg}", flush=True)
+                yield _error_chunk(tool_call_id_for_error, error_msg)
                 if verbose:
                     print(f"[ERROR] {error_msg}. Function call: {json.dumps(function_call, default=str)}", flush=True)
         elif function_name == "view_image":
@@ -244,19 +202,7 @@ def dispatch_function_call(llm, accumulated_deltas, request_params, tool_call_id
                     error_msg = None
 
                 if error_msg:
-                    if (
-                        tool_call_id_for_error
-                        and isinstance(tool_call_id_for_error, str)
-                        and tool_call_id_for_error.strip()
-                    ):
-                        yield {
-                            "role": "tool",
-                            "tool_call_id": tool_call_id_for_error,
-                            "type": "message",
-                            "content": error_msg,
-                        }
-                    else:
-                        yield {"role": "assistant", "type": "message", "content": f"**Error:** {error_msg}"}
+                    yield _error_chunk(tool_call_id_for_error, error_msg)
                 else:
                     yield {
                         "role": "assistant",
@@ -267,19 +213,7 @@ def dispatch_function_call(llm, accumulated_deltas, request_params, tool_call_id
                     }
             else:
                 error_msg = f"edit: arguments must be a JSON object, got: {type(arguments).__name__}"
-                if (
-                    tool_call_id_for_error
-                    and isinstance(tool_call_id_for_error, str)
-                    and tool_call_id_for_error.strip()
-                ):
-                    yield {
-                        "role": "tool",
-                        "tool_call_id": tool_call_id_for_error,
-                        "type": "message",
-                        "content": error_msg,
-                    }
-                else:
-                    yield {"role": "assistant", "type": "message", "content": f"**Error:** {error_msg}"}
+                yield _error_chunk(tool_call_id_for_error, error_msg)
 
         elif function_name:
             # Unsupported function call - yield error as tool response to maintain proper message ordering
@@ -293,10 +227,7 @@ def dispatch_function_call(llm, accumulated_deltas, request_params, tool_call_id
 
             # Yield error as tool response so the model sees it and message ordering stays correct (assistant → tool → …).
             # Any assistant message content the model sent before this tool call is already yielded above with role "assistant".
-            if tool_call_id_for_error:
-                yield {"role": "tool", "tool_call_id": tool_call_id_for_error, "type": "message", "content": error_msg}
-            else:
-                yield {"role": "assistant", "type": "message", "content": f"**Error:** {error_msg}"}
+            yield _error_chunk(tool_call_id_for_error, error_msg)
 
             if verbose:
                 print(f"[ERROR] {error_msg}", flush=True)
@@ -306,3 +237,15 @@ def dispatch_function_call(llm, accumulated_deltas, request_params, tool_call_id
                         f"[ERROR] Yielding error as tool response with tool_call_id: {tool_call_id_for_error}",
                         flush=True,
                     )
+        else:
+            # function_call present but its name is missing or empty. Every branch
+            # above is keyed on function_name, so without this arm the call falls
+            # off the end of the chain silently: nothing yielded, nothing logged,
+            # and the model never learns its call was dropped.
+            error_msg = (
+                "Malformed tool call: function name is missing. "
+                "Call one of 'execute', 'edit', or 'view_image' (vision models only)."
+            )
+            yield _error_chunk(tool_call_id_for_error, error_msg)
+            if verbose:
+                print(f"[ERROR] {error_msg}. Function call: {json.dumps(function_call, default=str)}", flush=True)
