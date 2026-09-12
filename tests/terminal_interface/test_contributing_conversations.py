@@ -58,18 +58,22 @@ def test_first_launch_writes_the_cache_with_everything_unasked(_isolate_cache):
     assert json.loads(_isolate_cache.read_text()) == cache
 
 
-def test_cache_read_requires_the_parent_directory_to_already_exist(tmp_path, monkeypatch):
-    """Characterisation: the cache is created with open(), which does not mkdir.
+def test_cache_read_creates_its_own_parent_directory(tmp_path, monkeypatch):
+    """Regression: the cache used to be created with open(), which does not mkdir.
 
-    Today ~/.cache/open-interpreter always exists by the time this runs only
-    because importing interpreter.core.utils.telemetry creates it at import
-    time for the telemetry user id. This test pins that hidden dependency:
-    if telemetry's directory creation is ever made lazy or removed, startup
-    raises FileNotFoundError here, and this test says why.
+    It used to work only because importing interpreter.core.utils.telemetry
+    happens to create ~/.cache/open-interpreter at import time for the
+    telemetry user id — an unrelated side effect this function should not
+    depend on. It now creates its own parent directory, so a missing
+    ~/.cache/open-interpreter no longer raises FileNotFoundError on first run.
     """
     monkeypatch.setattr(cc, "contribute_cache_path", str(tmp_path / "missing" / "contribute.json"))
-    with pytest.raises(FileNotFoundError):
-        cc.get_contribute_cache_contents()
+    cache = cc.get_contribute_cache_contents()
+    assert cache == {
+        "asked_to_contribute_past": False,
+        "displayed_contribution_message": False,
+        "asked_to_contribute_future": False,
+    }
 
 
 def test_existing_cache_is_read_back_not_overwritten(_isolate_cache):

@@ -121,6 +121,11 @@ def get_contribute_cache_contents() -> ContributionCache:
             "displayed_contribution_message": False,
             "asked_to_contribute_future": False,
         }
+        # open() does not create parent directories. This used to work only
+        # because importing interpreter.core.utils.telemetry happens to
+        # create ~/.cache/open-interpreter as a side effect at import time;
+        # this function should not depend on that unrelated import.
+        os.makedirs(os.path.dirname(contribute_cache_path), exist_ok=True)
         with open(contribute_cache_path, "a") as file:
             file.write(json.dumps(default_dict))
         return default_dict
