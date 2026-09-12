@@ -163,8 +163,39 @@ class RemoveInterpreter(ast.NodeTransformer):
 
 
 def _known_attributes(obj):
-    """Public attribute names on obj, offered as difflib candidates for a typo'd key."""
-    return [attr for attr in dir(obj) if not attr.startswith("_")]
+    """Public, non-callable attribute names on obj, offered as difflib candidates for a typo'd key.
+
+    Methods are excluded by checking each attribute's current value, not by
+    name: dir(obj) includes bound methods (run, load, exec...), and a typo
+    that happens to be close to one would nominate it as "did you mean" —
+    walking the user straight into overwriting a method (see
+    _is_unsettable).
+    """
+    names = []
+    for attr in dir(obj):
+        if attr.startswith("_"):
+            continue
+        try:
+            value = getattr(obj, attr)
+        except Exception:
+            continue
+        if callable(value):
+            continue
+        names.append(attr)
+    return names
+
+
+def _is_unsettable(obj, key):
+    """True if `key` must not be setattr'd onto obj: missing, or currently a callable.
+
+    hasattr alone lets a profile key that matches a method name (e.g. `run`,
+    `load`, `completions`) overwrite that method — the attribute exists, so
+    the old guard let it through. Treat that the same as an unknown key:
+    report and skip, rather than silently replacing behaviour with data.
+    """
+    if not hasattr(obj, key):
+        return True
+    return callable(getattr(obj, key))
 
 
 def _unknown_key_warning(displayed_key, key, known_attributes, class_name):
@@ -211,7 +242,7 @@ def _validate_profile(interpreter, profile):
             for key in profile[profile_key]:
                 if key.startswith("_") or key in skip_keys:
                     continue
-                if not hasattr(obj, key):
+                if _is_unsettable(obj, key):
                     warnings.append(_unknown_key_warning(f"{profile_key}.{key}", key, known, class_name))
 
     # Check for invalid top-level attributes
@@ -223,11 +254,18 @@ def _validate_profile(interpreter, profile):
     for key in profile:
         if key in skip_keys:
             continue
-        if isinstance(profile[key], dict):
-            continue  # Skip nested dicts (they're handled separately)
         if key.startswith("_"):
             continue  # Skip private attributes
-        if not hasattr(interpreter, key):
+        if isinstance(profile[key], dict):
+            # llm and toolbox are the only nested sections that exist (handled
+            # above); anything else here is a typo'd or invented section name.
+            # Without this check it fell straight through to
+            # apply_profile_to_object's getattr, which raised instead of
+            # warning.
+            if _is_unsettable(interpreter, key):
+                warnings.append(_unknown_key_warning(key, key, known, "Interpreter"))
+            continue
+        if _is_unsettable(interpreter, key):
             warnings.append(_unknown_key_warning(key, key, known, "Interpreter"))
 
     if warnings:
@@ -358,16 +396,24 @@ def apply_profile_to_object(obj, profile):
         if isinstance(value, dict):
             if key == "wtf":  # The wtf command has a special part of the profile, not used here
                 continue
+            # An unknown or invented section name (e.g. a typo'd top-level
+            # key) has no matching attribute to recurse into — getattr would
+            # raise AttributeError and abort startup with a bare traceback.
+            # The matching warning is emitted by _validate_profile before
+            # this runs; here we only need to not crash.
+            if _is_unsettable(obj, key):
+                continue
             apply_profile_to_object(getattr(obj, key), value)
         else:
             # A key with no matching attribute is a typo or a setting that
-            # never existed. setattr would happily invent it as a new,
-            # unread attribute — the profile would look applied while doing
-            # nothing, which for a restriction (e.g. auto_run_mode) is a
+            # never existed. A key whose current value is callable matches a
+            # method name (see _is_unsettable) — setattr would silently
+            # replace behaviour with data. Either way setattr would happily
+            # apply it, and for a restriction (e.g. auto_run_mode) that is a
             # silent security downgrade, not just a cosmetic no-op. The
             # matching warning is emitted by _validate_profile before this
-            # runs; here we only need to not create the attribute.
-            if not hasattr(obj, key):
+            # runs; here we only need to not create/overwrite the attribute.
+            if _is_unsettable(obj, key):
                 continue
             setattr(obj, key, value)
 

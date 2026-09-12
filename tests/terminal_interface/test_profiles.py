@@ -358,6 +358,84 @@ def test_a_typo_inside_toolbox_now_warns_and_is_skipped(interpreter, capsys):
     assert not hasattr(interpreter.toolbox, "import_toolbx_api")
 
 
+def test_an_unknown_top_level_section_warns_and_does_not_raise(interpreter, capsys):
+    """A typo'd or invented section name (a dict-valued top-level key) is reported, not a crash.
+
+    apply_profile_to_object's dict branch used to recurse unconditionally:
+    apply_profile_to_object(getattr(obj, key), value). For a section with no
+    matching attribute, getattr raised AttributeError and startup died with a
+    bare traceback naming nothing. _validate_profile also unconditionally
+    skipped every dict-valued top-level key ("handled separately"), so no
+    warning was produced either — llm and toolbox are the only sections that
+    are actually handled elsewhere. Both halves must be fixed: the warning
+    must appear and the profile must still finish loading.
+    """
+    result = profiles.apply_profile(
+        interpreter,
+        {**CURRENT, "nosuchsection": {"a": 1}},
+        "/tmp/x.yaml",
+    )
+    output = capsys.readouterr().out
+    assert "nosuchsection" in output
+    assert result is interpreter
+
+
+def test_a_real_section_still_applies_fully_after_the_unknown_section_fix(interpreter):
+    """llm: and toolbox: are unaffected by the new unknown-section check.
+
+    The unknown-section warning must only fire on section names that truly
+    don't exist. A false positive here would silently drop an entire
+    section's settings, not just one key.
+    """
+    profiles.apply_profile(
+        interpreter,
+        {**CURRENT, "llm": {"model": "gpt-4.1"}, "toolbox": {"import_toolbox_api": True}},
+        "/tmp/x.yaml",
+    )
+    assert interpreter.llm.model == "gpt-4.1"
+    assert interpreter.toolbox.import_toolbox_api is True
+
+
+def test_a_profile_key_cannot_overwrite_a_method(interpreter, capsys):
+    """A profile key matching a method name (e.g. `reset`) is refused, not set.
+
+    hasattr alone can't tell a real setting from a method: `reset` exists on
+    the interpreter as a bound method. Before this fix that made it a valid
+    setattr target — a profile could silently replace interpreter.reset with
+    True, breaking it the next time anything called it. It must now be
+    reported the same way an unknown key is: skipped, with a warning.
+    """
+    profiles.apply_profile(
+        interpreter,
+        {**CURRENT, "reset": True},
+        "/tmp/x.yaml",
+    )
+    output = capsys.readouterr().out
+    assert "reset" in output
+    assert callable(interpreter.reset)
+
+
+def test_a_typo_near_a_method_name_does_not_suggest_the_method(interpreter, capsys):
+    """The near-miss "did you mean" suggestion never nominates a method.
+
+    `_known_attributes` used to include every public name from dir(obj),
+    methods included. A typo close to a method name (here, "resett" next to
+    the `reset` method) would then have the warning suggest setting `reset`
+    to the typo'd value — walking the user into exactly the method-overwrite
+    bug this fix closes. With methods excluded from the candidate list,
+    "resett" has no close match among real attributes, so no method name is
+    ever offered as the fix.
+    """
+    profiles.apply_profile(
+        interpreter,
+        {**CURRENT, "resett": True},
+        "/tmp/x.yaml",
+    )
+    output = capsys.readouterr().out
+    assert "resett" in output
+    assert "reset" not in output.replace("resett", "")
+
+
 def test_version_and_start_script_never_produce_an_unknown_key_warning(interpreter, capsys):
     """The loader's own metadata keys are exempt from the unknown-key check.
 
