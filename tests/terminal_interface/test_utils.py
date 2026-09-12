@@ -65,21 +65,20 @@ def test_the_same_path_mentioned_twice_is_returned_once(tmp_path):
     assert find_image_path(f"{path} and again {path}") == [str(path)]
 
 
-def test_multiple_images_are_returned_in_unspecified_order(tmp_path):
-    """Characterisation: the docstring promises insertion order, the code does not keep it.
+def test_multiple_images_are_returned_in_first_appearance_order(tmp_path):
+    """Regression: the docstring promised insertion order, but `list(set(...))` used to discard it.
 
-    The last line is `list(set(existing_paths))`, which discards order. The
-    caller sends image_paths[0] to chat() and appends the rest, so which
-    picture is "first" for the model is whatever the set iteration happened to
-    yield. Nothing depends on it today, which is why this asserts the set
-    rather than a sequence — but the docstring is wrong.
+    The caller sends image_paths[0] to chat() and appends the rest, so which
+    picture is "first" for the model depends on this order. Dedup now goes
+    through dict.fromkeys, which preserves first-appearance order, so the
+    result matches the order the paths appear in the message.
     """
     paths = []
     for index in range(4):
         path = tmp_path / f"img{index}.png"
         path.write_bytes(b"x")
         paths.append(str(path))
-    assert set(find_image_path(" ".join(paths))) == set(paths)
+    assert find_image_path(" ".join(paths)) == paths
 
 
 # --- target_file_lexer ------------------------------------------------------
