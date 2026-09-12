@@ -19,26 +19,43 @@ def image_path_exceeds_shrink_threshold(path: str) -> bool:
     return data_url_exceeds_shrink_threshold(content)
 
 
+_UNPARSED_ARGUMENTS_KEY = "_unparsed_arguments"
+
+
 def _tool_call_arguments_string(arguments):
     """The arguments string to put back on a rebuilt assistant tool call.
 
-    A string is passed through verbatim, invalid JSON included: that is exactly
-    what the model sent, and the tool response paired with it is the one saying
-    the JSON could not be parsed. Repairing or re-serialising it here would show
-    the model a call it never made, which is the fabrication this whole rebuild
-    exists to remove. (OpenAI documents `arguments` as model-generated text that
-    is not always valid JSON, so passing it through is in spec.)
+    Valid JSON is passed through verbatim, because that is exactly what the
+    model sent and re-serialising it could show it a call it never made.
+
+    Malformed JSON cannot be passed through, even though OpenAI documents this
+    field as model-generated text that is not always valid. Providers disagree:
+    litellm's Ollama transform calls json.loads on it unconditionally, so one
+    malformed call in the history raises JSONDecodeError on *every* later
+    request and the conversation cannot continue at all. That is worse than the
+    fabricated call this rebuild removed — a wedged session instead of a
+    confusing one.
+
+    So the model's exact text is kept, wrapped in an object that says what it
+    is. The model still sees what it sent, the paired tool response still
+    explains what was wrong with it, and the request still goes out.
     """
     if isinstance(arguments, str):
+        if not arguments.strip():
+            # No arguments at all. "{}" is the closest valid encoding; the tool
+            # response paired with this call is what says they were missing.
+            return "{}"
+        try:
+            json.loads(arguments)
+        except ValueError:
+            return json.dumps({_UNPARSED_ARGUMENTS_KEY: arguments})
         return arguments
     if arguments is None:
-        # The model sent no arguments at all. "" is the honest record of that;
-        # "{}" would claim it sent an empty object.
-        return ""
+        return "{}"
     try:
         return json.dumps(arguments)
     except (TypeError, ValueError):
-        return str(arguments)
+        return json.dumps({_UNPARSED_ARGUMENTS_KEY: str(arguments)})
 
 
 def _lmc_role_to_api_role(role):

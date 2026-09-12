@@ -281,7 +281,11 @@ def test_the_corrective_turn_shows_the_call_the_model_really_made(offline_interp
     assert len(assistant_calls) == 1 and len(tool_responses) == 1, outgoing
     call = assistant_calls[0]["tool_calls"][0]
     assert call["function"]["name"] == "execute"
-    assert call["function"]["arguments"] == "not json at all {{{"
+    # Wrapped, not raw: litellm's Ollama transform json.loads() this field, so
+    # malformed JSON here raises on every later request. The model's own text
+    # still has to be visible, which is the point of recording the real call.
+    arguments = call["function"]["arguments"]
+    assert json.loads(arguments) == {"_unparsed_arguments": "not json at all {{{"}
     assert call["id"] == tool_responses[0]["tool_call_id"]
     assert "not valid JSON" in tool_responses[0]["content"]
 

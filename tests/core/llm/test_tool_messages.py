@@ -121,3 +121,69 @@ def test_mistral_ids_still_match_the_required_format_after_a_collision_bump():
     assert newly_minted_ids
     for tool_id in newly_minted_ids:
         assert MISTRAL_ID_PATTERN.match(tool_id), tool_id
+
+
+def _converter_stub():
+    """The handful of interpreter settings convert_to_openai_messages reads."""
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        always_apply_user_message_template=False,
+        user_message_template="{content}",
+        code_output_sender="computer",
+        code_output_template="{content}",
+        empty_code_output_template="",
+        debug=False,
+    )
+
+
+def test_every_outgoing_tool_call_carries_parseable_arguments():
+    """A malformed tool call must not wedge every later request.
+
+    Recording the model's raw arguments verbatim looked honest, but litellm's
+    Ollama transform calls json.loads on that field unconditionally. One
+    unparseable call in the history then raised JSONDecodeError on every
+    subsequent request and the conversation could not continue at all.
+    """
+    import json
+
+    from interpreter.core.llm.utils.convert_to_openai_messages import convert_to_openai_messages
+
+    # Two JSON objects concatenated: what a model actually sent, and what
+    # produced "Extra data: line 1 column 72".
+    raw = '{"language": "bash", "code": "pwd"}{"language": "python", "code": "1+1"}'
+    messages = [
+        {"role": "user", "type": "message", "content": "run some checks"},
+        {"type": "tool_call", "tool_call_id": "call_1", "name": "execute", "arguments": raw},
+        {"role": "tool", "type": "message", "tool_call_id": "call_1", "content": "not valid JSON"},
+    ]
+
+    converted = convert_to_openai_messages(messages, function_calling=True, interpreter=_converter_stub())
+    for message in process_messages(converted, model="ollama_chat/qwen"):
+        for call in message.get("tool_calls") or []:
+            arguments = call["function"]["arguments"]
+            json.loads(arguments)  # this is the call that used to raise
+
+
+def test_a_malformed_call_still_shows_the_model_its_own_text():
+    """Making arguments parseable must not hide what the model actually sent.
+
+    The point of recording the real call was that a fabricated one told the
+    model it had written something it never wrote. Wrapping the raw text keeps
+    it visible; replacing it would reintroduce that.
+    """
+    import json
+
+    from interpreter.core.llm.utils.convert_to_openai_messages import convert_to_openai_messages
+
+    raw = "not json at all {{{"
+    messages = [
+        {"role": "user", "type": "message", "content": "go"},
+        {"type": "tool_call", "tool_call_id": "call_1", "name": "execute", "arguments": raw},
+        {"role": "tool", "type": "message", "tool_call_id": "call_1", "content": "not valid JSON"},
+    ]
+
+    converted = convert_to_openai_messages(messages, function_calling=True, interpreter=_converter_stub())
+    arguments = [c["function"]["arguments"] for m in converted for c in (m.get("tool_calls") or [])]
+    assert arguments, "the tool call was not rebuilt at all"
+    assert raw in arguments[0], f"the model's own text was dropped: {arguments[0]!r}"

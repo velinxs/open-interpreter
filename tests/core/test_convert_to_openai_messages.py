@@ -1,3 +1,5 @@
+import json
+
 from interpreter.core.llm.utils.convert_to_openai_messages import convert_to_openai_messages
 
 
@@ -202,14 +204,18 @@ def test_user_message_boundary_resets_pending_reasoning():
     assert len(function_calls) == 1
     assert "reasoning_content" not in function_calls[0]
 def test_a_tool_call_record_is_rebuilt_as_a_real_assistant_tool_call():
-    """The recorded call goes out as assistant+tool_calls, arguments unrepaired.
+    """The recorded call goes out as assistant+tool_calls, still showing what was sent.
 
-    Without this rebuild the role:tool error that follows has no assistant
-    tool call before it, and process_messages inserts
+    Without this rebuild the role:tool error that follows has no assistant tool
+    call before it, and process_messages inserts
     execute(code="pass  # (synthetic; do not run)") to satisfy the provider's
     pairing rule — a call the model never made, shown immediately above the
-    error saying its call was invalid. The arguments must stay exactly as the
-    model sent them (here, JSON it truncated) for the pair to make sense.
+    error saying its call was invalid.
+
+    The model's text has to survive for the pair to make sense, but it cannot go
+    out raw: litellm's Ollama transform calls json.loads on this field, so
+    malformed JSON here raises on every later request and wedges the session. It
+    is wrapped instead, which keeps both properties.
     """
     messages = [
         {
@@ -230,13 +236,15 @@ def test_a_tool_call_record_is_rebuilt_as_a_real_assistant_tool_call():
     out = convert_to_openai_messages(messages, function_calling=True, vision=False, interpreter=_FakeInterpreter())
 
     assert out[0]["role"] == "assistant"
-    assert out[0]["tool_calls"] == [
-        {
-            "id": "call_7",
-            "type": "function",
-            "function": {"name": "execute", "arguments": '{"language": "python", "code": '},
-        }
-    ]
+    call = out[0]["tool_calls"][0]
+    assert call["id"] == "call_7"
+    assert call["type"] == "function"
+    assert call["function"]["name"] == "execute"
+
+    arguments = call["function"]["arguments"]
+    parsed = json.loads(arguments)  # every provider must be able to parse this
+    assert parsed == {"_unparsed_arguments": '{"language": "python", "code": '}
+
     assert out[1]["role"] == "tool"
     assert out[1]["tool_call_id"] == "call_7"
 
