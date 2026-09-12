@@ -17,8 +17,8 @@ def test_the_prompt_names_the_model_and_the_working_directory(offline_interprete
 
     prompt = assemble_system_message(offline_interpreter)
 
-    assert "- Model you are running on: ollama_chat/qwen-thinking:latest" in prompt
-    assert f"- Working directory, where your code will run: {os.getcwd()}" in prompt
+    assert "- You are: ollama_chat/qwen-thinking:latest" in prompt
+    assert f"- $PWD: {os.getcwd()}" in prompt
 
 
 def test_system_information_is_last(offline_interpreter):
