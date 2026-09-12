@@ -1,6 +1,7 @@
 import getpass
 import os
 import platform
+import sys
 import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -44,6 +45,13 @@ def system_information(interpreter):
     model = getattr(getattr(interpreter, "llm", None), "model", None)
     if model:
         lines.append(f"- You are: {model}")
+    # Named because the model could not otherwise find itself: OI is usually run from
+    # a venv that was never activated, so `python3` is the system one and the import
+    # is `interpreter`, not the package name on PyPI. Both guesses failed in practice.
+    lines.append(
+        f"- Sub-agents: `{sys.executable} -c 'from interpreter import OpenInterpreter'` "
+        "(that Python, not `python3`); each gets its own kernel, so run them in parallel"
+    )
     lines.append(f"- $PWD: {working_directory()}")
     return "\n".join(line for line in lines if line)
 

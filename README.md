@@ -370,6 +370,113 @@ searched for, every settable key with its type and default, the `version:` key, 
 four auto-run modes, and precedence between profiles, flags and environment
 variables — see [docs/profiles.md](docs/profiles.md).
 
+## Headless use and sub-agents
+
+Every interpreter you construct gets its own Jupyter kernel and its own message
+history, so instances are isolated and can run at the same time. That makes
+"spawn a few sub-agents" a matter of constructing a few of them.
+
+### From Python
+
+```python
+from interpreter import OpenInterpreter
+from interpreter.terminal_interface.profiles.profiles import profile
+
+oi = OpenInterpreter()
+profile(oi, "ollama.yaml")   # optional; mutates oi in place
+oi.auto_run = True
+
+for chunk in oi.chat("print 6*7 in python", display=False, stream=True):
+    if chunk.get("role") == "assistant" and chunk.get("type") == "message":
+        print(chunk.get("content") or "", end="")
+
+oi.toolbox.terminate()       # shut the kernel down
+```
+
+Fan out by building one per task. A thread pool is enough, because each agent
+blocks on its own model call:
+
+```python
+from concurrent.futures import ThreadPoolExecutor
+
+def run(task):
+    oi = OpenInterpreter()
+    oi.auto_run = True
+    try:
+        return "".join(
+            c.get("content") or ""
+            for c in oi.chat(task, display=False, stream=True)
+            if c.get("role") == "assistant" and c.get("type") == "message"
+        )
+    finally:
+        oi.toolbox.terminate()
+
+with ThreadPoolExecutor(max_workers=4) as pool:
+    results = list(pool.map(run, ["task one", "task two", "task three"]))
+```
+
+To decide each command instead of trusting `auto_run`, drive the turn yourself.
+`drive()` yields the same chunks the terminal renders and hands you the approval
+decision, which is also the seam the server and chat channels run on:
+
+```python
+from interpreter.core.session import RUN, SKIP, PAUSE, drive
+
+oi = OpenInterpreter()
+oi.auto_run = False          # required, or nothing ever asks
+
+def approve(chunk):
+    return RUN if chunk.get("format") == "python" else SKIP
+
+for chunk in drive(oi, "run `echo hi` in bash", approve=approve):
+    ...
+```
+
+`RUN` executes the pending code, `SKIP` records a decline and ends the turn, and
+`PAUSE` ends the turn with the code still pending so `drive(oi)` can resume it
+later — which is how an approval can wait on an HTTP request or a chat reply.
+
+### From the shell
+
+`--stdin` reads one message, runs one turn, and exits, which is the form to
+script against:
+
+```bash
+echo "print the numbers 1 to 3 in python" | interpreter --stdin -y
+
+# fan out, one process per task
+for task in "task one" "task two" "task three"; do
+  echo "$task" | interpreter --stdin -y > "out-$RANDOM.log" 2>&1 &
+done
+wait
+```
+
+Two things to know. Passing a bare message (`interpreter do the thing`) is *not*
+a general one-shot mode: it is the "i" shortcut, which rewrites your text as
+"I do the thing" and forces an ultra-fast custom instruction set. Use `--stdin`
+for anything scripted. And parallelism is usually limited by your model server
+rather than by Open Interpreter — Ollama serializes requests unless
+`OLLAMA_NUM_PARALLEL` is raised.
+
+`interpreter --server` exposes the same thing over HTTP: a websocket at `/`,
+plus `POST /`, `POST /run` and an OpenAI-compatible `POST /openai/chat/completions`,
+so anything that speaks the OpenAI API can drive an interpreter.
+
+### A sub-agent must use the same Python
+
+Open Interpreter is usually installed in a virtualenv and launched as
+`~/oi-venv/bin/interpreter` without that venv being activated. A bare `python3`
+then resolves to the system Python, where the import fails. Use the same Python
+the parent is running under, and note the import name is `interpreter`:
+
+```bash
+"$(python -c 'import sys; print(sys.executable)')" -c "from interpreter import OpenInterpreter"
+```
+
+Shells that Open Interpreter spawns get that directory prepended to `PATH`
+already, and the system prompt tells the model which Python to use, so this
+mostly matters when you are launching agents from outside.
+
 ## Sample FastAPI Server
 
 The generator update enables Open Interpreter to be controlled via HTTP REST endpoints:
