@@ -349,8 +349,11 @@ version: {OI_VERSION}  # Profile version (do not modify)
 
     # Replace {old_profile} in comment_wrapper with the modified current profile, and add the version
     comment_wrapper = comment_wrapper.replace("{old_profile}", old_profile).replace("{OI_VERSION}", OI_VERSION)
-    # Sometimes this happens if profile ended up empty
-    comment_wrapper.replace("\n{}\n", "\n")
+    # A profile whose only setting was a stock system message ends up empty, and
+    # yaml.dump writes that as a literal "{}". Left in place, the version line
+    # the wrapper appends lands after it and the file no longer parses. The
+    # result of this replace used to be discarded.
+    comment_wrapper = comment_wrapper.replace("\n{}\n", "\n")
 
     # Write the commented profile to the file
     with open(new_path, "w") as file:
@@ -386,8 +389,12 @@ def migrate_app_directory(old_dir, new_dir, profile_dir):
     # Copy the "profiles" folder and its contents if it exists
     profiles_old_path = os.path.join(old_dir, "profiles")
     profiles_new_path = os.path.join(new_dir, "profiles")
+    # Created up front rather than inside the branch below: a pre-0.2.0 layout
+    # is a bare config.yaml with no profiles/ directory at all, and both the
+    # config migration and the version-stamping loop further down write into
+    # this path unconditionally.
+    os.makedirs(profiles_new_path, exist_ok=True)
     if os.path.exists(profiles_old_path):
-        os.makedirs(profiles_new_path, exist_ok=True)
         # Iterate over all files in the old profiles directory
         for filename in os.listdir(profiles_old_path):
             old_file_path = os.path.join(profiles_old_path, filename)

@@ -101,28 +101,26 @@ def test_a_stock_old_system_message_is_dropped(tmp_path):
     assert migrated["auto_run"] is True
 
 
-def test_a_profile_left_empty_by_migration_is_written_as_invalid_yaml(tmp_path):
-    """Characterisation bug: an emptied profile becomes an unparseable file.
+def test_a_profile_left_empty_by_migration_is_still_valid_yaml(tmp_path):
+    """An emptied profile parses, and carries its version.
 
-    When the only setting was a stock system message, the profile dict ends up
-    empty and yaml.dump writes a literal "{}". The comment wrapper then appends
-    a "version:" key after it, so the file is a flow mapping followed by a
-    block mapping and yaml.safe_load raises. The author saw this coming — there
-    is a line `comment_wrapper.replace("\n{}\n", "\n")` meant to strip it — but
-    the result is never assigned, so it does nothing.
+    When the only setting was a stock system message the profile dict ends up
+    empty, and yaml.dump writes that as a literal "{}". Left in place, the
+    version key the comment wrapper appends lands after it, making the file a
+    flow mapping followed by a block mapping, which does not parse. The line
+    meant to strip it never assigned its result.
 
-    The damage is downstream: get_profile() raises, and profile() reacts by
-    resetting default.yaml (losing the migration) or re-raising for any other
-    profile name (the CLI will not start).
+    The damage was downstream: get_profile() raised, and profile() reacted by
+    resetting default.yaml, losing the migration, or re-raising for any other
+    name, so the CLI would not start.
     """
     old = _old_profile(tmp_path, system_message=_stock_message())
     new = tmp_path / "migrated.yaml"
 
     migrate.migrate_profile(str(old), str(new))
 
-    assert "\n{}\n" in new.read_text()
-    with pytest.raises(yaml.YAMLError):
-        yaml.safe_load(new.read_text())
+    assert "\n{}\n" not in new.read_text()
+    assert yaml.safe_load(new.read_text())["version"] == migrate.OI_VERSION
 
 
 def test_a_customised_system_message_keeps_only_the_custom_tail(tmp_path):
@@ -239,22 +237,23 @@ def test_a_legacy_config_yaml_becomes_the_default_profile(tmp_path, _isolate_dir
     assert yaml.safe_load(default.read_text())["auto_run"] is True
 
 
-def test_a_pre_020_directory_without_a_profiles_folder_crashes(tmp_path, _isolate_dirs):
-    """Characterisation bug: config.yaml with no profiles/ folder fails to migrate.
+def test_a_pre_020_directory_without_a_profiles_folder_migrates(tmp_path, _isolate_dirs):
+    """A bare config.yaml with no profiles/ folder becomes default.yaml.
 
-    The destination profiles directory is only created inside
-    `if os.path.exists(profiles_old_path)`, but the config.yaml migration below
-    it writes into that directory unconditionally. The pre-0.2.0 layout is
-    exactly this shape — a bare config.yaml and no profiles directory — so the
-    older of the two migrations this module exists for is the one that dies
-    with FileNotFoundError, taking the launch with it.
+    The destination directory used to be created only inside
+    `if os.path.exists(profiles_old_path)`, while the config.yaml migration
+    below it wrote there unconditionally. The pre-0.2.0 layout is exactly that
+    shape, so the older of the two migrations this module exists for died with
+    FileNotFoundError and took the launch with it.
     """
     old_dir = tmp_path / "old"
     old_dir.mkdir()
     (old_dir / "config.yaml").write_text(yaml.safe_dump({"model": "gpt-4"}))
 
-    with pytest.raises(FileNotFoundError):
-        migrate.migrate_app_directory(str(old_dir), str(_isolate_dirs), str(_isolate_dirs / "profiles"))
+    migrate.migrate_app_directory(str(old_dir), str(_isolate_dirs), str(_isolate_dirs / "profiles"))
+
+    migrated = yaml.safe_load((_isolate_dirs / "profiles" / "default.yaml").read_text())
+    assert migrated["llm"]["model"] == "gpt-4"
 
 
 def test_profiles_without_a_version_get_one_stamped_on(tmp_path, _isolate_dirs):
