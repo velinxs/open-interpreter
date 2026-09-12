@@ -37,9 +37,10 @@ def _dispatch(llm, name, arguments, tool_call_id="call_1", request_params=None, 
 def _tool_response(chunks):
     """The one role=tool chunk in a malformed call's output.
 
-    A malformed call yields two chunks now — the assistant tool_call record of
-    what the model really sent, then the tool response it reads — so tests that
-    care about the message the model reads ask for it by role, not by position.
+    A malformed call yields three chunks now — the assistant tool_call record
+    the model really sent, the tool response it reads, and a display-only
+    notice for the user — so tests that care about the message the model reads
+    ask for it by role instead of by position.
     """
     responses = [chunk for chunk in chunks if chunk.get("role") == "tool"]
     assert len(responses) == 1, chunks
@@ -338,23 +339,25 @@ def test_an_unknown_function_is_explained_rather_than_ignored(llm):
 # --- the record of the call the model actually made -------------------------
 
 
-def test_a_malformed_call_yields_the_real_call_then_the_error(llm):
-    """A bad call produces two chunks: the model's own call, then the error.
+def test_a_malformed_call_yields_the_real_call_then_the_error_then_a_notice(llm):
+    """A bad call produces three chunks: the model's own call, the error, one user line.
 
     dispatch_function_call used to yield only the tool response. process_messages
     then had to invent an assistant message to pair with it, and what it invented
     was execute(code="pass  # (synthetic; do not run)") — so the model read its own
     history as "I called execute with `pass`" immediately followed by "that call was
     invalid", two statements that contradict each other about a call it never made.
+    The notice is the other half: the role:tool message is never displayed, so
+    without it the user sees nothing at all when the model sends a bad call.
     """
     chunks = _dispatch(llm, "execute", "not json at all {{{")
 
-    assert [chunk["type"] for chunk in chunks] == ["tool_call", "message"]
-    record, response = chunks
+    assert [chunk["type"] for chunk in chunks] == ["tool_call", "message", "notice"]
+    record, response, notice = chunks
     assert record["role"] == "assistant"
     assert record["name"] == "execute"
     assert record["tool_call_id"] == response["tool_call_id"] == "call_1"
-    assert "not valid JSON" in response["content"]
+    assert "not valid JSON" in notice["content"]
 
 
 def test_the_recorded_arguments_are_the_unrepaired_ones_the_model_sent(llm):
@@ -387,7 +390,7 @@ def test_a_valid_call_records_no_tool_call_chunk(llm):
 
     The code chunk is already rebuilt as an assistant tool call by
     convert_to_openai_messages, so an extra record here would put the same call
-    into history twice.
+    into history twice, and a notice would tell the user a working call failed.
     """
     chunks = _dispatch(llm, "execute", '{"language": "python", "code": "print(1)"}')
     assert [chunk["type"] for chunk in chunks] == ["code"]

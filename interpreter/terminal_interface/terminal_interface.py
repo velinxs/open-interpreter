@@ -158,6 +158,21 @@ def terminal_interface(interpreter, message):
                         # Specialized models can emit a code review.
                         print(chunk.get("content"), end="", flush=True)
 
+                    # A malformed tool call is answered with a role:tool message that
+                    # message_stream deliberately keeps out of the display, so without
+                    # this line the user sees nothing: the turn just pauses and starts
+                    # again, and a model looping on bad calls looks like a hang. One
+                    # line, no traceback — the full detail is already in the tool
+                    # response the model reads.
+                    if chunk["type"] == "notice" and chunk.get("content"):
+                        if active_block:
+                            active_block.end()
+                            active_block = None
+                        print("")
+                        print(f"  {chunk['content']}")
+                        print("")
+                        continue
+
                     # view_image_approval: AI wants to show image(s); prompt and store result for run_tool_calling_llm
                     if chunk.get("type") == "view_image_approval":
                         paths = chunk.get("paths") or []

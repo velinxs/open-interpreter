@@ -309,3 +309,40 @@ def test_a_nameless_call_is_not_shown_to_the_model_as_an_execute_call(offline_in
     assistant_calls = [m for m in outgoing if m.get("tool_calls")]
     assert len(assistant_calls) == 1, outgoing
     assert assistant_calls[0]["tool_calls"][0]["function"]["name"] == ""
+def test_a_malformed_call_reaches_the_terminal_and_still_reaches_the_model(offline_interpreter, capsys):
+    """The user sees one line about the bad call; the model still gets the tool response.
+
+    message_stream keeps role:tool messages out of the display on purpose, and the
+    assistant-text fallback that used to surface a malformed call was removed when
+    every such call was routed through the tool-response path. That left the user
+    with nothing at all: a silent pause and another turn, so a model looping on bad
+    calls looked like a hang. Both halves are pinned here because fixing either one
+    alone is how this broke — the notice must be printed, and the role:tool message
+    the model reads must still be stored, untouched.
+    """
+    from interpreter.terminal_interface.terminal_interface import terminal_interface
+
+    install_fake_llm(offline_interpreter, [])
+    offline_interpreter.llm.supports_functions = True
+    offline_interpreter.plain_text_display = True
+    offline_interpreter.llm.completions = ScriptedStreams(
+        [
+            _raw_tool_call_stream("execute", "not json at all {{{", call_id=None),
+            _text_stream("Retrying with valid JSON."),
+        ]
+    )
+
+    list(terminal_interface(offline_interpreter, "run something"))
+
+    printed = capsys.readouterr().out
+    assert "malformed tool call" in printed
+    assert "not valid JSON" in printed
+    assert "Traceback" not in printed
+
+    tool_messages = [m for m in offline_interpreter.messages if m.get("role") == "tool"]
+    assert len(tool_messages) == 1, offline_interpreter.messages
+    assert "not valid JSON" in tool_messages[0]["content"]
+    assert tool_messages[0]["tool_call_id"]
+    # The display-only notice must never become a message: the model would then
+    # read two accounts of one failure, one of them looking like its own words.
+    assert not any(m.get("type") == "notice" for m in offline_interpreter.messages)

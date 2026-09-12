@@ -69,15 +69,39 @@ def _tool_call_chunk(tool_call_id, function_call):
     }
 
 
+def _notice_chunk(error_msg):
+    """One display-only line telling the user the model sent a bad tool call.
+
+    The ``role: tool`` error is deliberately never displayed (message_stream
+    keeps API-internal messages out of the terminal), and the assistant-text
+    fallback that used to surface these was removed once every malformed call
+    was routed through the tool-response path. That left the user with nothing
+    at all: a model stuck in a malformed-call loop produced a silent pause and
+    another turn with no signal.
+
+    This chunk is never stored in ``interpreter.messages`` — the model must read
+    exactly one account of the failure (the tool response), not two.
+    """
+    return {
+        "role": "computer",
+        "type": "notice",
+        "format": "error",
+        "content": f"The model sent a malformed tool call: {error_msg}",
+    }
+
+
 def _malformed_call(tool_call_id_for_error, function_call, error_msg):
     """Every chunk a malformed tool call produces, in the order history needs.
 
-    The call the model really made, then the error answering it. Branches must
-    yield both together: one that yields only the error leaves the response
-    unpaired, and process_messages then invents the assistant message.
+    Three chunks, three audiences: the call the model really made (so the
+    provider sees a real assistant/tool pair), the error the model reads and
+    corrects from, and one line for the user. Branches must yield all three
+    together — a branch that yields only the error reintroduces the fabricated
+    pairing, and one that yields only the tool response goes unseen.
     """
     yield _tool_call_chunk(tool_call_id_for_error, function_call)
     yield _error_chunk(tool_call_id_for_error, error_msg)
+    yield _notice_chunk(error_msg)
 
 
 def _mint_tool_call_id(request_params, model):
@@ -277,7 +301,8 @@ def dispatch_function_call(llm, accumulated_deltas, request_params, tool_call_id
                     else:
                         content = "User declined to show image."
                     # Not an error — approval outcomes go straight out as role:tool,
-                    # unlike the branches above which route through _malformed_call.
+                    # unlike the branches above which route through _malformed_call
+                    # (no user-facing notice: the user just answered the prompt).
                     yield {
                         "role": "tool",
                         "tool_call_id": tool_call_id_for_error,

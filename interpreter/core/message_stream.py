@@ -98,6 +98,19 @@ def respond_and_store(interpreter):
                 interpreter.messages.append(chunk)
                 continue
 
+            # notice: display-only. A malformed tool call is answered with a role:tool
+            # message the user never sees (below), so without this line the user gets a
+            # silent pause and another turn — a model stuck in a malformed-call loop
+            # looks like a hang. It must NOT be stored: the model already has the tool
+            # response and a second, assistant-shaped account of the same failure would
+            # be one more message it has to reconcile.
+            if chunk.get("type") == "notice":
+                if last_flag_base:
+                    yield {**last_flag_base, "end": True}
+                    last_flag_base = None
+                yield chunk
+                continue
+
             # role:tool messages are API-internal (pairing for tool_call records,
             # unsupported function calls, etc.) and must not be displayed to the user.
             if chunk.get("role") == "tool" and chunk.get("type") == "message":
