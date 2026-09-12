@@ -436,7 +436,9 @@ def test_models_too_large_for_the_disk_are_not_offered(interpreter, answers, lla
     """A machine with no free space is told so rather than offered a download it cannot finish.
 
     wget would fill the disk and fail partway through, leaving a truncated
-    file that later looks like an installed model.
+    file that later looks like an installed model. download_model returns
+    None in this case, and the caller must exit rather than call
+    model_path.split() on it (that used to raise a bare AttributeError).
     """
     monkeypatch.setattr(
         local_setup_module.psutil,
@@ -444,7 +446,75 @@ def test_models_too_large_for_the_disk_are_not_offered(interpreter, answers, lla
         lambda path: SimpleNamespace(free=1 * 1024**2),
     )
     answers.append({"model": "Llamafile"})
-    with pytest.raises(AttributeError):
+    with pytest.raises(SystemExit):
         local_setup(interpreter)
-    assert "not have enough storage" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "not have enough storage" in out
+    assert "No local model is available" in out
     assert llamafile.downloads == []
+
+
+def test_a_download_failure_explains_itself_instead_of_leaving_a_none_model_path(
+    interpreter, answers, llamafile, monkeypatch, capsys
+):
+    """wget raising mid-download names the failure and exits, instead of crashing on None.
+
+    print(e) alone used to print an empty line for exceptions with an empty
+    str(), so the user saw a blank line, then a later crash on
+    model_path.split(None) with a traceback naming neither the download nor
+    the cause. Both the operation ("download") and the cause (the exception's
+    type name, since str() is empty here) must reach stdout, and the run must
+    stop instead of proceeding with model_path = None.
+    """
+
+    def _boom(url, path):
+        raise OSError()  # empty str(), like a real "disk full" failure
+
+    monkeypatch.setattr(local_setup_module.wget, "download", _boom)
+    answers.append({"model": "Llamafile"})
+    answers.append({"model": "Phi-3-mini (2.42GB)"})
+
+    with pytest.raises(SystemExit):
+        local_setup(interpreter)
+
+    out = capsys.readouterr().out
+    assert "download" in out.lower()
+    assert "OSError" in out
+    assert llamafile.launched == []
+
+
+def test_a_launch_failure_names_the_cause_instead_of_crashing_with_nameerror(
+    interpreter, answers, llamafile, monkeypatch, capsys
+):
+    """Popen raising before binding `process` used to crash with NameError, hiding the real cause.
+
+    The old handler called process.kill() unconditionally, so when
+    subprocess.Popen itself raised (e.g. the llamafile lacks +x), `process`
+    was never assigned and the except block died with NameError instead of
+    reporting the original exception. The message must name the operation
+    (launching the llamafile) and the original cause, and the run must exit
+    rather than fall through to configure the LLM against a server that
+    never started.
+    """
+
+    def _popen(*args, **kwargs):
+        raise PermissionError("not executable")
+
+    monkeypatch.setattr(local_setup_module.subprocess, "Popen", _popen)
+
+    models_dir = interpreter.get_oi_dir()
+    import os as _os
+
+    _os.makedirs(_os.path.join(models_dir, "models"), exist_ok=True)
+    with open(_os.path.join(models_dir, "models", "tiny.llamafile"), "w") as f:
+        f.write("#!/bin/sh\n")
+
+    answers.append({"model": "Llamafile"})
+    answers.append({"model": "tiny.llamafile"})
+
+    with pytest.raises(SystemExit):
+        local_setup(interpreter)
+
+    out = capsys.readouterr().out
+    assert "launch" in out.lower()
+    assert "not executable" in out

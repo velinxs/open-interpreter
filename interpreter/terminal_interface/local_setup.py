@@ -171,9 +171,13 @@ def local_setup(interpreter, provider=None, model=None):
                 print("\nYour computer does not have enough storage to download any local LLMs.\n")
                 return None
         except Exception as e:
-            print(e)
+            # print(e) alone used to print an empty line for exceptions whose
+            # str() is empty (a bare OSError from a full disk, some urllib
+            # errors), leaving the user with no idea what failed. The type
+            # name is always present, so lead with that.
+            print(f"\nFailed to download the model: {type(e).__name__}: {e}\n")
             print(
-                "\nAn error occurred while trying to download the model. Please try again or use a different local model provider.\n"
+                "An error occurred while trying to download the model. Please try again or use a different local model provider.\n"
             )
             return None
 
@@ -424,6 +428,12 @@ def local_setup(interpreter, provider=None, model=None):
 
 
         if model_path:
+            # `process` was only ever unbound when Popen itself raised (a
+            # missing +x bit, or the shell command not found), so the old
+            # `except: process.kill()` died with a NameError before the real
+            # cause reached the user. Bind it first so kill() has something
+            # to act on even in that case.
+            process = None
             try:
                 # Run the selected model and hide its output
                 process = subprocess.Popen(
@@ -438,9 +448,21 @@ def local_setup(interpreter, provider=None, model=None):
                     if "llama server listening at " in line:
                         break  # Exit the loop once the server is ready
             except Exception as e:
-                process.kill()  # Force kill if not terminated after timeout
-                print(e)
-                print("Model process terminated.")
+                if process is not None:
+                    process.kill()  # Force kill if not terminated after timeout
+                # Nothing will be listening on 8080 after this, so configuring
+                # the LLM below would only move the failure to the first chat
+                # message with no clue it started here. Stop now instead.
+                print(f"Failed to launch the llamafile server for '{model_path}': {type(e).__name__}: {e}")
+                print("Check that the file is a valid, executable llamafile, then run `interpreter --local` again.")
+                sys.exit(1)
+        else:
+            # download_model already explained why there is no model; this is
+            # the only path left that reads model_path, and model_path.split()
+            # below would raise AttributeError on None with no context at all.
+            print("\nNo local model is available, so the llamafile server cannot start.\n")
+            print("Run `interpreter --local` again and either pick a downloaded model or download a new one.")
+            sys.exit(1)
 
         # Set flags for Llamafile to work with interpreter
         interpreter.llm.model = "openai/local"
