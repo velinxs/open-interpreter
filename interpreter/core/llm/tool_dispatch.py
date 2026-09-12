@@ -104,6 +104,70 @@ def _malformed_call(tool_call_id_for_error, function_call, error_msg):
     yield _notice_chunk(error_msg)
 
 
+def _split_concatenated_calls(raw):
+    """Number of extra JSON values crammed after the first one, and the first.
+
+    Models that want to run several things at once sometimes express that by
+    concatenating one arguments object after another into a single `arguments`
+    string: `{"language": "bash", ...}{"language": "python", ...}`. json.loads
+    rejects the whole thing with "Extra data", and the repair pass gives up, so
+    the model was told only that its JSON was invalid. It could not see what was
+    actually wrong and tried the same shape several more times.
+
+    Returns (first_object, extra_count), or (None, 0) when the text is not that
+    shape at all.
+    """
+    if not isinstance(raw, str) or not raw.strip():
+        return None, 0
+    decoder = json.JSONDecoder()
+    try:
+        first, index = decoder.raw_decode(raw.lstrip())
+    except ValueError:
+        return None, 0
+
+    extra = 0
+    rest = raw.lstrip()[index:].lstrip()
+    while rest:
+        try:
+            _, index = decoder.raw_decode(rest)
+        except ValueError:
+            break
+        extra += 1
+        rest = rest[index:].lstrip()
+    return first, extra
+
+
+def _unwrap_recorded_arguments(arguments):
+    """Undo the wrapper convert_to_openai_messages puts round unparseable text.
+
+    A malformed call is recorded as {"_unparsed_arguments": "<what was sent>"}
+    so the outgoing request still parses. Models imitate what they see in their
+    own history, so that wrapper comes back as a real call — and reporting
+    "missing required fields, got ['_unparsed_arguments']" tells the model
+    nothing it can act on. Treat it as the raw text it stands for.
+    """
+    if isinstance(arguments, dict) and set(arguments) == {"_unparsed_arguments"}:
+        return arguments["_unparsed_arguments"]
+    return arguments
+
+
+def _parse_arguments(arguments):
+    """Arguments as an object, seeing through a wrapper the model copied back.
+
+    The unwrap has to happen after parsing as well as before it: the wrapper
+    arrives as a JSON *string*, so it only becomes recognisable once parsed, and
+    what it holds is then raw text that has to go through the parser itself.
+    """
+    for _ in range(2):
+        if isinstance(arguments, str):
+            arguments = parse_partial_json(arguments)
+        unwrapped = _unwrap_recorded_arguments(arguments)
+        if unwrapped is arguments:
+            break
+        arguments = unwrapped
+    return arguments
+
+
 def _mint_tool_call_id(request_params, model):
     """Mint a tool_call_id for a call the provider didn't attach one to.
 
@@ -178,7 +242,7 @@ def dispatch_function_call(llm, accumulated_deltas, request_params, tool_call_id
             raw_arguments = function_call.get("arguments")
             arguments = raw_arguments
             if isinstance(arguments, str):
-                arguments = parse_partial_json(arguments)
+                arguments = _parse_arguments(arguments)
 
             # Validate arguments and yield code, or yield error as tool response
             if isinstance(arguments, dict):
@@ -236,7 +300,19 @@ def dispatch_function_call(llm, accumulated_deltas, request_params, tool_call_id
                 # to something other than an object) — a model told "got NoneType"
                 # for a syntax error has no way to know it sent bad JSON at all,
                 # and will likely resend the same broken payload.
-                if isinstance(raw_arguments, str) and arguments is None:
+                first, extra = _split_concatenated_calls(_unwrap_recorded_arguments(raw_arguments))
+                if extra:
+                    # The commonest way this fails in practice: the model wanted to
+                    # run several things at once and expressed it by concatenating
+                    # one arguments object after another. Saying only "invalid JSON"
+                    # sent it round the same mistake several times, because nothing
+                    # in that message points at the thing it actually did.
+                    error_msg = (
+                        f"Invalid execute call: {extra + 1} argument objects were concatenated into one "
+                        "'arguments' string. execute takes exactly one call per turn. "
+                        f"Resend just the first one: {json.dumps(first)}"
+                    )
+                elif isinstance(raw_arguments, str) and arguments is None:
                     error_msg = (
                         "Invalid execute call: arguments were not valid JSON and could not be repaired. "
                         "execute requires a JSON object with 'language' and 'code', "
@@ -253,7 +329,7 @@ def dispatch_function_call(llm, accumulated_deltas, request_params, tool_call_id
         elif function_name == "view_image":
             arguments = function_call.get("arguments")
             if isinstance(arguments, str):
-                arguments = parse_partial_json(arguments)
+                arguments = _parse_arguments(arguments)
             path = isinstance(arguments, dict) and arguments.get("path")
             if not path or not isinstance(path, str):
                 yield from _malformed_call(
@@ -312,7 +388,7 @@ def dispatch_function_call(llm, accumulated_deltas, request_params, tool_call_id
         elif function_name == "edit":
             arguments = function_call.get("arguments")
             if isinstance(arguments, str):
-                arguments = parse_partial_json(arguments)
+                arguments = _parse_arguments(arguments)
 
             if isinstance(arguments, dict):
                 edit_language = arguments.get("language")

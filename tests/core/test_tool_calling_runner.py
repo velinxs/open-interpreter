@@ -350,3 +350,54 @@ def test_a_malformed_call_reaches_the_terminal_and_still_reaches_the_model(offli
     # The display-only notice must never become a message: the model would then
     # read two accounts of one failure, one of them looking like its own words.
     assert not any(m.get("type") == "notice" for m in offline_interpreter.messages)
+
+
+def test_concatenated_argument_objects_are_named_as_the_mistake(offline_interpreter):
+    """Two calls crammed into one arguments string get a message naming that.
+
+    A model that wants to run several things at once sometimes concatenates one
+    arguments object after another. Being told only "arguments were not valid
+    JSON" gave it nothing to act on, and it repeated the same shape for several
+    turns before guessing its way out.
+    """
+    install_fake_llm(offline_interpreter, [])
+    offline_interpreter.llm.supports_functions = True
+    raw = '{"language": "bash", "code": "pwd"}{"language": "python", "code": "print(1)"}'
+    completions = ScriptedStreams(
+        [_raw_tool_call_stream("execute", raw), _text_stream("Sending one call.")]
+    )
+    offline_interpreter.llm.completions = completions
+
+    offline_interpreter.chat("run some checks", display=False, stream=False)
+
+    tool_messages = [m for m in offline_interpreter.messages if m.get("role") == "tool"]
+    assert tool_messages, "the model was never told anything"
+    content = tool_messages[-1]["content"]
+    assert "concatenated" in content, content
+    assert "one call per turn" in content, content
+    assert '"language": "bash"' in content, "the first call must be handed back to resend"
+
+
+def test_the_unparsed_arguments_wrapper_is_not_read_back_as_fields(offline_interpreter):
+    """A model imitating the wrapper in its history is told what is really wrong.
+
+    Malformed arguments are recorded as {"_unparsed_arguments": "..."} so the
+    outgoing request still parses. Models copy what they see, so that came back
+    as a real call and the reply was "missing required fields, got
+    ['_unparsed_arguments']" — a key the model cannot do anything about.
+    """
+    install_fake_llm(offline_interpreter, [])
+    offline_interpreter.llm.supports_functions = True
+    wrapped = json.dumps({"_unparsed_arguments": "not json at all {{{"})
+    completions = ScriptedStreams(
+        [_raw_tool_call_stream("execute", wrapped), _text_stream("Understood.")]
+    )
+    offline_interpreter.llm.completions = completions
+
+    offline_interpreter.chat("go", display=False, stream=False)
+
+    tool_messages = [m for m in offline_interpreter.messages if m.get("role") == "tool"]
+    assert tool_messages, "the model was never told anything"
+    content = tool_messages[-1]["content"]
+    assert "_unparsed_arguments" not in content, f"the wrapper leaked to the model: {content}"
+    assert "not valid JSON" in content, content
