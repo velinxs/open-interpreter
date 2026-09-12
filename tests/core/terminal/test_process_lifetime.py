@@ -60,3 +60,29 @@ def test_runtimes_are_terminated_at_interpreter_exit(tmp_path):
     for pid in survivors:  # never leave them behind even when the test fails
         psutil.Process(pid).kill()
     assert not survivors, f"processes survived interpreter exit: {survivors}"
+
+
+def test_a_spawned_shell_resolves_python_to_the_one_open_interpreter_runs_under(monkeypatch):
+    """A shell we spawn must reach our own Python, even from a stripped PATH.
+
+    Open Interpreter is normally launched as ~/somevenv/bin/interpreter without
+    that venv activated. A bare `python3` in a command then resolved to the
+    system Python, where `import interpreter` fails, and the model concluded
+    Open Interpreter was not installed on the machine it was running on.
+    """
+    import os
+
+    from interpreter.core.terminal.languages.bash import Bash
+
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    shell = Bash()
+    try:
+        chunks = list(shell.run("command -v python3"))
+    finally:
+        shell.terminate()
+
+    resolved = "".join(c.get("content", "") for c in chunks if c.get("format") == "output").strip()
+    assert resolved.startswith(os.path.dirname(sys.executable)), (
+        f"spawned shell resolved python3 to {resolved!r}, "
+        f"not to our own {os.path.dirname(sys.executable)!r}"
+    )

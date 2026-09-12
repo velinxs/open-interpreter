@@ -3,6 +3,7 @@ import queue
 import re
 import signal
 import subprocess
+import sys
 import threading
 import time
 import traceback
@@ -139,6 +140,18 @@ class SubprocessLanguage(BaseLanguage):
 
         my_env = os.environ.copy()
         my_env["PYTHONIOENCODING"] = "utf-8"
+
+        # A shell we spawn should reach the same Python we are running under. OI is
+        # usually launched as ~/somevenv/bin/interpreter without that venv being
+        # activated, so a bare `python3` in a command resolved to the system Python,
+        # where `import interpreter` fails — and the model reasonably concluded that
+        # Open Interpreter was not installed on the machine it is running on. Putting
+        # our own bin directory first is what activating the venv would have done.
+        bin_dir = os.path.dirname(sys.executable)
+        if bin_dir:
+            path = my_env.get("PATH", "")
+            if bin_dir not in path.split(os.pathsep):
+                my_env["PATH"] = bin_dir + os.pathsep + path if path else bin_dir
         popen_kwargs = {
             "stdin": subprocess.PIPE,
             "stdout": subprocess.PIPE,
