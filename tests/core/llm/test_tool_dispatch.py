@@ -8,12 +8,16 @@ without an id cannot be matched to its call, so the next request is rejected
 outright.
 """
 
+import re
 from types import SimpleNamespace
 
 import pytest
 
 from interpreter.core.llm.tool_dispatch import dispatch_function_call
+from interpreter.core.llm.tool_messages import generate_tool_id
 from interpreter.core.tools.file_edit import EDIT_LANGUAGES
+
+MISTRAL_ID_PATTERN = re.compile(r"^[a-zA-Z0-9]{9}$")
 
 
 @pytest.fixture
@@ -163,6 +167,31 @@ def test_a_minted_id_does_not_collide_with_one_already_in_the_request(llm):
     }
     chunks = _dispatch(llm, "execute", '{"language": "python"}', tool_call_id=None, request_params=request_params)
     assert _tool_response(chunks)["tool_call_id"] not in ("toolu_1", None, "")
+
+
+def test_a_minted_id_for_a_mistral_model_still_matches_the_required_format_under_collision(llm):
+    """_mint_tool_call_id's skip-on-collision bump keeps producing valid Mistral ids, not just its first pick.
+
+    Every other collision test here uses the default toolu_N format, which has
+    no length or character-class rule to violate. Mistral requires exactly
+    ^[a-zA-Z0-9]{9}$, and the bump is the one place that rule is most likely
+    to break, since it is the only caller that hands generate_tool_id an n
+    other than 1. Pre-seed the id it would pick first as already taken so the
+    loop is forced to bump.
+    """
+    mistral_llm = SimpleNamespace(model="mistral-large-latest", interpreter=llm.interpreter)
+    forced_collision = generate_tool_id(1, mistral_llm.model)
+    request_params = {
+        "messages": [
+            {"role": "tool", "tool_call_id": forced_collision, "content": "an earlier, unrelated tool response"},
+        ]
+    }
+    chunks = _dispatch(
+        mistral_llm, "execute", '{"language": "python"}', tool_call_id=None, request_params=request_params
+    )
+    minted_id = _tool_response(chunks)["tool_call_id"]
+    assert MISTRAL_ID_PATTERN.match(minted_id), minted_id
+    assert minted_id != forced_collision
 
 
 def test_an_empty_string_id_is_treated_as_no_id_and_gets_one_minted(llm):

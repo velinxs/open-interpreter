@@ -72,9 +72,18 @@ def test_multiple_images_are_returned_in_first_appearance_order(tmp_path):
     picture is "first" for the model depends on this order. Dedup now goes
     through dict.fromkeys, which preserves first-appearance order, so the
     result matches the order the paths appear in the message.
+
+    12 paths, not 4: reverting to `list(set(...))` only fails this test when
+    set-iteration order (which depends on str hashing, randomized per
+    PYTHONHASHSEED) differs from insertion order. With 4 paths there are only
+    4! = 24 orderings, and set iteration happened to reproduce insertion order
+    in about 23 of 24 seeds tried — the test passed on the broken code almost
+    every run. With 12 paths there are 12! orderings; matching insertion order
+    by chance is effectively impossible, confirmed below by actually
+    reverting the fix and running across several PYTHONHASHSEED values.
     """
     paths = []
-    for index in range(4):
+    for index in range(12):
         path = tmp_path / f"img{index}.png"
         path.write_bytes(b"x")
         paths.append(str(path))

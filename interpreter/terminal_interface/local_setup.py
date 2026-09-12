@@ -174,10 +174,15 @@ def local_setup(interpreter, provider=None, model=None):
             # print(e) alone used to print an empty line for exceptions whose
             # str() is empty (a bare OSError from a full disk, some urllib
             # errors), leaving the user with no idea what failed. The type
-            # name is always present, so lead with that.
-            print(f"\nFailed to download the model: {type(e).__name__}: {e}\n")
+            # name is always present, so lead with that. This used to print
+            # the operation twice (a specific line, then a generic "an error
+            # occurred while downloading" restating the same fact) without
+            # ever saying what to do next; one line now carries operation,
+            # cause, and next step.
+            name = selected_model["name"] if "selected_model" in locals() else "the model"
             print(
-                "An error occurred while trying to download the model. Please try again or use a different local model provider.\n"
+                f"\nFailed to download {name}: {type(e).__name__}: {e}\n"
+                "Check your internet connection and free disk space, then run `interpreter --local` again.\n"
             )
             return None
 
@@ -460,8 +465,12 @@ def local_setup(interpreter, provider=None, model=None):
             # download_model already explained why there is no model; this is
             # the only path left that reads model_path, and model_path.split()
             # below would raise AttributeError on None with no context at all.
+            # download_model returns None two ways: the download itself failed,
+            # or there was never enough free disk space to offer one. "Pick a
+            # downloaded model" used to be advised here regardless — useless in
+            # the disk-full case, since no model was ever downloaded to pick.
             print("\nNo local model is available, so the llamafile server cannot start.\n")
-            print("Run `interpreter --local` again and either pick a downloaded model or download a new one.")
+            print("Free up disk space or fix the download problem reported above, then run `interpreter --local` again.")
             sys.exit(1)
 
         # Set flags for Llamafile to work with interpreter

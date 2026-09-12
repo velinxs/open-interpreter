@@ -5,7 +5,11 @@ for a specific regression (a minted tool_call_id colliding with a later,
 freshly-generated one) rather than as a general survey of process_messages.
 """
 
-from interpreter.core.llm.tool_messages import process_messages
+import re
+
+from interpreter.core.llm.tool_messages import generate_tool_id, process_messages
+
+MISTRAL_ID_PATTERN = re.compile(r"^[a-zA-Z0-9]{9}$")
 
 
 def _function_call(code):
@@ -68,3 +72,52 @@ def test_consecutive_id_less_tool_messages_get_different_synthetic_ids():
     synthetic_ids = [message["tool_calls"][0]["id"] for message in out if message.get("role") == "assistant"]
     assert len(synthetic_ids) == 2
     assert synthetic_ids[0] != synthetic_ids[1]
+
+
+def test_mistral_ids_still_match_the_required_format_after_a_collision_bump():
+    """Both a directly-minted Mistral id and a sequence-assigned one still fit ^[a-zA-Z0-9]{9}$ once the collision loop bumps the number.
+
+    Every existing collision test uses model=None or "gpt-4o", whose id
+    format (toolu_N) has no fixed length or character-class rule to break.
+    Mistral's does: exactly 9 alphanumeric characters. The skip-on-collision
+    loop is the only code path that calls generate_tool_id with an n other
+    than 1 — the natural place for a format rule to drift out of sync as the
+    number grows past what the base36 encoding was sized for. Pre-seed the
+    id generate_tool_id(1, ...) would pick as already-taken so
+    process_messages is forced to bump at least once for its
+    sequence-assigned id.
+    """
+    model = "mistral-large-latest"
+
+    # generate_tool_id itself, called directly the way _mint_tool_call_id
+    # (tool_dispatch.py) does: a minted id, and the bumped id right behind it.
+    minted = generate_tool_id(1, model)
+    minted_after_bump = generate_tool_id(2, model)
+    assert MISTRAL_ID_PATTERN.match(minted)
+    assert MISTRAL_ID_PATTERN.match(minted_after_bump)
+    assert minted != minted_after_bump
+
+    # process_messages' own sequence-assigned id, forced to bump by seeding
+    # the collision it must detect and skip past. The already-paired
+    # assistant/tool exchange keeps process_messages from needing to
+    # synthesize anything for it, so the only id process_messages mints here
+    # is the one for the orphaned "function" message below.
+    messages = [
+        {
+            "role": "assistant",
+            "tool_calls": [{"id": minted, "type": "function", "function": {"name": "execute", "arguments": "{}"}}],
+        },
+        {"role": "tool", "tool_call_id": minted, "content": "ok"},
+        {"role": "function", "name": "execute", "content": "1"},
+    ]
+    out = process_messages(messages, model=model)
+    newly_minted_ids = [
+        call["id"]
+        for message in out
+        for call in (message.get("tool_calls") or [])
+        if call["id"] != minted
+    ]
+
+    assert newly_minted_ids
+    for tool_id in newly_minted_ids:
+        assert MISTRAL_ID_PATTERN.match(tool_id), tool_id
