@@ -27,6 +27,7 @@ from .python_preprocess import (
     strip_redundant_imports,
     wrap_in_try_except,
 )
+from .subprocess_language import DEFAULT_IDLE_TIMEOUT, _env_seconds
 
 DEBUG_MODE = False
 
@@ -197,10 +198,58 @@ ip.display_formatter.active_types = ['text/markdown', 'text/plain']
             content = traceback.format_exc()
             yield {"type": "console", "format": "output", "content": content}
 
+    def _drain_stale_messages(self):
+        """Throw away iopub messages left over from an earlier execution.
+
+        When a block is interrupted — by the idle timeout, or by Ctrl-C — the
+        listener returns while the kernel is still emitting the tail of that
+        execution: the KeyboardInterrupt traceback, the REPL-state line, the
+        final idle status. Those messages sit in the channel and are read by the
+        *next* block's listener, which then prints the previous command's output
+        under the new command and can see the old idle status and stop early.
+
+        That is why "one command fails and the next one is broken": the next
+        command is not broken, it is being told about the last one.
+        """
+        while True:
+            try:
+                self.kc.iopub_channel.get_msg(timeout=0)
+            except queue.Empty:
+                return
+            except Exception:
+                return  # a channel we cannot read has nothing stale worth chasing
+
     def _execute_code(self, code, message_queue):
+        # Bash has had an idle timeout since a `find /` looked hung; Python never
+        # did, so a call that blocks forever — a web request with no timeout, a
+        # notification on a headless box, an input() nobody can answer — wedged
+        # the session until the user found Ctrl-C. Same env var and default as
+        # the shell, because "no output for this long" means the same thing in
+        # both and one knob is easier to reason about than two.
+        idle_timeout = _env_seconds("INTERPRETER_COMMAND_IDLE_TIMEOUT", DEFAULT_IDLE_TIMEOUT)
+        self._drain_stale_messages()
+
         def iopub_message_listener():
             max_retries = 100
+            last_activity = time.monotonic()
             while True:
+                if idle_timeout and time.monotonic() - last_activity > idle_timeout:
+                    self.km.interrupt_kernel()
+                    message_queue.put(
+                        {
+                            "type": "console",
+                            "format": "output",
+                            "content": (
+                                f"\n[Interrupted: no output for {idle_timeout:.0f}s. The code was still "
+                                "running — it is most likely blocked on something that will not finish "
+                                "(a request with no timeout, or a prompt nobody can answer). Set "
+                                "INTERPRETER_COMMAND_IDLE_TIMEOUT to raise this limit, or pass an explicit "
+                                "timeout to the call.]\n"
+                            ),
+                        }
+                    )
+                    self.finish_flag = True
+                    return
                 # If self.finish_flag = True, and we didn't set it (we do below), we need to stop. That's our "stop"
                 if self.finish_flag == True:
                     if DEBUG_MODE:
@@ -222,6 +271,9 @@ ip.display_formatter.active_types = ['text/markdown', 'text/plain']
                         raise
                     print("Jupyter error, retrying:", str(e))
                     continue
+
+                # Any message from the kernel is proof it is still doing something.
+                last_activity = time.monotonic()
 
                 if DEBUG_MODE:
                     print("-----------" * 10)

@@ -158,3 +158,54 @@ def test_python_path_is_a_profile_setting(tmp_path):
         assert oi.python_path == str(tmp_path)
     finally:
         oi.toolbox.terminate()
+
+
+def test_a_python_block_that_blocks_forever_is_interrupted(monkeypatch):
+    """A Python block with no output is cut off, the way a shell command is.
+
+    Bash has had an idle timeout since a `find /` looked hung, but Python never
+    did, so a call that blocks forever — a request with no timeout, a prompt
+    nobody can answer — wedged the session until the user found Ctrl-C.
+    """
+    monkeypatch.setenv("INTERPRETER_COMMAND_IDLE_TIMEOUT", "3")
+
+    from interpreter import OpenInterpreter
+
+    oi = OpenInterpreter()
+    try:
+        started = time.monotonic()
+        chunks = list(oi.toolbox.run("python", "import time\ntime.sleep(120)"))
+    finally:
+        oi.toolbox.terminate()
+
+    elapsed = time.monotonic() - started
+    text = "".join(c.get("content", "") for c in chunks if c.get("format") == "output")
+    assert elapsed < 60, f"the block ran for {elapsed:.0f}s; the idle timeout did not fire"
+    assert "Interrupted: no output for" in text, text[:200]
+
+
+def test_an_interrupted_block_does_not_leak_its_output_into_the_next_one(monkeypatch):
+    """The command after an interrupted one gets its own output, not the last one's.
+
+    An interrupted execution keeps emitting its tail — traceback, REPL state,
+    final idle status — after the listener has gone. Those messages were read by
+    the *next* block's listener, so the next command appeared under the previous
+    command's output and looked broken. This is the "one command fails and then
+    the next one hangs" report.
+    """
+    monkeypatch.setenv("INTERPRETER_COMMAND_IDLE_TIMEOUT", "3")
+
+    from interpreter import OpenInterpreter
+
+    oi = OpenInterpreter()
+    try:
+        list(oi.toolbox.run("python", "import time\ntime.sleep(120)"))
+        chunks = list(oi.toolbox.run("python", "print('SECOND')"))
+    finally:
+        oi.toolbox.terminate()
+
+    text = "".join(c.get("content", "") for c in chunks if c.get("format") == "output")
+    assert "SECOND" in text, f"the second block produced no output of its own: {text[:200]!r}"
+    assert "Interrupted: no output for" not in text, (
+        f"the interrupted block's message leaked into the next command: {text[:200]!r}"
+    )
