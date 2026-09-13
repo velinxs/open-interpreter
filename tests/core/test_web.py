@@ -113,3 +113,72 @@ class TestWebToolbox(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestKeylessFetch(unittest.TestCase):
+    """fetch must work on a fresh install, with no API key for anything."""
+
+    def setUp(self):
+        self.web = Web(MagicMock())
+
+    def _response(self, text, content_type="text/html", url="https://example.com"):
+        response = MagicMock()
+        response.text = text
+        response.url = url
+        response.headers = {"Content-Type": content_type}
+        response.raise_for_status = MagicMock()
+        return response
+
+    def test_fetch_falls_back_to_the_keyless_backend(self):
+        """With no keys set, fetch uses `direct` instead of refusing.
+
+        Every other backend needs a key from a commercial service, so the most
+        obvious first thing to try — fetching a URL — failed on a fresh install
+        with a wall of signup links.
+        """
+        html = "<html><head><title>Example Domain</title></head><body><h1>Hi</h1></body></html>"
+        with patch.dict(os.environ, {}, clear=True):
+            with patch("requests.get", return_value=self._response(html)) as get:
+                result = self.web.fetch("https://example.com")
+
+        assert result.backend == "direct"
+        assert result.title == "Example Domain"
+        assert "Hi" in result.content
+        assert get.call_args.kwargs["timeout"] > 0, "a fetch with no timeout can hang the session"
+
+    def test_the_keyless_backend_strips_scripts_and_styles(self):
+        """Script and style bodies are removed, not handed to the model as content.
+
+        They are the bulk of a modern page and none of it is readable, so
+        leaving them in wastes the context window the fetch exists to fill.
+        """
+        html = (
+            "<html><head><title>T</title><style>body{color:red}</style></head>"
+            "<body><script>var secret = 1;</script><p>Real text</p></body></html>"
+        )
+        with patch.dict(os.environ, {}, clear=True):
+            with patch("requests.get", return_value=self._response(html)):
+                result = self.web.fetch("https://example.com/x")
+
+        assert "Real text" in result.content
+        assert "var secret" not in result.content
+        assert "color:red" not in result.content
+
+    def test_the_keyless_backend_passes_non_html_through(self):
+        """JSON and plain text are already what the caller wanted.
+
+        Running them through an HTML-to-markdown pass mangles them.
+        """
+        payload = '{"answer": 42}'
+        with patch.dict(os.environ, {}, clear=True):
+            with patch("requests.get", return_value=self._response(payload, "application/json")):
+                result = self.web.fetch("https://example.com/api.json")
+
+        assert result.content == payload
+
+    def test_a_non_http_url_is_refused_with_a_useful_message(self):
+        """A path or a bare hostname is named as the problem, not passed to requests."""
+        with patch.dict(os.environ, {}, clear=True):
+            with pytest.raises(WebToolboxError) as excinfo:
+                self.web.fetch("example.com")
+        assert "http" in str(excinfo.value).lower()

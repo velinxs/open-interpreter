@@ -25,7 +25,15 @@ import requests
 from babel import Locale
 from babel.core import UnknownLocaleError
 
-from .backends import BackendPlumbing, BraveBackend, LinkupBackend, SerpApiBackend, SerperBackend, TavilyBackend
+from .backends import (
+    BackendPlumbing,
+    BraveBackend,
+    DirectMixin,
+    LinkupBackend,
+    SerpApiBackend,
+    SerperBackend,
+    TavilyBackend,
+)
 from .results import (
     AnswerResult,
     ApiKeyError,
@@ -50,7 +58,7 @@ __all__ = [
 ]
 
 
-class Web(BackendPlumbing, BraveBackend, SerperBackend, SerpApiBackend, TavilyBackend, LinkupBackend):
+class Web(BackendPlumbing, BraveBackend, DirectMixin, SerperBackend, SerpApiBackend, TavilyBackend, LinkupBackend):
     def __init__(self, toolbox):
         self.toolbox = toolbox
         _loc = _default_locale_from_environment()
@@ -490,7 +498,15 @@ class Web(BackendPlumbing, BraveBackend, SerperBackend, SerpApiBackend, TavilyBa
             )
         """
         # Define backend methods
-        backend_methods = {"serper": self._fetch_serper, "linkup": self._fetch_linkup, "tavily": self._fetch_tavily}
+        backend_methods = {
+            "serper": self._fetch_serper,
+            "linkup": self._fetch_linkup,
+            "tavily": self._fetch_tavily,
+            # Keyless, and therefore always available. Last, because the keyed
+            # backends strip boilerplate and render JavaScript; this one is the
+            # floor that keeps fetch usable on a fresh install.
+            "direct": self._fetch_direct,
+        }
 
         # Validate backend name before touching the cache, so an invalid backend name
         # always errors immediately rather than silently returning a stale cached result.
@@ -536,7 +552,8 @@ class Web(BackendPlumbing, BraveBackend, SerperBackend, SerpApiBackend, TavilyBa
                 print("→ result.content | result.find(term) | result.links()")
             return fetch_result
 
-        backends_to_try = ["serper", "linkup", "tavily"]
+        # "direct" needs no key, so auto-selection always ends somewhere that works.
+        backends_to_try = ["serper", "linkup", "tavily", "direct"]
         failed_results = []
 
         for backend_name in backends_to_try:

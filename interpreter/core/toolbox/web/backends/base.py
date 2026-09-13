@@ -140,6 +140,10 @@ class BackendPlumbing:
 
     def _check_backend_available(self, backend: str) -> bool:
         """Check if a backend is available (has API key)."""
+        if backend.lower() == "direct":
+            # Keyless: a plain HTTP request. Always available, so fetch's
+            # auto-selection cannot run out of options on a fresh install.
+            return True
         backend_keys = {
             "tavily": "TAVILY_API_KEY",
             "linkup": "LINKUP_API_KEY",
