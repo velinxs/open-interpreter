@@ -90,3 +90,44 @@ def test_detect_exit_code_parses_the_marker():
     assert bash.detect_exit_code("trailing text ##end_of_execution##2") == 2
     assert bash.detect_exit_code("##end_of_execution##") is None
     assert bash.detect_exit_code("no marker here") is None
+
+
+def test_a_quoted_string_spanning_lines_is_not_instrumented():
+    """Active-line markers must not be pasted inside a multi-line quoted string.
+
+    The markers are `echo` lines inserted between source lines. A command like
+    `curl ... | python3 -c "` followed by Python got them inserted into the
+    middle of the Python, so python3 ran `echo` and reported
+    `NameError: name 'echo' is not defined` from a line the user never wrote.
+    """
+    from interpreter.core.terminal.languages.shell_preprocess import preprocess_shell
+
+    code = 'curl -sL "https://example.com" | python3 -c "\nimport sys\nprint(sys.stdin.read())\n"'
+    processed = preprocess_shell(code)
+
+    assert "##active_line" not in processed, processed
+    assert 'python3 -c "\nimport sys\nprint(sys.stdin.read())\n"' in processed
+
+
+def test_a_heredoc_body_is_not_instrumented():
+    """A heredoc body is data, not commands, so markers inside it corrupt it."""
+    from interpreter.core.terminal.languages.shell_preprocess import preprocess_shell
+
+    processed = preprocess_shell("cat <<EOF\nline one\nline two\nEOF")
+
+    assert "##active_line" not in processed, processed
+    assert "line one\nline two" in processed
+
+
+def test_ordinary_multi_line_scripts_are_still_instrumented():
+    """The new guard must not switch active-line highlighting off everywhere.
+
+    Losing it costs the progress indicator on every shell command, so the guard
+    has to be narrow: only code where a quote or heredoc crosses a line break.
+    """
+    from interpreter.core.terminal.languages.shell_preprocess import preprocess_shell
+
+    processed = preprocess_shell('echo one\necho "two"\necho three')
+
+    assert "##active_line1##" in processed
+    assert "##active_line3##" in processed
