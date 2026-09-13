@@ -209,3 +209,29 @@ def test_an_interrupted_block_does_not_leak_its_output_into_the_next_one(monkeyp
     assert "Interrupted: no output for" not in text, (
         f"the interrupted block's message leaked into the next command: {text[:200]!r}"
     )
+
+
+def test_a_silent_python_block_reports_that_it_is_still_running(monkeypatch):
+    """Long silence is reported, so a slow command is not mistaken for a hung one.
+
+    A block that runs for two minutes without printing looks exactly like a hang
+    from the terminal. The notices say how long it has been quiet and when it
+    will be interrupted, which is the difference between waiting and killing it.
+    """
+    monkeypatch.setenv("INTERPRETER_COMMAND_IDLE_TIMEOUT", "8")
+
+    from interpreter import OpenInterpreter
+
+    oi = OpenInterpreter()
+    try:
+        chunks = list(oi.toolbox.run("python", "import time\ntime.sleep(60)"))
+    finally:
+        oi.toolbox.terminate()
+
+    notices = [c for c in chunks if c.get("type") == "notice"]
+    assert notices, "a silent block produced no progress notices at all"
+    assert any("Still running" in c.get("content", "") for c in notices)
+    assert any("interrupt at 8s" in c.get("content", "") for c in notices), (
+        "the notice must say when the block will be cut off"
+    )
+

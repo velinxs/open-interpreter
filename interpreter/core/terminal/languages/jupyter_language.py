@@ -229,11 +229,32 @@ ip.display_formatter.active_types = ['text/markdown', 'text/plain']
         idle_timeout = _env_seconds("INTERPRETER_COMMAND_IDLE_TIMEOUT", DEFAULT_IDLE_TIMEOUT)
         self._drain_stale_messages()
 
+        # How long silence lasts before we say something. A block that runs for two
+        # minutes without printing is indistinguishable from a hung one, and the
+        # honest answer — "still going, here is how long, here is when I will stop
+        # it" — is what turns a suspected hang back into a wait.
+        heartbeat = min(15.0, idle_timeout / 4) if idle_timeout else 15.0
+
         def iopub_message_listener():
             max_retries = 100
             last_activity = time.monotonic()
+            last_heartbeat = last_activity
             while True:
-                if idle_timeout and time.monotonic() - last_activity > idle_timeout:
+                silent_for = time.monotonic() - last_activity
+                if heartbeat and silent_for >= heartbeat and time.monotonic() - last_heartbeat >= heartbeat:
+                    last_heartbeat = time.monotonic()
+                    limit = f", will interrupt at {idle_timeout:.0f}s" if idle_timeout else ""
+                    message_queue.put(
+                        {
+                            # A notice is shown and then dropped. Putting these in the
+                            # model's context would spend tokens telling it nothing it
+                            # can act on, several times per slow command.
+                            "type": "notice",
+                            "format": "output",
+                            "content": f"Still running, no output for {silent_for:.0f}s{limit}.",
+                        }
+                    )
+                if idle_timeout and silent_for > idle_timeout:
                     self.km.interrupt_kernel()
                     message_queue.put(
                         {
