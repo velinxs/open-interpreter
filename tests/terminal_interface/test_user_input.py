@@ -280,3 +280,40 @@ def test_the_ctrl_c_hint_is_dropped_in_plain_text_mode():
     interpreter = FakeInterpreter(plain_text_display=True)
     _print_mode_banner(interpreter)
     assert "CTRL-C" not in interpreter.displayed[0]
+
+
+@pytest.mark.parametrize(
+    "typed",
+    ["/exit", "/quit", "%exit", "%quit", "exit", "quit", "  /exit  ", "/EXIT", "Quit"],
+)
+def test_typing_an_exit_word_ends_the_session(typed, _no_magic):
+    """Any spelling of "leave" at the prompt exits instead of being chatted.
+
+    Ctrl-C and Ctrl-D already exit, but people reach for a word first and
+    neither command prefix is obviously the right one. Every one of these used
+    to be sent to the model as an ordinary message, which is indistinguishable
+    from the session ignoring the user.
+    """
+    interpreter = FakeInterpreter()
+
+    with pytest.raises(KeyboardInterrupt):
+        _prepare_message(interpreter, typed, interactive=True)
+
+    assert any("Exiting" in message for message in interpreter.displayed)
+
+
+@pytest.mark.parametrize("typed", ["exit the loop early", "how do I quit vim?", "/exits"])
+def test_a_message_that_merely_mentions_exiting_is_still_sent(typed, _no_magic):
+    """Only the bare word exits; a sentence containing it is a normal message."""
+    interpreter = FakeInterpreter()
+
+    assert _prepare_message(interpreter, typed, interactive=True) == typed
+
+
+def test_exit_words_are_ignored_when_not_interactive(_no_magic):
+    """A piped or --stdin message saying "quit" is data, not a command.
+
+    Non-interactive callers have no prompt to return to, so treating their
+    input as a control word would end the run on ordinary content.
+    """
+    assert _prepare_message(FakeInterpreter(), "quit", interactive=False) == "quit"

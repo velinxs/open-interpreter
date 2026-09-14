@@ -53,6 +53,12 @@ def _print_mode_banner(interpreter):
         print()
 
 
+# Typed alone on a line, any of these ends the session. Both command prefixes
+# are accepted because neither is obviously the right one to a newcomer, and a
+# bare word because that is what most REPLs take.
+_EXIT_WORDS = frozenset({"exit", "quit", "%exit", "%quit", "/exit", "/quit"})
+
+
 def _prepare_message(interpreter, message, interactive):
     """Handle a typed line before it becomes a user message.
 
@@ -63,6 +69,13 @@ def _prepare_message(interpreter, message, interactive):
     if message == "":
         # Ignore empty messages when user presses enter without typing anything
         return None
+
+    if interactive and message.strip().lower() in _EXIT_WORDS:
+        # Ctrl-C and Ctrl-D already exit, but people reach for a word first and
+        # every spelling of it used to be sent to the model as a message —
+        # which looks exactly like the session ignoring them.
+        interpreter.display_message("\n\n`Exiting...`")
+        raise KeyboardInterrupt
 
     if message.startswith("%") and interactive:
         handle_magic_command(interpreter, message)
