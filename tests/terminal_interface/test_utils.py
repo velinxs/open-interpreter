@@ -9,6 +9,7 @@ import os
 
 import pytest
 
+from interpreter.terminal_interface.utils.cli_input import cli_input
 from interpreter.terminal_interface.utils.count_tokens import (
     count_messages_tokens,
     count_tokens,
@@ -192,3 +193,65 @@ def test_storage_paths_are_built_under_one_config_directory():
     base = get_storage_path()
     assert get_storage_path("conversations") == os.path.join(base, "conversations")
     assert base.endswith("open-interpreter")
+
+
+# --- cli_input --------------------------------------------------------------
+
+
+def _typed(*lines):
+    """Feed lines to input(), raising if more are asked for than were typed."""
+    remaining = list(lines)
+
+    def _input(prompt=""):
+        if not remaining:
+            raise AssertionError("cli_input asked for a line the user never typed")
+        return remaining.pop(0)
+
+    return _input
+
+
+def test_a_plain_line_is_returned_as_typed(monkeypatch):
+    """Anything without a triple quote is one line and returns immediately."""
+    monkeypatch.setattr("builtins.input", _typed("what is 21*2"))
+    assert cli_input("> ") == "what is 21*2"
+
+
+def test_a_triple_quoted_block_closed_on_the_same_line_ends_there(monkeypatch):
+    """Both markers on one line means the block is complete.
+
+    With bracketed paste the terminal hands a whole multi-line paste to a
+    single input() call, so the closing marker arrives on the same string.
+    Waiting for another line then hung the prompt on text the user had
+    already finished typing, with no way out but Ctrl-C.
+    """
+    monkeypatch.setattr("builtins.input", _typed('"""one shot"""'))
+    assert cli_input("> ") == '"""one shot"""'
+
+
+def test_a_block_opened_on_one_line_still_collects_until_it_closes(monkeypatch):
+    """The genuine multi-line case keeps reading until the closing marker.
+
+    This is what the markers are for when the terminal delivers a paste line
+    by line; ending at the opening line would truncate the message to its
+    first line.
+    """
+    monkeypatch.setattr("builtins.input", _typed('"""', "first", "second", '"""'))
+    assert cli_input("> ") == '"""\nfirst\nsecond\n"""'
+
+
+def test_the_prompt_turns_on_bracketed_paste(monkeypatch):
+    """terminal_interface enables bracketed paste when readline is available.
+
+    Otherwise readline runs a paste through its key bindings and a tab in
+    pasted text (spreadsheet TSV, indented code) triggers completion instead
+    of arriving as a tab — silently corrupting what the user pasted.
+    """
+    readline = pytest.importorskip("readline")
+    import importlib
+
+    import interpreter.terminal_interface.terminal_interface as ti
+
+    bindings = []
+    monkeypatch.setattr(readline, "parse_and_bind", bindings.append)
+    importlib.reload(ti)
+    assert any("enable-bracketed-paste on" in binding for binding in bindings)
