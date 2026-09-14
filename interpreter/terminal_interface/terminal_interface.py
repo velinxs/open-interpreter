@@ -5,7 +5,16 @@ If you were to build a frontend this would be a way to do it.
 
 try:
     import readline
-except ImportError:
+
+    # Without bracketed paste, readline feeds a paste through its key
+    # bindings, so a tab inside pasted text (spreadsheet TSV, indented code)
+    # triggers completion instead of arriving as a tab. With it on, the
+    # terminal delivers the paste literally. Terminals that don't support it
+    # ignore the setting.
+    readline.parse_and_bind("set enable-bracketed-paste on")
+except Exception:
+    # No readline here (some Windows setups), or a build that rejects the
+    # binding. Either way the prompt still works, just without the fix.
     pass
 
 import os

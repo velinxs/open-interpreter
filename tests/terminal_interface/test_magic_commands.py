@@ -15,6 +15,7 @@ import pytest
 import interpreter.terminal_interface.magic_commands as magic
 from interpreter.terminal_interface.magic_commands import (
     handle_auto_run,
+    handle_help,
     handle_last_usage,
     handle_load_message,
     handle_magic_command,
@@ -245,6 +246,23 @@ def test_undo_previews_are_flattened_to_one_line():
 
 
 # --- settings toggles -------------------------------------------------------
+
+
+def test_help_documents_auto_run_and_the_modes_it_takes():
+    """%help lists %auto_run and names every mode handle_auto_run accepts.
+
+    Magic commands are discoverable only through %help, and this is the one
+    that decides whether code runs without asking. Undocumented, the only way
+    to find it was to read the source — and its four modes cannot be guessed
+    from a `true/false` line.
+    """
+    interpreter = FakeInterpreter()
+    handle_help(interpreter, "")
+    help_text = "\n".join(interpreter.displayed)
+    entry = next((line for line in help_text.splitlines() if "%auto_run" in line), None)
+    assert entry is not None
+    for mode in ("all", "prompt", "allowlist", "denylist"):
+        assert mode in entry
 
 
 @pytest.mark.parametrize(

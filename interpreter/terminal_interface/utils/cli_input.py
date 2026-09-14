@@ -5,6 +5,12 @@ def cli_input(prompt: str = "") -> str:
 
     # Multi-line input mode
     if start_marker in message:
+        # The whole quoted block may already be here: with bracketed paste the
+        # terminal delivers a multi-line paste in a single input() call, and a
+        # one-line '"""..."""' used to hang forever waiting for a closing line
+        # the user had already typed.
+        if message.count(start_marker) >= 2:
+            return message
         lines = [message]
         while True:
             line = input()

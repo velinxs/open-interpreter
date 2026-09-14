@@ -46,9 +46,11 @@ def test_constructing_interpreter_does_not_import_heavy_packages():
     stack. None of them are needed to construct the interpreter or to serve
     --help, and the sandbox is headless.
     """
+    # A lazy_import placeholder occupies sys.modules without having executed
+    # the package, so it does not count as an import.
     code = (
         "import sys; from interpreter import OpenInterpreter; OpenInterpreter();"
-        f"print([m for m in {HEAVY!r} if m in sys.modules and type(sys.modules[m]).__name__ != '_LazyModule'])"
+        f"print([m for m in {HEAVY!r} if m in sys.modules and type(sys.modules[m]).__name__ != '_LazyPlaceholder'])"
     )
     r = _run(code)
     assert r.returncode == 0, r.stderr

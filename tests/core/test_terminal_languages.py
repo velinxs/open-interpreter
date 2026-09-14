@@ -617,6 +617,56 @@ class TestTerminalLanguages(unittest.TestCase):
         bash.cwd = "/home/user/project"
         self.assertEqual(bash._strip_redundant_cd("cd $HOME && ls"), "cd $HOME && ls")
 
+    def test_bash_strips_redundant_cd_with_escaped_space(self):
+        """A redundant cd whose path contains a backslash-escaped space is stripped.
+
+        `cd /x/My\\ Documents` is how a shell spells one path with a space in
+        it. The target used to be cut at the backslash, so it never matched
+        the tracked cwd and the round trip was never saved — for exactly the
+        directories where the model is most likely to re-emit the cd.
+        """
+        bash = Bash()
+        bash.cwd = "/home/user/documents/My Documents"
+        stripped = bash._strip_redundant_cd(
+            "cd /home/user/documents/My\\ Documents/\npdftotext report.pdf 2>/dev/null | grep -c PATTERN"
+        )
+        self.assertEqual(stripped, "pdftotext report.pdf 2>/dev/null | grep -c PATTERN")
+        self.assertEqual(
+            bash._pending_notice,
+            "Removed redundant cd /home/user/documents/My Documents/ (already in that directory).",
+        )
+        self.assertEqual(bash.cwd, "/home/user/documents/My Documents")
+
+    def test_bash_keeps_cd_with_escaped_space_to_other_dir(self):
+        """A cd to a DIFFERENT directory with an escaped space is kept, and tracked.
+
+        The unescaping is only for comparison. Rewriting the line would hand
+        the shell a path it can no longer resolve, and failing to track the
+        move would make every later cd in the block look redundant.
+        """
+        with tempfile.TemporaryDirectory() as d:
+            sub = os.path.join(d, "sub dir")
+            os.mkdir(sub)
+            escaped = sub.replace(" ", "\\ ")
+            bash = Bash()
+            bash.cwd = d
+            self.assertEqual(bash._strip_redundant_cd(f"cd {escaped} && ls"), f"cd {escaped} && ls")
+            self.assertEqual(bash.cwd, sub)
+
+    def test_non_posix_shells_keep_backslashes_in_the_cd_target(self):
+        """Unescaping is bash-only: cmd and PowerShell use `\\` as a path separator.
+
+        `cd C:\\Users\\me` must compare as itself. Unescaping it everywhere
+        would turn it into `C:Usersme`, which matches nothing, and the
+        Windows shells would silently lose the stripping they have today.
+        """
+        self.assertFalse(_StubCwdShell().cd_unescape_backslashes)
+        cmd = _StubCwdShell(cd_option_prefixes=("/d",), cd_chain_operators=("&&", "&"))
+        target, after, ok = cmd._parse_cd(r"cd C:\Users\me && dir")
+        self.assertTrue(ok)
+        self.assertEqual(target, r"C:\Users\me")
+        self.assertEqual(after, "&& dir")
+
     def test_powershell_redundant_cd_stripped_with_aliases_and_case_insensitivity(self):
         """PowerShell strips `cd`/`Set-Location`/`sl` to the current dir, case-insensitively, even when chained."""
         ps = _StubCwdShell(cd_commands=("cd", "Set-Location", "sl"), cd_ignore_case=True)
