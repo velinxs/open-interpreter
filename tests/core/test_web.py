@@ -441,3 +441,46 @@ class TestFetchUrlNormalization(unittest.TestCase):
                 urls=["https://example.com", "https://example.org"],
             )
         self.assertIn("tavily", str(context.exception))
+
+
+class TestFetchResultLinks(unittest.TestCase):
+    """links() reads the markdown backends actually produce.
+
+    Ported from classic/develop: the old single regex stopped at the first
+    ")", so a Wikipedia URL came back truncated, an optional link title was
+    swallowed into the URL, and reference-style links were invisible.
+    """
+
+    def _page(self, content, backend="tavily"):
+        from interpreter.core.toolbox.web.web import FetchResult
+
+        return FetchResult({"url": "https://example.com", "title": "", "content": content, "backend": backend})
+
+    def test_links_keep_balanced_parens_and_drop_titles(self):
+        """A parenthesised Wikipedia title stays in the URL; a link title does not."""
+        page = self._page(
+            '[Python](https://en.wikipedia.org/wiki/Python_(programming_language) "Python") and [A](http://a)'
+        )
+        self.assertEqual(
+            page.links(),
+            [
+                ("Python", "https://en.wikipedia.org/wiki/Python_(programming_language)"),
+                ("A", "http://a"),
+            ],
+        )
+
+    def test_links_resolve_reference_style(self):
+        """[text][ref] and [text][] are links too, once their definitions are read."""
+        page = self._page(
+            "See [docs][d] and [home][]\n\n[d]: https://example.com/docs\n[home]: https://example.com/",
+            backend="serper",
+        )
+        self.assertEqual(
+            page.links(),
+            [("docs", "https://example.com/docs"), ("home", "https://example.com/")],
+        )
+
+    def test_links_invent_nothing_for_dangling_references(self):
+        """serper keeps [text][21] uses but strips the definitions; that is not a link."""
+        page = self._page("See [docs][21] for details.", backend="serper")
+        self.assertEqual(page.links(), [])
