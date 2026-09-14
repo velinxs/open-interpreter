@@ -2,7 +2,9 @@
 
 import json
 import os
+import uuid
 
+from ...terminal_interface.utils.local_storage_path import get_storage_path
 from .errors import AccessDeniedError, FunctionCallingNotSupportedError, ModelNotFoundError
 
 
@@ -13,6 +15,60 @@ def _litellm():
     litellm.suppress_debug_info = True
     litellm.REPEATED_STREAMING_CHUNK_LIMIT = 99999999
     return litellm
+
+
+def _dump_litellm_response(request_id, model, chunks):
+    """Append the verbatim streamed response for one request to the debug JSONL.
+
+    Paired with the outgoing-request dump by ``request_id`` so a looping turn can
+    be inspected end to end: exactly what was sent, and exactly what the model
+    streamed back (finish_reason, content, reasoning_content, tool_calls). The
+    ``chunks`` field is the raw provider stream; ``assembled`` is litellm's merged
+    view of it. Opt-in via the same switch as the request dump.
+    """
+    try:
+        import datetime as _dt
+
+        dump_dir = get_storage_path("logs")
+        os.makedirs(dump_dir, exist_ok=True)
+        dump_path = os.path.join(dump_dir, "litellm_responses.jsonl")
+
+        record = {
+            "request_id": request_id,
+            "ts": _dt.datetime.now().isoformat(timespec="seconds"),
+            "model": model,
+            "chunk_count": len(chunks),
+            "chunks": [c.model_dump() if hasattr(c, "model_dump") else str(c) for c in chunks],
+        }
+        try:
+            built = _litellm().stream_chunk_builder(chunks)
+            choice = built.choices[0] if built and built.choices else None
+            if choice is not None:
+                msg = choice.message
+                tool_calls = []
+                for tc in getattr(msg, "tool_calls", None) or []:
+                    fn = getattr(tc, "function", None)
+                    tool_calls.append(
+                        {
+                            "id": getattr(tc, "id", None),
+                            "name": getattr(fn, "name", None),
+                            "arguments": getattr(fn, "arguments", None),
+                        }
+                    )
+                record["assembled"] = {
+                    "finish_reason": choice.finish_reason,
+                    "content": getattr(msg, "content", None),
+                    "reasoning_content": getattr(msg, "reasoning_content", None),
+                    "tool_calls": tool_calls,
+                }
+        except Exception as e:
+            record["assemble_error"] = f"{type(e).__name__}: {e}"
+
+        with open(dump_path, "a") as f:
+            f.write(json.dumps(record, default=str) + "\n")
+        print(f"\n[Dumped response to {dump_path}]", flush=True)
+    except Exception:
+        pass
 
 
 def fixed_litellm_completions(**params):
@@ -141,21 +197,30 @@ def fixed_litellm_completions(**params):
 
     # Debug: dump the exact outgoing request params (model, messages, tools,
     # extra_body, stream_options) to a JSONL file before litellm sends them.
-    # Opt-in via OI_LOG_LITELLM_REQUESTS=1; the literal dict handed to
-    # litellm.completion() is what becomes the wire request, so this captures
-    # what the provider actually receives (modulo litellm's internal transforms).
-    # Each line is one request: {"ts": ..., "model": ..., "messages": [...], ...}.
-    if os.environ.get("OI_LOG_LITELLM_REQUESTS") == "1":
+    # Opt-in via the `llm.log_litellm_requests` profile setting (forwarded by
+    # Llm.run as `_oi_log_requests`) or OI_LOG_LITELLM_REQUESTS=1; the literal
+    # dict handed to litellm.completion() is what becomes the wire request, so
+    # this captures what the provider actually receives (modulo litellm's
+    # internal transforms). Each line is one request, tagged with a request_id
+    # that the response dump repeats so the two files can be read as pairs.
+    # The flag is popped unconditionally so it never reaches the provider.
+    debug_dump = bool(params.pop("_oi_log_requests", False)) or (
+        os.environ.get("OI_LOG_LITELLM_REQUESTS") == "1"
+    )
+    debug_request_id = str(uuid.uuid4()) if debug_dump else None
+
+    if debug_dump:
         try:
             import datetime as _dt
 
-            dump_dir = os.path.expanduser("~/.config/open-interpreter/logs")
+            dump_dir = get_storage_path("logs")
             os.makedirs(dump_dir, exist_ok=True)
             dump_path = os.path.join(dump_dir, "litellm_requests.jsonl")
             with open(dump_path, "a") as f:
                 f.write(
                     json.dumps(
                         {
+                            "request_id": debug_request_id,
                             "ts": _dt.datetime.now().isoformat(timespec="seconds"),
                             "model": params.get("model"),
                             "messages": params.get("messages"),
@@ -177,6 +242,15 @@ def fixed_litellm_completions(**params):
 
     while True:
         try:
+            if debug_dump:
+                # Tee the stream: the caller still gets every chunk as it arrives,
+                # and the collected chunks are written out once the stream ends.
+                _chunks = []
+                for _chunk in litellm.completion(**params):
+                    _chunks.append(_chunk)
+                    yield _chunk
+                _dump_litellm_response(debug_request_id, params.get("model"), _chunks)
+                return
             yield from litellm.completion(**params)
             return  # If the completion is successful, exit the function
         except KeyboardInterrupt:
@@ -190,11 +264,10 @@ def fixed_litellm_completions(**params):
             if "reasoning_content" in str(e):
                 try:
                     import datetime as _dt
-                    import os as _os
 
-                    dump_dir = _os.path.expanduser("~/.config/open-interpreter/logs")
-                    _os.makedirs(dump_dir, exist_ok=True)
-                    dump_path = _os.path.join(
+                    dump_dir = get_storage_path("logs")
+                    os.makedirs(dump_dir, exist_ok=True)
+                    dump_path = os.path.join(
                         dump_dir, f"reasoning_400_{_dt.datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
                     )
                     with open(dump_path, "w") as f:

@@ -92,6 +92,11 @@ class Llm:
         # "auto" = sanitize for remote models, skip for local (ollama/local/jan). "on"/"off" override.
         self.sanitize_secrets = "auto"
 
+        # Debug: when True, append the outgoing request params and the streamed
+        # response to JSONL files under the logs dir for inspection. Settable via
+        # the profile (llm.log_litellm_requests: true) or OI_LOG_LITELLM_REQUESTS=1.
+        self.log_litellm_requests = False
+
         # Budget manager powered by LiteLLM
         self.max_budget = None
 
@@ -345,6 +350,11 @@ Continuing...
             "messages": messages,
             "stream": True,
         }
+
+        # Forward the debug-logging preference to fixed_litellm_completions, which
+        # is a module-level function without access to this Llm instance. It pops
+        # this key before handing params to litellm, so it never reaches the wire.
+        params["_oi_log_requests"] = bool(self.log_litellm_requests)
 
         # OpenAI-compatible: final stream chunk may include usage (prompt/completion/cached breakdown).
         stream_options = {"include_usage": True}
