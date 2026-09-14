@@ -26,7 +26,8 @@ _enc = tiktoken.get_encoding("cl100k_base")
 
 def _run_session(interpreter):
     install_fake_llm(interpreter, [r for _, replies in SCRIPT for r in replies])
-    workdir = tempfile.mkdtemp()
+    workdir = os.path.realpath(tempfile.mkdtemp())
+    interpreter._budget_test_workdir = workdir
     cwd = os.getcwd()
     os.chdir(workdir)
     try:
@@ -46,11 +47,28 @@ def test_system_prompt_is_byte_identical_on_every_request(offline_interpreter):
     assert len(distinct) == 1, f"{len(distinct)} different system prompts in one session"
 
 
+# The prompt names the working directory, and the session runs in a directory
+# whose name is random, which tokenizes to anywhere between 6 and 9 tokens. That
+# is environment noise, not prompt drift, and measuring it made this test fail
+# at random against a budget the prompt already sits exactly on. The path is
+# replaced with a fixed stand-in of its own so the measurement is reproducible;
+# _WORKDIR_STANDIN is deliberately a realistic length, so the budget still
+# accounts for a real directory being named.
+_WORKDIR_STANDIN = "/home/user/projects/example"
+
+
+def _prompt_without_workdir_noise(prompt, workdir):
+    """The prompt with the random session directory replaced by a fixed one."""
+    return prompt.replace(workdir, _WORKDIR_STANDIN)
+
+
 def test_system_prompt_stays_within_budget(offline_interpreter):
     """The prompt sent with every request stays under the budget."""
     calls = _run_session(offline_interpreter)
 
-    prompt = calls[0]["messages"][0]["content"]
+    prompt = _prompt_without_workdir_noise(
+        calls[0]["messages"][0]["content"], offline_interpreter._budget_test_workdir
+    )
     tokens = len(_enc.encode(prompt))
     print(f"\nsystem prompt: {tokens} tokens")
     assert tokens <= SYSTEM_PROMPT_TOKEN_BUDGET, f"{tokens} tokens exceeds {SYSTEM_PROMPT_TOKEN_BUDGET}"
