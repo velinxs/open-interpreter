@@ -197,10 +197,14 @@ class TestKeylessFetch(unittest.TestCase):
         assert result.content == payload
 
     def test_a_non_http_url_is_refused_with_a_useful_message(self):
-        """A path or a bare hostname is named as the problem, not passed to requests."""
+        """A path or an unsupported scheme is named as the problem, not passed to requests.
+
+        A bare hostname is no longer one of these: it now gains an https://
+        scheme instead of being refused.
+        """
         with patch.dict(os.environ, {}, clear=True):
             with pytest.raises(WebToolboxError) as excinfo:
-                self.web.fetch("example.com")
+                self.web.fetch("ftp://example.com/files")
         assert "http" in str(excinfo.value).lower()
 
 
@@ -389,3 +393,51 @@ class TestStructuredOutputSchema(unittest.TestCase):
         msg = str(context.exception)
         self.assertIn("schema", msg.lower())
         self.assertNotIn("API key", msg)
+
+
+class TestFetchUrlNormalization(unittest.TestCase):
+    """What the model typed is turned into a URL once, before anything else.
+
+    Ported from classic/develop: models write "example.com", and each backend
+    decided separately what to do with it — one refused, others sent it and
+    got a confusing failure back. Normalizing in fetch() also means the two
+    spellings of one page share a cache entry.
+    """
+
+    def setUp(self):
+        self.web = Web(MagicMock())
+        self.page = {"url": "https://example.com", "title": "", "content": "hi"}
+
+    def test_fetch_prepends_a_missing_scheme(self):
+        """A bare hostname becomes https:// before any backend sees it."""
+        with patch.object(self.web, "_fetch_direct", return_value=dict(self.page)) as fetch_direct:
+            result = self.web.fetch("example.com", backend="direct")
+        self.assertEqual(result["url"], "https://example.com")
+        fetch_direct.assert_called_once_with("https://example.com")
+
+    def test_fetch_rejects_malformed_urls(self):
+        """Malformed URLs raise with an example instead of reaching a backend."""
+        for bad in ["not a url", "", "ftp://example.com/files", "https://", "http://"]:
+            with self.subTest(url=bad):
+                with self.assertRaises(WebToolboxError) as context:
+                    self.web.fetch(bad, backend="direct")
+                self.assertIn("https://example.com", str(context.exception))
+
+    def test_fetch_cache_is_shared_across_scheme_forms(self):
+        """ "example.com" and "https://example.com" are one page, so one fetch."""
+        with patch.object(self.web, "_fetch_direct", return_value=dict(self.page)) as fetch_direct:
+            first = self.web.fetch("example.com")
+            second = self.web.fetch("https://example.com")
+        self.assertEqual(first["content"], "hi")
+        self.assertTrue(second._cached)
+        self.assertEqual(fetch_direct.call_count, 1)
+
+    def test_multi_url_fetch_is_refused_by_backends_that_cannot_do_it(self):
+        """urls=[...] is a tavily feature; the others were handed a list as the URL."""
+        with self.assertRaises(WebToolboxError) as context:
+            self.web.fetch(
+                "https://example.com",
+                backend="direct",
+                urls=["https://example.com", "https://example.org"],
+            )
+        self.assertIn("tavily", str(context.exception))

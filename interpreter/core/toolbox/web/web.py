@@ -44,6 +44,7 @@ from .results import (
     StructuredOutputResult,
     WebToolboxError,
     _default_locale_from_environment,
+    _normalize_fetch_url,
     _normalize_locale_country_for_gl,
     _normalize_locale_language_for_hl,
     _normalize_tavily_single_page,
@@ -479,6 +480,13 @@ class Web(BackendPlumbing, BraveBackend, DirectMixin, SerperBackend, SerpApiBack
                 urls=["https://example.com", "https://example.org"]
             )
         """
+        # Normalize first, so a malformed URL is named as such before any
+        # backend sees it, and so "example.com" shares a cache entry with
+        # "https://example.com" instead of fetching the page twice.
+        url = _normalize_fetch_url(url)
+        if "urls" in kwargs:
+            kwargs["urls"] = [_normalize_fetch_url(u) for u in kwargs["urls"]]
+
         # Define backend methods
         backend_methods = {
             "serper": self._fetch_serper,
@@ -513,6 +521,11 @@ class Web(BackendPlumbing, BraveBackend, DirectMixin, SerperBackend, SerpApiBack
             backend = backend.lower()
 
             if is_multi_url:
+                if backend != "tavily":
+                    raise WebToolboxError(
+                        f"Backend '{backend}' does not support multi-URL fetch (urls=[...]). "
+                        "Use backend='tavily' for multi-URL fetch."
+                    )
                 result = backend_methods[backend](
                     kwargs["urls"], extract_depth=extract_depth, **{k: v for k, v in kwargs.items() if k != "urls"}
                 )
@@ -540,6 +553,10 @@ class Web(BackendPlumbing, BraveBackend, DirectMixin, SerperBackend, SerpApiBack
 
         for backend_name in backends_to_try:
             if not self._check_backend_available(backend_name):
+                continue
+            if is_multi_url and backend_name != "tavily":
+                # Only tavily fetches several URLs in one call; the rest would
+                # be handed a list where they expect one URL.
                 continue
             try:
                 if is_multi_url:

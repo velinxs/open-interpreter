@@ -372,6 +372,33 @@ class StructuredOutputResult(dict):
         return "\n".join(lines)
 
 
+def _normalize_fetch_url(url):
+    """
+    Normalize a URL for fetch: strip whitespace and prepend https:// when the
+    scheme is missing. Raise WebToolboxError for malformed URLs (empty,
+    non-http(s) scheme, missing or invalid host).
+    """
+    from urllib.parse import urlparse
+
+    if not isinstance(url, str) or not url.strip():
+        raise WebToolboxError(f"Invalid URL {url!r}: expected something like 'https://example.com'.")
+    url = url.strip()
+    if "://" not in url:
+        url = "https://" + url
+    try:
+        parts = urlparse(url)
+    except ValueError:
+        parts = None
+    if (
+        parts is None
+        or parts.scheme not in ("http", "https")
+        or not parts.netloc
+        or any(ch.isspace() for ch in parts.netloc)
+    ):
+        raise WebToolboxError(f"Invalid URL {url!r}: expected an http(s) URL like 'https://example.com'.")
+    return url
+
+
 def _normalize_tavily_single_page(result):
     """
     Tavily's extract API always returns a list, even for a single URL.
