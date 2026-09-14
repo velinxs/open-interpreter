@@ -90,6 +90,38 @@ def test_existing_cache_is_read_back_not_overwritten(_isolate_cache):
     assert cc.get_contribute_cache_contents()["asked_to_contribute_past"] is True
 
 
+def test_a_corrupt_cache_file_starts_over_instead_of_crashing_the_cli(_isolate_cache):
+    """Unparseable JSON reads back as all-unasked rather than raising.
+
+    This runs on the way into every session. A cache truncated by a killed
+    process or a full disk would otherwise abort startup with a
+    JSONDecodeError, and the user could not launch at all until they found
+    and deleted a file they have never heard of.
+    """
+    _isolate_cache.write_text('{"asked_to_contribute_past": tru')
+    assert cc.get_contribute_cache_contents() == {
+        "asked_to_contribute_past": False,
+        "displayed_contribution_message": False,
+        "asked_to_contribute_future": False,
+    }
+
+
+def test_a_cache_written_before_a_key_existed_keeps_its_answers(_isolate_cache):
+    """Missing keys are filled with False; the keys that are there are untouched.
+
+    Every reader of this cache indexes it directly. A file written by an
+    older version, which had fewer keys, would raise KeyError on launch —
+    and re-defaulting the keys it does have would re-ask a user who already
+    answered.
+    """
+    _isolate_cache.write_text(json.dumps({"asked_to_contribute_past": True}))
+    assert cc.get_contribute_cache_contents() == {
+        "asked_to_contribute_past": True,
+        "displayed_contribution_message": False,
+        "asked_to_contribute_future": False,
+    }
+
+
 def test_launch_logic_shows_the_advert_once_then_never_again(monkeypatch, capsys, _isolate_cache):
     """The "we're training a model" pitch is displayed exactly once per machine.
 
