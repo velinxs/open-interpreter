@@ -635,3 +635,79 @@ def test_the_user_is_told_when_a_call_did_not_run(offline_interpreter, capsys):
 
     printed = capsys.readouterr().out
     assert "only the first ran" in printed, printed
+
+
+# --- the retry ceiling ------------------------------------------------------
+
+
+def test_a_model_that_keeps_sending_bad_calls_is_stopped(offline_interpreter):
+    """A run of malformed calls ends the turn instead of billing a request each time.
+
+    respond() re-prompts whenever the trailing message is a tool response, which
+    is what gives a model the turn it needs to correct a bad call — but there was
+    no ceiling on it. Eight scripted bad calls produced nine requests, and the
+    turn could only end when the model happened to reply with text. A model that
+    had lost the shape of a tool call never did.
+    """
+    from interpreter.core.respond import MAX_CONSECUTIVE_TOOL_ERRORS
+
+    install_fake_llm(offline_interpreter, [])
+    offline_interpreter.llm.supports_functions = True
+    attempts = MAX_CONSECUTIVE_TOOL_ERRORS + 5
+    completions = ScriptedStreams(
+        [_raw_tool_call_stream("execute", "not json at all {{{", call_id=f"c{i}") for i in range(attempts)]
+        + [_text_stream("Never reached.")]
+    )
+    offline_interpreter.llm.completions = completions
+
+    offline_interpreter.chat("go", display=False, stream=False)
+
+    assert len(completions.calls) == MAX_CONSECUTIVE_TOOL_ERRORS, len(completions.calls)
+
+
+def test_a_model_that_recovers_is_not_cut_off(offline_interpreter):
+    """Running code resets the streak, so occasional bad calls never accumulate.
+
+    The cap counts *consecutive* failures. Counting every failure in a turn would
+    cut off a long, productive session that hit one bad call per few blocks.
+    """
+    from interpreter.core.respond import MAX_CONSECUTIVE_TOOL_ERRORS
+
+    install_fake_llm(offline_interpreter, [])
+    offline_interpreter.llm.supports_functions = True
+    streams = []
+    for _ in range(MAX_CONSECUTIVE_TOOL_ERRORS + 2):
+        streams.append(_raw_tool_call_stream("execute", "not json at all {{{", call_id=None))
+        streams.append(_tool_call_stream("execute", {"language": "python", "code": "print(1)"}))
+    streams.append(_text_stream("All done."))
+    completions = ScriptedStreams(streams)
+    offline_interpreter.llm.completions = completions
+
+    messages = offline_interpreter.chat("go", display=False, stream=False)
+
+    assert messages[-1]["content"] == "All done.", messages[-1]
+
+
+def test_the_user_is_told_why_the_turn_stopped(offline_interpreter, capsys):
+    """Hitting the cap prints a line, rather than ending in the same silence.
+
+    The role:tool errors are never displayed, so a turn that simply stopped would
+    look exactly like the hang this cap exists to end.
+    """
+    from interpreter.core.respond import MAX_CONSECUTIVE_TOOL_ERRORS
+    from interpreter.terminal_interface.terminal_interface import terminal_interface
+
+    install_fake_llm(offline_interpreter, [])
+    offline_interpreter.llm.supports_functions = True
+    offline_interpreter.plain_text_display = True
+    offline_interpreter.llm.completions = ScriptedStreams(
+        [
+            _raw_tool_call_stream("execute", "not json at all {{{", call_id=f"c{i}")
+            for i in range(MAX_CONSECUTIVE_TOOL_ERRORS)
+        ]
+    )
+
+    list(terminal_interface(offline_interpreter, "go"))
+
+    printed = capsys.readouterr().out
+    assert "malformed tool calls in a row" in printed, printed

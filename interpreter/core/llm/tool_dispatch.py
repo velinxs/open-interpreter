@@ -25,11 +25,17 @@ def _error_chunk(tool_call_id_for_error, error_msg):
     when the last message has role == "tool"; a role: assistant message would
     end the turn with the user seeing the error and the model never reading
     it, which is the failure this whole function exists to avoid.
+
+    ``format: "error"`` is what tells that same re-prompt in respond() apart
+    from a benign tool response (a view_image approval, say). It is how the
+    retry cap counts consecutive failures; without it the loop cannot see the
+    difference between a model correcting itself and a model thrashing.
     """
     return {
         "role": "tool",
         "tool_call_id": tool_call_id_for_error,
         "type": "message",
+        "format": "error",
         "content": error_msg,
     }
 
@@ -541,3 +547,29 @@ def dispatch_function_call(llm, accumulated_deltas, request_params, tool_call_id
             yield from _malformed_call(tool_call_id_for_error, function_call, error_msg)
             if verbose:
                 print(f"[ERROR] {error_msg}. Function call: {json.dumps(function_call, default=str)}", flush=True)
+
+
+# A malformed tool call is answered with a role:tool error, and respond() gives
+# the model another turn to correct it — with no ceiling, so a model that could
+# not correct itself billed a request per attempt until it happened to reply
+# with text instead. Eight bad calls produced nine requests in testing. Three
+# attempts is about what a person watching would tolerate before intervening.
+MAX_CONSECUTIVE_TOOL_ERRORS = 3
+
+
+def give_up_notice(attempts):
+    """The chunk shown when a model cannot stop sending malformed tool calls.
+
+    Ending the turn silently would look like a hang, so this says what
+    happened and what the user can do about it.
+    """
+    return {
+        "role": "computer",
+        "type": "notice",
+        "format": "error",
+        "content": (
+            f"The model sent {attempts} malformed tool calls in a row "
+            "and is not recovering. Stopping here rather than retrying again — "
+            "try rephrasing, or a different model."
+        ),
+    }

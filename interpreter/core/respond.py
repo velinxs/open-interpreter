@@ -14,6 +14,7 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 
 from ..terminal_interface.utils.display_markdown_message import display_markdown_message
+from .llm.tool_dispatch import MAX_CONSECUTIVE_TOOL_ERRORS, give_up_notice
 from .run_code import run_pending_code
 from .toolbox.web.web import ApiKeyError, WebToolboxError
 from .tools.file_edit import dry_run_edit, run_edit
@@ -112,6 +113,9 @@ class LoopState:
     """State that survives one pass of the loop, shared with the code runner."""
 
     last_unsupported_code: str = ""
+    # Malformed tool calls answered in a row without anything running in
+    # between. See MAX_CONSECUTIVE_TOOL_ERRORS.
+    consecutive_tool_errors: int = 0
 
 
 def respond(interpreter):
@@ -502,6 +506,9 @@ def respond(interpreter):
         ### RUN CODE (if it's there) ###
 
         if interpreter.messages[-1]["type"] == "code":
+            # Something is about to run, so whatever came before was not a
+            # thrash: the malformed-call streak starts again from here.
+            state.consecutive_tool_errors = 0
             outcome = yield from run_pending_code(interpreter, state)
             if outcome == "break":
                 break
@@ -527,7 +534,22 @@ def respond(interpreter):
                 and interpreter.messages[-1].get("role") == "tool"
                 and interpreter.messages[-1].get("type") == "message"
             ):
-                continue
+                if interpreter.messages[-1].get("format") != "error":
+                    # A benign tool response — a view_image approval, say. It is
+                    # not a failed attempt, so it does not count against the cap.
+                    state.consecutive_tool_errors = 0
+                    continue
+
+                state.consecutive_tool_errors += 1
+                if state.consecutive_tool_errors < MAX_CONSECUTIVE_TOOL_ERRORS:
+                    continue
+
+                # Out of attempts. Without this the turn could only end when the
+                # model happened to reply with text, and a model that had lost
+                # the shape of a tool call never did — it just kept billing
+                # requests while the user watched a silent pause.
+                yield give_up_notice(state.consecutive_tool_errors)
+                break
 
             loop_message = interpreter.loop_message
             if interpreter.os:
