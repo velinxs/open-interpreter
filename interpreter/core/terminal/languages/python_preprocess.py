@@ -1,11 +1,12 @@
 """Rewriting a Python block before the kernel runs it.
 
-Strips imports the kernel already holds, injects the active-line markers the
-terminal highlights with, and wraps the block so a traceback comes back as
-output instead of killing the cell.
+Strips imports the kernel already holds and definitions it already holds
+verbatim, injects the active-line markers the terminal highlights with, and
+wraps the block so a traceback comes back as output instead of killing the cell.
 """
 
 import ast
+import hashlib
 import os
 import re
 import sys
@@ -117,6 +118,161 @@ def strip_redundant_imports(code, imported_modules):
             in_leading = False  # first executable statement ends the leading block
         kept_lines.append(line)
     return "\n".join(kept_lines), removed
+
+
+def strip_redundant_definitions_and_assignments(code, function_fps, variable_fps):
+    """Drop top-level definitions and scalar assignments already bound identically.
+
+    Removes a top-level ``def``/``async def`` whose normalized source
+    fingerprint matches the one the kernel already binds to that name, and a
+    single-name scalar assignment (``x = 5``, ``x = "abc"``, ``x = None``)
+    whose repr fingerprint matches. A fingerprint match means re-running the
+    statement is a no-op, so removing it cannot change behaviour. A
+    re-definition with different code always survives.
+
+    Safety rules:
+    - Only *top-level* statements are considered; anything inside a function,
+      class or block is untouched.
+    - A statement is stripped only if its name is not bound earlier in the same
+      block (``def f`` then a *different* ``def f`` keeps both; ``x = 6`` then
+      ``x = 5`` keeps both — stripping the second would change the result).
+      Kept statements mark the names they bind (assigns, defs, imports,
+      for/with targets, walrus, ``del``), so a later same-name candidate is
+      conservatively kept.
+    - Mutable objects, non-literal right-hand sides (``2 + 3``, ``int("5")``,
+      ``f(x)``) and anything the kernel could not fingerprint are never
+      stripped. The kernel only fingerprints immutable scalars, so ``x = [1,
+      2]`` has no matching entry and is left alone — rebinding a fresh list is
+      not a no-op.
+    - The block is re-parsed after each removal; if that produces invalid
+      Python the statement is put back.
+
+    Returns ``(stripped_code, removed_function_names, removed_var_names)``.
+    """
+    removed_funcs, removed_vars = [], []
+    if not function_fps and not variable_fps:
+        return code, removed_funcs, removed_vars
+
+    work = code
+    bound = set()
+    while True:
+        try:
+            tree = ast.parse(work)
+        except SyntaxError:
+            break  # magics, `!cmd`, incomplete code — never touch it
+        if not tree.body:
+            break
+        for stmt in tree.body:
+            span, kind = _redundant_span(stmt, work, function_fps, variable_fps, bound)
+            if span is None:
+                bound |= _bound_names(stmt)
+                continue
+            # Try the removal; re-parse to check it did not break the block.
+            candidate = work[: span[0]] + work[span[1] :]
+            try:
+                ast.parse(candidate)
+            except SyntaxError:
+                bound |= _bound_names(stmt)  # unsafe — keep it, treat as bound
+                continue
+            work = candidate
+            if kind == "fn":
+                removed_funcs.append(stmt.name)
+            else:
+                removed_vars.append(stmt.targets[0].id)
+            break  # offsets have shifted — restart the walk on the new text
+        else:
+            break  # nothing left to remove
+    return work, removed_funcs, removed_vars
+
+
+def _bound_names(stmt):
+    """Names a top-level statement binds, for in-block redundancy tracking.
+
+    Conservative: anything assigned anywhere in the statement's subtree counts,
+    even inside nested function bodies — over-marking only suppresses stripping,
+    it can never cause a wrong strip.
+    """
+    names = set()
+    for node in ast.walk(stmt):
+        # `del x` uses Del ctx, not Store; either way the name's earlier
+        # binding no longer holds after the statement, so a later identical
+        # re-assignment has to be kept.
+        if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+            names.add(node.id)
+    if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        names.add(stmt.name)
+    elif isinstance(stmt, (ast.Import, ast.ImportFrom)):
+        for alias in stmt.names:
+            names.add(alias.asname or alias.name.split(".")[0])
+    return names
+
+
+def _redundant_span(stmt, source, function_fps, variable_fps, bound):
+    """Return (span, kind) if ``stmt`` is a redundant definition, else (None, None).
+
+    ``span`` is a (start_offset, end_offset) pair into ``source``. ``kind`` is
+    ``"fn"`` for functions or ``"var"`` for scalar assignments.
+    """
+    if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        if stmt.name not in function_fps or stmt.name in bound:
+            return None, None
+        try:
+            fingerprint = _function_fingerprint(stmt)
+        except Exception:
+            return None, None
+        if fingerprint != function_fps[stmt.name]:
+            return None, None
+        start_line = stmt.lineno
+        if stmt.decorator_list:
+            start_line = min(d.lineno for d in stmt.decorator_list)
+        return _span_offsets(source, start_line, 0, stmt.end_lineno, stmt.end_col_offset), "fn"
+
+    if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1 and isinstance(stmt.targets[0], ast.Name):
+        name = stmt.targets[0].id
+        if name not in variable_fps or name in bound:
+            return None, None
+        try:
+            value = ast.literal_eval(stmt.value)
+        except (ValueError, TypeError, SyntaxError, MemoryError, RecursionError):
+            return None, None  # not a literal — cannot be a no-op re-assignment
+        if _value_fingerprint(value) != variable_fps[name]:
+            return None, None
+        start, end = _span_offsets(source, stmt.lineno, stmt.col_offset, stmt.end_lineno, stmt.end_col_offset)
+        # Only strip an assignment that has its line to itself. A shared line
+        # (`x = 5; y = 6`) leaves a dangling `;` or an orphaned sibling when one
+        # target goes, and re-parsing cannot catch the semantics, so require
+        # nothing but whitespace before and after the span on its line.
+        line_start = _span_offsets(source, stmt.lineno, 0, stmt.lineno, 0)[0]
+        line_tail = source[end:].split("\n", 1)[0]
+        if source[line_start:start].strip() or line_tail.strip():
+            return None, None
+        return (start, end), "var"
+
+    return None, None
+
+
+def _span_offsets(source, start_line, start_col, end_line, end_col):
+    """Convert line/column positions to absolute string offsets."""
+    offsets = [0]
+    for line in source.split("\n"):
+        offsets.append(offsets[-1] + len(line) + 1)  # +1 for the newline
+    start = offsets[start_line - 1] + start_col
+    end = offsets[end_line - 1] + end_col
+    return start, end
+
+
+def _function_fingerprint(stmt):
+    """Normalized-source fingerprint of a FunctionDef/AsyncFunctionDef node.
+
+    ``ast.dump`` of the node — structure only, no line numbers or formatting —
+    matching the kernel's ``ast.dump(ast.parse(src).body[0])``.
+    """
+    return hashlib.sha1(ast.dump(stmt).encode()).hexdigest()
+
+
+def _value_fingerprint(value):
+    """Repr fingerprint of an immutable scalar, matching the kernel's ``var:`` entries."""
+    return hashlib.sha1(repr(value).encode()).hexdigest()
 
 
 def preprocess_python(code):

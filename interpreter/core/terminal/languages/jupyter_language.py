@@ -25,6 +25,7 @@ from .python_preprocess import (
     add_active_line_prints,
     preprocess_python,
     string_to_python,
+    strip_redundant_definitions_and_assignments,
     strip_redundant_imports,
     wrap_in_try_except,
 )
@@ -84,6 +85,14 @@ class JupyterLanguage(PythonStateMixin, BaseLanguage):
         # kernel reports after every run, so redundant top-level `import X`
         # lines can be stripped before execution.
         self.imported_modules = set()
+
+        # Fingerprints of the top-level definitions the kernel currently binds,
+        # refreshed wholesale from the hidden `##oi_fp##` marker after every
+        # run: functions by their normalized-source fingerprint, scalars by
+        # their repr fingerprint. An identical `def f` or `x = 5` in a later
+        # block is a no-op, so it can be stripped before it runs.
+        self.function_fingerprints = {}
+        self.variable_fingerprints = {}
 
         self._configure_kernel()
 
@@ -199,9 +208,13 @@ ip.display_formatter.active_types = ['text/markdown', 'text/plain', 'image/png',
                 self.kc.wait_for_ready(timeout=60)
             except Exception:
                 return False
-            # The new kernel's namespace is empty, so nothing is imported any
-            # more and the toolbox/skills injections have to run again.
+            # The new kernel's namespace is empty, so nothing is imported or
+            # defined any more and the toolbox/skills injections have to run
+            # again. Keeping a fingerprint here would strip the re-definition
+            # the model has to send to get its helper back.
             self.imported_modules = set()
+            self.function_fingerprints = {}
+            self.variable_fingerprints = {}
             toolbox = getattr(self.interpreter, "toolbox", None)
             if toolbox is not None:
                 toolbox._has_imported_toolbox_api = False
@@ -508,24 +521,43 @@ ip.display_formatter.active_types = ['text/markdown', 'text/plain', 'image/png',
     def stop(self):
         self.finish_flag = True
 
-
     def strip_boilerplate(self, code):
-        """Return (stripped_code, notice) after removing redundant top-level imports.
+        """Return (stripped_code, notice) after removing redundant top-level boilerplate.
 
-        Removes plain ``import X`` lines for allowlisted boilerplate modules
-        that the kernel has reported as already bound (via ``_get_active_state``
-        after each run). This method deliberately does NOT learn new imports
-        from the code it is handed: recording ``import time`` here would make a
-        second ``strip_boilerplate`` call (e.g. from ``preprocess_code`` during
-        the same execution) strip that import before it ever ran, breaking code
-        that genuinely needs it. Only the kernel's authoritative REPL-state
-        line drives ``imported_modules``.
+        Two passes, both driven only by what the kernel reported after the last
+        run:
+
+        - ``strip_redundant_imports`` drops plain ``import X`` lines for
+          allowlisted boilerplate modules the kernel has reported as already
+          bound. It deliberately does NOT learn new imports from the code it is
+          handed: recording ``import time`` here would make a second
+          ``strip_boilerplate`` call (e.g. from ``preprocess_code`` during the
+          same execution) strip that import before it ever ran, breaking code
+          that genuinely needs it.
+        - ``strip_redundant_definitions_and_assignments`` drops a top-level
+          ``def``/``async def`` or scalar assignment that re-creates, byte for
+          byte, something already bound in the kernel (matched by fingerprint).
+          A re-definition with different code is always kept.
         """
         stripped, removed = strip_redundant_imports(code, self.imported_modules)
+        notices = []
         if removed:
             distinct = sorted(set(removed))[:4]
             label = "imports" if len(set(removed)) > 1 else "import"
-            return stripped, f"Removed redundant {label} {', '.join(distinct)} (already imported)."
+            notices.append(f"Removed redundant {label} {', '.join(distinct)} (already imported).")
+        stripped, defs_removed, vars_removed = strip_redundant_definitions_and_assignments(
+            stripped, self.function_fingerprints, self.variable_fingerprints
+        )
+        if defs_removed:
+            distinct = sorted(set(defs_removed))[:4]
+            label = "definitions of" if len(defs_removed) > 1 else "definition of"
+            notices.append(f"Removed redundant {label} {', '.join(distinct)} (already defined identically).")
+        if vars_removed:
+            distinct = sorted(set(vars_removed))[:4]
+            label = "assignments to" if len(vars_removed) > 1 else "assignment to"
+            notices.append(f"Removed redundant {label} {', '.join(distinct)} (already set to that value).")
+        if notices:
+            return stripped, " ".join(notices)
         return code, None
 
     def preprocess_code(self, code):
