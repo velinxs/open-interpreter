@@ -135,7 +135,7 @@ def run_pending_code(interpreter, state):
         # confirmation chunk and is shown beside the run prompt, not in
         # the command's terminal output.
         lang = interpreter.terminal.get_language_instance(language)
-        if lang is not None:
+        if lang is not None and getattr(interpreter, "strip_redundant_code", True):
             try:
                 stripped, strip_notice = lang.strip_boilerplate(code)
                 # Always adopt the stripped version when something was

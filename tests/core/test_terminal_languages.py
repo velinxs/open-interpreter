@@ -458,6 +458,36 @@ class TestTerminalLanguages(unittest.TestCase):
         self.assertEqual(second, first)
         self.assertIsNone(second_notice)
 
+    def test_jupyter_strip_boilerplate_respects_gate(self):
+        """strip_redundant_code=false leaves python code exactly as written.
+
+        The gate is the one switch a user has to turn the rewriting off; if it
+        did not reach this stripper, a redundant `import os` would still vanish
+        from code the user asked to be left alone.
+        """
+        jl = object.__new__(JupyterLanguage)  # skip kernel startup
+        jl.imported_modules = {"os"}
+        jl.interpreter = type("I", (), {"strip_redundant_code": False})()
+        code = "import os\nos.getcwd()"
+        stripped, notice = jl.strip_boilerplate(code)
+        self.assertEqual(stripped, code)
+        self.assertIsNone(notice)
+
+    def test_bash_cd_strip_respects_gate(self):
+        """strip_redundant_code=false disables the bash redundant-cd strip.
+
+        Both the peek (track=False, from run_code) and the real run
+        (track=True, from preprocess_code) must honor it, and no notice may be
+        left behind claiming something was removed.
+        """
+        bash = Bash()
+        bash.cwd = "/home/user/project"
+        bash.interpreter = type("I", (), {"strip_redundant_code": False})()
+        code = "cd /home/user/project\nls"
+        self.assertEqual(bash._strip_redundant_cd(code, track=False), code)
+        self.assertEqual(bash._strip_redundant_cd(code, track=True), code)
+        self.assertIsNone(bash._pending_notice)
+
     def test_bash_redundant_cd_stripped(self):
         """A standalone `cd` to the tracked working directory is removed."""
         bash = Bash()

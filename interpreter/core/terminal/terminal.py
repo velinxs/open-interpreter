@@ -243,6 +243,11 @@ print("__TOOLBOX_API_IMPORTED__")
             # Languages that shell out do not take the interpreter, so the setting
             # is handed over here rather than through every subclass constructor.
             instance.python_path = getattr(self.interpreter, "python_path", None)
+            # Their run-time preprocessing (the redundant-cd strip) consults
+            # interpreter.strip_redundant_code, so give them a back-reference
+            # for the same reason — but never shadow a real one.
+            if not hasattr(instance, "interpreter"):
+                instance.interpreter = self.interpreter
             self._active_languages[language] = instance
         try:
             for chunk in self._active_languages[language].run(code):

@@ -108,7 +108,14 @@ class CwdTrackingMixin:
         ``track`` gates the side effect of advancing ``self.cwd`` for kept
         ``cd`` commands: pass False when peeking (respond), True during the
         actual run (preprocess_code) so the tracked cwd follows the shell.
+
+        ``interpreter.strip_redundant_code = False`` turns this off entirely,
+        along with every other boilerplate rewrite. The interpreter is a
+        back-reference handed over by Terminal (shell languages are built
+        without one), so it may be absent in isolation — default to stripping.
         """
+        if not getattr(getattr(self, "interpreter", None), "strip_redundant_code", True):
+            return code
         removed = []
         self._pending_notice = None
         kept_lines = []

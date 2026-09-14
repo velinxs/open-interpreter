@@ -138,6 +138,10 @@ class OpenInterpreter:
         # None until the block first overflows and gets a header.
         self._spill_body_end = None
         self.safe_mode = safe_mode
+        # One switch gates ALL boilerplate stripping (redundant cd, redundant
+        # imports, `import toolbox`). A profile can turn the whole lot off with
+        # `strip_redundant_code: false` when the rewriting gets in the way.
+        self.strip_redundant_code = True
         self.shrink_images = shrink_images
         self.disable_telemetry = disable_telemetry
         self.in_terminal_interface = in_terminal_interface

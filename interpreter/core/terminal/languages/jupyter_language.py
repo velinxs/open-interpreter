@@ -579,8 +579,11 @@ print(__oi_res)
         second ``strip_boilerplate`` call (e.g. from ``preprocess_code`` during
         the same execution) strip that import before it ever ran, breaking code
         that genuinely needs it. Only the kernel's authoritative REPL-state
-        line drives ``imported_modules``.
+        line drives ``imported_modules``. ``strip_redundant_code = False`` on
+        the interpreter turns this off, along with every other rewrite.
         """
+        if not getattr(getattr(self, "interpreter", None), "strip_redundant_code", True):
+            return code, None
         stripped, removed = strip_redundant_imports(code, self.imported_modules)
         if removed:
             distinct = sorted(set(removed))[:4]
