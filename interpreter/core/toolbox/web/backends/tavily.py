@@ -5,7 +5,7 @@ import os
 
 import requests
 
-from ..results import ApiKeyError, WebToolboxError
+from ..results import ApiKeyError, ResultItem, WebToolboxError
 
 
 class TavilyBackend:
@@ -122,14 +122,82 @@ class TavilyBackend:
                 raise ValueError(
                     f"Tavily result item is not a dict: {type(result).__name__}. Result: {str(result)[:200]}"
                 )
-            source = {
-                "title": result.get("title", ""),
-                "url": result.get("url", ""),
-                "snippet": result.get("content", "")[:200] if result.get("content") else "",
-            }
+            source = ResultItem(
+                {
+                    "title": result.get("title", ""),
+                    "url": result.get("url", ""),
+                    "snippet": result.get("content", "")[:200] if result.get("content") else "",
+                }
+            )
             normalized["sources"].append(source)
 
         return normalized
+
+    def _search_page_tavily(self, url, query, max_results=5, **kwargs):
+        """
+        Search within a page using Tavily extract with query-scoped extraction.
+
+        Args:
+            url (str): The URL of the page to search in
+            query (str): Focus the extraction on content relevant to this query
+            max_results (int): Mapped to chunks_per_source unless overridden in kwargs
+            **kwargs: Additional Tavily extract parameters (extract_depth, chunks_per_source, etc.)
+
+        Returns:
+            Normalized dict with "url", "query", "matches" list
+        """
+        try:
+            from tavily import TavilyClient
+        except ImportError:
+            self._handle_import_error("tavily-python", "pip install tavily-python")
+
+        try:
+            api_key = self._check_api_key("TAVILY_API_KEY")
+        except ApiKeyError as e:
+            raise WebToolboxError(e.error_dict["message"]) from e
+
+        try:
+            client = TavilyClient(api_key=api_key)
+            extract_params = {"urls": [url], "query": query, "format": "markdown"}
+            if "chunks_per_source" not in kwargs:
+                extract_params["chunks_per_source"] = max_results
+            extract_params.update(kwargs)
+            response = client.extract(**extract_params)
+        except Exception as e:
+            self._handle_api_request_error("Tavily", e)
+
+        if not isinstance(response, dict):
+            raise ValueError(
+                f"Tavily returned unexpected response type: {type(response).__name__}. Response: {str(response)[:500]}"
+            )
+
+        failed_results = response.get("failed_results", [])
+        results = response.get("results", [])
+        if failed_results and not results:
+            failed_urls = [fr.get("url", "unknown") for fr in failed_results if isinstance(fr, dict)]
+            errors = [fr.get("error", "unknown error") for fr in failed_results if isinstance(fr, dict)]
+            raise WebToolboxError(
+                f"Tavily extract failed for {', '.join(failed_urls[:3])}. "
+                f"Errors: {', '.join(errors[:3])}. Try a different backend."
+            )
+
+        matches = []
+        for result in results:
+            if not isinstance(result, dict):
+                continue
+            content = result.get("content", "") or result.get("raw_content", "")
+            if not content:
+                continue
+            matches.append(
+                ResultItem(
+                    {
+                        "heading": result.get("title"),
+                        "snippet": content,
+                        "score": result.get("score"),
+                    }
+                )
+            )
+        return {"url": url, "query": query, "matches": matches, "raw_response": response}
 
     def _fetch_tavily(self, urls, extract_depth=None, **kwargs):
         """
@@ -214,12 +282,14 @@ class TavilyBackend:
                     f"Tavily result item is not a dict: {type(result).__name__}. Result: {str(result)[:200]}"
                 )
             normalized["results"].append(
-                {
-                    "url": result.get("url", ""),
-                    "title": result.get("title", ""),
-                    "content": result.get("raw_content", "")
-                    or result.get("content", ""),  # Tavily returns "raw_content"
-                }
+                ResultItem(
+                    {
+                        "url": result.get("url", ""),
+                        "title": result.get("title", ""),
+                        "content": result.get("raw_content", "")
+                        or result.get("content", ""),  # Tavily returns "raw_content"
+                    }
+                )
             )
 
         # If some URLs failed but we have some results, include failed_results in raw_response

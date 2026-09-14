@@ -34,23 +34,28 @@ from .backends import (
     SerperBackend,
     TavilyBackend,
 )
+from .backends.linkup import _normalize_structured_schema
+from .page import PageMixin
 from .results import (
     AnswerResult,
     ApiKeyError,
     FetchResult,
+    PageSearchResult,
+    ResultItem,
     SearchResult,
     StructuredOutputResult,
     WebToolboxError,
     _default_locale_from_environment,
     _normalize_locale_country_for_gl,
     _normalize_locale_language_for_hl,
-    _normalize_tavily_single_page,
 )
 
 __all__ = [
     "AnswerResult",
     "ApiKeyError",
     "FetchResult",
+    "PageSearchResult",
+    "ResultItem",
     "SearchResult",
     "StructuredOutputResult",
     "Web",
@@ -58,7 +63,16 @@ __all__ = [
 ]
 
 
-class Web(BackendPlumbing, BraveBackend, DirectMixin, SerperBackend, SerpApiBackend, TavilyBackend, LinkupBackend):
+class Web(
+    BackendPlumbing,
+    PageMixin,
+    BraveBackend,
+    DirectMixin,
+    SerperBackend,
+    SerpApiBackend,
+    TavilyBackend,
+    LinkupBackend,
+):
     def __init__(self, toolbox):
         self.toolbox = toolbox
         _loc = _default_locale_from_environment()
@@ -163,7 +177,7 @@ class Web(BackendPlumbing, BraveBackend, DirectMixin, SerperBackend, SerpApiBack
                     NOTE: Use country_code and language_code parameters (not gl/hl)
 
         Returns:
-            SearchResult: .results, .raw_response, .backend (use attribute access)
+            SearchResult: .results (items: .title or ['title']; content→snippet), .raw_response, .backend
 
         Examples:
             # Basic search (auto-selects backend)
@@ -234,7 +248,7 @@ class Web(BackendPlumbing, BraveBackend, DirectMixin, SerperBackend, SerpApiBack
 
             result = backend_methods[backend](query, **backend_kwargs)
             result["backend"] = backend
-            print("→ result.results[i] | page=result.fetch(i) → page.content | page.find(term) | page.links()")
+            print("→ result.results[i] | detail=result.search_page(i, query) | page=result.fetch(i) → page.find(term)")
             return SearchResult(result, web=self)
 
         # Auto-select backend
@@ -248,7 +262,9 @@ class Web(BackendPlumbing, BraveBackend, DirectMixin, SerperBackend, SerpApiBack
             try:
                 result = backend_methods[backend_name](query, **backend_kwargs)
                 result["backend"] = backend_name
-                print("→ result.results[i] | page=result.fetch(i) → page.content | page.find(term) | page.links()")
+                print(
+                    "→ result.results[i] | detail=result.search_page(i, query) | page=result.fetch(i) → page.find(term)"
+                )
                 return SearchResult(result, web=self)
             except (WebToolboxError, ApiKeyError) as e:
                 failed_results.append((backend_name, e))
@@ -288,7 +304,7 @@ class Web(BackendPlumbing, BraveBackend, DirectMixin, SerperBackend, SerpApiBack
                 - For linkup: depth ("standard" or "deep"), include_inline_citations, etc.
 
         Returns:
-            AnswerResult: .answer, .sources, .backend (use attribute access)
+            AnswerResult: .answer, .sources (items: .title or ['title']; content→snippet), .backend
 
         Example:
             result = toolbox.web.answer("What is the latitude of Lilongwe in decimal format?")
@@ -308,7 +324,7 @@ class Web(BackendPlumbing, BraveBackend, DirectMixin, SerperBackend, SerpApiBack
             backend_methods = {"linkup": self._answer_linkup, "tavily": self._answer_tavily}
             result = backend_methods[backend](question, **kwargs)
             result["backend"] = backend
-            print("→ result.answer | page=result.fetch(i) → page.content | page.find(term) | page.links()")
+            print("→ result.answer | detail=result.search_page(i, query) | page=result.fetch(i) → page.find(term)")
             return AnswerResult(result, web=self)
 
         backends_to_try = ["linkup", "tavily"]
@@ -321,7 +337,7 @@ class Web(BackendPlumbing, BraveBackend, DirectMixin, SerperBackend, SerpApiBack
             try:
                 result = backend_methods[backend_name](question, **kwargs)
                 result["backend"] = backend_name
-                print("→ result.answer | page=result.fetch(i) → page.content | page.find(term) | page.links()")
+                print("→ result.answer | detail=result.search_page(i, query) | page=result.fetch(i) → page.find(term)")
                 return AnswerResult(result, web=self)
             except (WebToolboxError, ApiKeyError) as e:
                 failed_results.append((backend_name, e))
@@ -339,23 +355,33 @@ class Web(BackendPlumbing, BraveBackend, DirectMixin, SerperBackend, SerpApiBack
         self, query: str, schema: Any, backend: str | None = "linkup", **kwargs
     ) -> StructuredOutputResult:
         """
-        Search and extract specific fields defined by schema (dict or Pydantic). PREFERRED for data extraction.
+        Search and extract specific fields (simple field map, JSON schema, or Pydantic). PREFERRED for data extraction.
 
         This method is best for tasks requiring extracting specific fields (like author, year, title)
         directly from web resources into a schema-defined format.
 
         Args:
             query (str): The search query or data extraction prompt.
-            schema (dict or Pydantic model): The JSON schema defining the desired output structure.
+            schema: What to extract — a simple field map ({"name": "string", "founded": "integer"};
+                all fields required; types: string, integer, number, boolean, array, object, null),
+                a full JSON schema dict, a JSON string, or a Pydantic model class.
+                A dict with a "properties" mapping is treated as a full schema.
             backend (str, optional): Force a specific backend (default: "linkup").
             **kwargs: Additional backend-specific parameters:
                 - For linkup: depth ("standard" or "deep"), etc.
 
         Returns:
-            StructuredOutputResult: .structured_output, .sources, .backend (use attribute access)
+            StructuredOutputResult: .structured_output, .sources (items: .title or ['title']), .backend
 
-        Example:
-            # Using journal article schema
+        Examples:
+            # Simple field map (converted to a schema with all fields required)
+            result = toolbox.web.structured_output(
+                "Apple Inc",
+                schema={"name": "string", "founded": "integer", "headquarters": "string"},
+            )
+            print(result.structured_output["name"])
+
+            # Full JSON schema, e.g. for a journal article
             schema = {
                 "type": "object",
                 "properties": {
@@ -368,41 +394,10 @@ class Web(BackendPlumbing, BraveBackend, DirectMixin, SerperBackend, SerpApiBack
             result = toolbox.web.structured_output("Attention is All You Need journal article", schema=schema)
             print(result.structured_output["author_last_name"])
         """
-        import json
-
-        # LinkUp SDK expects a Pydantic model CLASS or a JSON STRING or None.
-        # It does NOT accept a dictionary directly.
-        is_pydantic = False
-        try:
-            # Check if it's a Pydantic class (v1 or v2)
-            if isinstance(schema, type):
-                # Try to import any version of Pydantic to check inheritance
-                try:
-                    from pydantic import BaseModel as BM2
-
-                    if issubclass(schema, BM2):
-                        is_pydantic = True
-                except ImportError:
-                    pass
-
-                if not is_pydantic:
-                    try:
-                        from pydantic.v1 import BaseModel as BM1
-
-                        if issubclass(schema, BM1):
-                            is_pydantic = True
-                    except ImportError:
-                        pass
-            elif hasattr(schema, "__pydantic_model__"):  # some wrappers
-                is_pydantic = True
-        except Exception:
-            # If any check fails, treat as non-pydantic
-            pass
-
-        if not is_pydantic and isinstance(schema, dict):
-            # Convert dictionary to JSON string as expected by the LinkUp SDK
-            schema = json.dumps(schema)
-        # If it is a Pydantic class or already a string, pass it through to the backend.
+        # Field maps become full JSON schemas here, so a bad one fails with a
+        # local message instead of a backend 400. Full schemas, Pydantic
+        # classes and JSON strings pass through; the backend encodes them.
+        schema = _normalize_structured_schema(schema)
 
         if backend:
             backend = backend.lower()
@@ -411,7 +406,9 @@ class Web(BackendPlumbing, BraveBackend, DirectMixin, SerperBackend, SerpApiBack
             backend_methods = {"linkup": self._structured_output_linkup}
             result = backend_methods[backend](query, schema, **kwargs)
             result["backend"] = backend
-            print("→ result.structured_output | page=result.fetch(i) → page.content | page.find(term) | page.links()")
+            print(
+                "→ result.structured_output | detail=result.search_page(i, query) | page=result.fetch(i) → page.find(term)"
+            )
             return StructuredOutputResult(result, web=self)
 
         # Default/Auto-select (currently only linkup)
@@ -426,7 +423,7 @@ class Web(BackendPlumbing, BraveBackend, DirectMixin, SerperBackend, SerpApiBack
                 result = backend_methods[backend_name](query, schema, **kwargs)
                 result["backend"] = backend_name
                 print(
-                    "→ result.structured_output | page=result.fetch(i) → page.content | page.find(term) | page.links()"
+                    "→ result.structured_output | detail=result.search_page(i, query) | page=result.fetch(i) → page.find(term)"
                 )
                 return StructuredOutputResult(result, web=self)
             except (WebToolboxError, ApiKeyError) as e:
@@ -438,154 +435,5 @@ class Web(BackendPlumbing, BraveBackend, DirectMixin, SerperBackend, SerpApiBack
             backend_to_package={"linkup": "linkup-sdk"},
             backend_to_key={"linkup": "LINKUP_API_KEY"},
             kind="structured output",
-        )
-        raise WebToolboxError(message)
-
-    def fetch(
-        self, url: str, backend: str | None = None, render_js: bool = False, extract_depth: str | None = None, **kwargs
-    ) -> FetchResult:
-        """
-        Fetch web page content from a URL as markdown.
-
-        This method automatically selects the best available backend or uses
-        the specified one. Backends are tried in order: serper, linkup, tavily.
-
-        Args:
-            url (str): The URL to fetch
-            backend (str, optional): Force a specific backend ("serper", "linkup", or "tavily").
-                                     If None, auto-selects based on availability.
-            render_js (bool): Whether to render JavaScript (default: False). Supported by: linkup
-            extract_depth (str, optional): Extraction depth - "basic" or "advanced". Supported by: tavily (defaults to API default if not specified)
-            **kwargs: Additional backend-specific parameters:
-
-                SERPER:
-                    - Other Serper scrape parameters (markdown is always enabled)
-
-                LINKUP:
-                    - Other LinkUp fetch parameters (output is always markdown)
-
-                TAVILY:
-                    - urls (list): list of URLs to fetch (max 20). If provided, overrides url parameter.
-                    - include_images (bool): Include images in extraction (default: False)
-                    - Other Tavily extract parameters
-
-        Returns:
-            FetchResult: .url, .title, .content, .backend (single URL; multi-URL uses .results)
-
-        Examples:
-            # Basic fetch (auto-selects backend)
-            result = toolbox.web.fetch("https://example.com")
-            print(result.title)
-            print(result.content[:500])
-
-            # Fetch with JavaScript rendering
-            result = toolbox.web.fetch(
-                "https://example.com",
-                render_js=True
-            )
-
-            # Fetch with advanced extraction depth
-            result = toolbox.web.fetch(
-                "https://example.com",
-                extract_depth="advanced"
-            )
-
-            # Fetch multiple pages at once (using tavily)
-            result = toolbox.web.fetch(
-                "https://example.com",
-                backend="tavily",
-                urls=["https://example.com", "https://example.org"]
-            )
-        """
-        # Define backend methods
-        backend_methods = {
-            "serper": self._fetch_serper,
-            "linkup": self._fetch_linkup,
-            "tavily": self._fetch_tavily,
-            # Keyless, and therefore always available. Last, because the keyed
-            # backends strip boilerplate and render JavaScript; this one is the
-            # floor that keeps fetch usable on a fresh install.
-            "direct": self._fetch_direct,
-        }
-
-        # Validate backend name before touching the cache, so an invalid backend name
-        # always errors immediately rather than silently returning a stale cached result.
-        if backend and backend.lower() not in backend_methods:
-            raise WebToolboxError(
-                f"Supported backends for fetch: {', '.join(backend_methods.keys())}. "
-                "Try without specifying a backend to auto-select."
-            )
-
-        # Multi-URL calls (tavily urls=[...]) bypass the cache — too varied to key simply.
-        # Explicit backend requests also bypass the cache: the caller is deliberately
-        # choosing a different source and should not silently get a prior result.
-        is_multi_url = "urls" in kwargs
-
-        if not is_multi_url and not backend and url in self._fetch_cache:
-            cached = self._fetch_cache[url]
-            cached._cached = True
-            print("→ result.content | result.find(term) | result.links()")
-            return cached
-
-        if backend:
-            backend = backend.lower()
-
-            if is_multi_url:
-                result = backend_methods[backend](
-                    kwargs["urls"], extract_depth=extract_depth, **{k: v for k, v in kwargs.items() if k != "urls"}
-                )
-            elif backend == "tavily":
-                result = backend_methods[backend]([url], extract_depth=extract_depth, **kwargs)
-                result = _normalize_tavily_single_page(result)
-            elif backend == "linkup":
-                result = backend_methods[backend](url, render_js=render_js, **kwargs)
-            else:
-                result = backend_methods[backend](url, **kwargs)
-
-            result["backend"] = backend
-            fetch_result = FetchResult(result)
-            if not is_multi_url:
-                self._fetch_cache[url] = fetch_result
-            if is_multi_url:
-                print("→ result.results[i]['content'] | result.find(term) | result.links()")
-            else:
-                print("→ result.content | result.find(term) | result.links()")
-            return fetch_result
-
-        # "direct" needs no key, so auto-selection always ends somewhere that works.
-        backends_to_try = ["serper", "linkup", "tavily", "direct"]
-        failed_results = []
-
-        for backend_name in backends_to_try:
-            if not self._check_backend_available(backend_name):
-                continue
-            try:
-                if is_multi_url:
-                    result = backend_methods[backend_name](
-                        kwargs["urls"], extract_depth=extract_depth, **{k: v for k, v in kwargs.items() if k != "urls"}
-                    )
-                elif backend_name == "tavily":
-                    result = backend_methods[backend_name]([url], extract_depth=extract_depth, **kwargs)
-                    result = _normalize_tavily_single_page(result)
-                elif backend_name == "linkup":
-                    result = backend_methods[backend_name](url, render_js=render_js, **kwargs)
-                else:
-                    result = backend_methods[backend_name](url, **kwargs)
-                result["backend"] = backend_name
-                fetch_result = FetchResult(result)
-                if not is_multi_url:
-                    self._fetch_cache[url] = fetch_result
-                if is_multi_url:
-                    print("→ result.results[i]['content'] | result.find(term) | result.links()")
-                else:
-                    print("→ result.content | result.find(term) | result.links()")
-                return fetch_result
-            except (WebToolboxError, ApiKeyError) as e:
-                failed_results.append((backend_name, e))
-
-        fetch_backend_to_package = {"serper": "requests (built-in)", "linkup": "linkup-sdk", "tavily": "tavily-python"}
-        fetch_backend_to_key = {"serper": "SERPER_API_KEY", "linkup": "LINKUP_API_KEY", "tavily": "TAVILY_API_KEY"}
-        message = self._build_no_backends_error(
-            backends_to_try, failed_results, fetch_backend_to_package, fetch_backend_to_key, kind="fetch"
         )
         raise WebToolboxError(message)

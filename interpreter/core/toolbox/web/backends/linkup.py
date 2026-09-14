@@ -7,6 +7,94 @@ import requests
 
 from ..results import ApiKeyError, WebToolboxError
 
+# The JSON Schema type names a field map may use. Anything else is a typo or a
+# shape that needs the full schema form.
+_SIMPLE_SCHEMA_TYPES = ("string", "integer", "number", "boolean", "array", "object", "null")
+
+
+def _normalize_structured_schema(schema):
+    """
+    Normalize the schema argument of Web.structured_output.
+
+    Accepts a simple field map ({"name": "string", "founded": "integer"}) and
+    converts it to {"type": "object", "properties": {...}, "required": [...]}
+    with all fields required. Values may also be property-schema dicts
+    ({"tags": {"type": "array", "items": {"type": "string"}}}). Anything else
+    (full JSON schemas, Pydantic classes, JSON strings) passes through untouched.
+
+    Detection is a single rule: a dict with a "properties" mapping is a full
+    JSON schema; any other dict is a field map. One caveat: a field literally
+    named "properties" requires the full-schema form.
+    """
+    if not isinstance(schema, dict):
+        return schema
+    if isinstance(schema.get("properties"), dict):
+        return schema
+    if not schema:
+        raise WebToolboxError(
+            "Empty schema: define at least one field, e.g. schema={'name': 'string'}. "
+            "Or pass a full JSON schema {'type': 'object', 'properties': {...}}."
+        )
+    properties = {}
+    for field, spec in schema.items():
+        if isinstance(spec, str):
+            if spec not in _SIMPLE_SCHEMA_TYPES:
+                raise WebToolboxError(
+                    f"Invalid type '{spec}' for field '{field}'. Valid types: "
+                    f"{', '.join(_SIMPLE_SCHEMA_TYPES)}. For constraints, nesting, or "
+                    "descriptions, pass a full JSON schema {'type': 'object', 'properties': {...}}."
+                )
+            properties[field] = {"type": spec}
+        elif isinstance(spec, dict) and spec.get("type") in _SIMPLE_SCHEMA_TYPES:
+            properties[field] = spec
+        else:
+            raise WebToolboxError(
+                f"Invalid spec for field '{field}': expected a type name "
+                f"({', '.join(_SIMPLE_SCHEMA_TYPES)}) or a property schema like "
+                "{'type': 'string'}. For complex shapes, pass a full JSON schema "
+                "{'type': 'object', 'properties': {...}}."
+            )
+    return {"type": "object", "properties": properties, "required": list(schema.keys())}
+
+
+def _encode_schema_for_sdk(schema):
+    """
+    Encode a schema the way the LinkUp SDK wants it.
+
+    It takes a Pydantic model CLASS, a JSON STRING, or None — never a dict —
+    so dicts are JSON-encoded here and everything else passes through.
+    """
+    is_pydantic = False
+    try:
+        # Check if it's a Pydantic class (v1 or v2)
+        if isinstance(schema, type):
+            # Try to import any version of Pydantic to check inheritance
+            try:
+                from pydantic import BaseModel as BM2
+
+                if issubclass(schema, BM2):
+                    is_pydantic = True
+            except ImportError:
+                pass
+
+            if not is_pydantic:
+                try:
+                    from pydantic.v1 import BaseModel as BM1
+
+                    if issubclass(schema, BM1):
+                        is_pydantic = True
+                except ImportError:
+                    pass
+        elif hasattr(schema, "__pydantic_model__"):  # some wrappers
+            is_pydantic = True
+    except Exception:
+        # If any check fails, treat as non-pydantic
+        pass
+
+    if not is_pydantic and isinstance(schema, dict):
+        return json.dumps(schema)
+    return schema
+
 
 class LinkupBackend:
     def _search_linkup(self, query, depth="standard", country_code=None, language_code=None, **kwargs):
@@ -124,7 +212,7 @@ class LinkupBackend:
 
         Args:
             query: The search query
-            structured_output_schema: dict representing JSON schema
+            structured_output_schema: JSON schema dict, JSON string, or Pydantic class
             depth: "standard" or "deep" (default: "standard")
             **kwargs: Additional LinkUp search parameters
 
@@ -149,12 +237,20 @@ class LinkupBackend:
                 "query": query,
                 "depth": depth,
                 "output_type": "structured",
-                "structured_output_schema": structured_output_schema,
+                "structured_output_schema": _encode_schema_for_sdk(structured_output_schema),
                 **kwargs,
             }
 
             response = client.search(**search_params)
         except Exception as e:
+            # A 400 here is almost always a schema problem, not an auth problem —
+            # say so instead of sending the caller to check their API key.
+            if "schema" in str(e).lower():
+                raise WebToolboxError(
+                    "LinkUp rejected the output schema. Pass a full JSON schema "
+                    "({'type': 'object', 'properties': {...}}) or a simple field map "
+                    f"({{'name': 'string'}}). Backend error: {e}"
+                ) from e
             self._handle_api_request_error("LinkUp", e)
 
         # LinkUp returns a LinkupStructuredOutput object with .structured_output attribute
@@ -199,7 +295,19 @@ class LinkupBackend:
 
         try:
             client = LinkupClient(api_key=api_key)
+        except Exception as e:
+            self._handle_api_request_error("LinkUp", e)
 
+        if not hasattr(client, "fetch"):
+            # Old SDK versions (0.2.x) predate the fetch endpoint; without this
+            # guard the AttributeError below is caught by the handler beneath
+            # and reported as "check your API key", which it is not.
+            raise WebToolboxError(
+                "The installed linkup-sdk has no fetch support. "
+                "Upgrade: pip install --upgrade linkup-sdk (or use backend='serper'/'tavily'/'direct')."
+            )
+
+        try:
             # Build fetch parameters
             # LinkUp fetch() returns markdown by default, no output_format parameter needed
             fetch_params = {"url": url, "render_js": render_js, **kwargs}

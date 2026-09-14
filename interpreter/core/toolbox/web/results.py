@@ -74,6 +74,75 @@ class WebToolboxError(Exception):
         return [f"WebToolboxError: {self}"]
 
 
+class ResultItem(dict):
+    """A single result entry (search hit, source, or page). Forgiving by design.
+
+    All three access styles work: item.title, item["title"], item.get("title").
+    Common key aliases are accepted too: content<->snippet, link/href->url,
+    name->title, description/text->snippet. Truly missing keys still raise
+    KeyError (or AttributeError for attribute access) as usual.
+    """
+
+    _aliases = {
+        "title": ("name", "product_title"),
+        "url": ("link", "href"),
+        "snippet": ("content", "description", "text"),
+        "content": ("snippet", "description", "text"),
+    }
+
+    def _aliased(self, key):
+        """Return the value under an aliased key, or raise KeyError."""
+        for alias in self._aliases.get(key, ()):
+            if alias in self:
+                return self[alias]
+        raise KeyError(key)
+
+    def __getitem__(self, key):
+        try:
+            return super().__getitem__(key)
+        except KeyError:
+            return self._aliased(key)
+
+    def get(self, key, default=None):
+        if key in self:
+            return self[key]
+        try:
+            return self._aliased(key)
+        except KeyError:
+            return default
+
+    def __getattr__(self, name):
+        """Allow attribute-style access (item.title), including aliases."""
+        try:
+            return self[name]
+        except KeyError as exc:
+            raise AttributeError(
+                f"'ResultItem' object has no attribute '{name}'. "
+                "Use item.title, item['title'], or item.get('title'). See item.keys()."
+            ) from exc
+
+
+def _hit_url(entries, index, method):
+    """Return the URL of one hit by integer index, else raise a guiding WebToolboxError.
+
+    Lists are deliberately not accepted: fetch pages one at a time, because
+    each one costs a page of context. A clean WebToolboxError (not
+    TypeError/IndexError) also renders via the compact traceback instead of
+    the full Jupyter one.
+    """
+    if isinstance(index, bool) or not isinstance(index, int):
+        raise WebToolboxError(
+            f"{method}() takes a single result index, e.g. {method}(0) — "
+            f"got {type(index).__name__}. Fetch pages one at a time; for a "
+            "detail inside a page use search_page(i, query)."
+        )
+    try:
+        return entries[index]["url"]
+    except IndexError:
+        detail = f"only {len(entries)} available" if entries else "none available"
+        raise WebToolboxError(f"Index {index} out of range ({detail}).") from None
+
+
 class SearchResult(dict):
     """dict subclass for web search results. Has a compact repr to avoid flooding the context window."""
 
@@ -92,18 +161,28 @@ class SearchResult(dict):
             ) from exc
 
     def fetch(self, index):
-        """Fetch the full page for search result at the given index. Returns a FetchResult."""
+        """Fetch the full page for search result at the given index (single int, e.g. 0). Returns a FetchResult."""
         results = self.get("results", [])
-        url = results[index]["url"]
+        url = _hit_url(results, index, "fetch")
         return self._web.fetch(url)
+
+    def search_page(self, index, query, **kwargs):
+        """Search within the page for search result at the given index (single int, e.g. 0). Returns a PageSearchResult."""
+        results = self.get("results", [])
+        url = _hit_url(results, index, "search_page")
+        return self._web.search_page(url, query, **kwargs)
 
     def __repr__(self):
         backend = self.get("backend", "?")
         results = self.get("results", [])
         n = len(results)
         lines = [f"SearchResult({n} results) [backend={backend}]"]
-        lines.append("  Keys: results[list of {title,url,snippet}], raw_response[dict], backend[str]")
-        lines.append("  → result.results[i] | page=result.fetch(i) → page.content | page.find(term) | page.links()")
+        lines.append(
+            "  Keys: results[ResultItem: .title or ['title']; content→snippet], raw_response[dict], backend[str]"
+        )
+        lines.append(
+            "  → result.results[i] | detail=result.search_page(i, query) | page=result.fetch(i) → page.find(term)"
+        )
         for i, r in enumerate(results[:5]):
             title = r.get("title", "")[:70]
             url = r.get("url", "")
@@ -146,6 +225,7 @@ class FetchResult(dict):
     def find(self, term, context=100, max_results=None):
         """
         Find all occurrences of term in content (case-insensitive).
+        Tip: to avoid fetching the full page at all, use web.search_page(url, query) instead.
         Returns a list of snippet strings, each with up to `context` chars of surrounding text.
         Pass max_results to cap the number of matches returned.
         """
@@ -165,12 +245,36 @@ class FetchResult(dict):
     def links(self):
         """
         Extract hyperlinks from content.
-        Returns a list of (anchor_text, url) tuples parsed from markdown [text](url) syntax.
+        Returns a list of (anchor_text, url) tuples parsed from markdown links:
+        inline [text](url) and [text](url "title") (balanced parens in URLs kept),
+        plus reference-style [text][ref] resolved via [ref]: url definitions.
+        Note: some backends strip link destinations (serper keeps [text][ref]
+        uses but drops the definitions); if this is empty, retry the fetch
+        with backend='tavily'.
         """
         import re
 
         content = self._get_content()
-        return re.findall(r"\[([^\]]*)\]\((https?://[^)]+)\)", content)
+        found = []
+        # Inline links. The URL allows one level of balanced parens (Wikipedia
+        # titles like /Python_(programming_language)) and stops before an
+        # optional "title".
+        inline = re.compile(
+            r"\[([^\]]*)\]"  # anchor text
+            r"\(\s*"
+            r"(https?://(?:\([^)]*\)|[^\s)])+)"  # URL
+            r"(?:\s+(?:\"[^\"]*\"|'[^']*'))?"  # optional title (either quote style)
+            r"\s*\)"
+        )
+        found.extend((m.group(1), m.group(2)) for m in inline.finditer(content))
+        # Reference-style links, resolved via definitions (if the backend kept them).
+        defs = dict(re.findall(r"(?m)^\s*\[([^\]]+)\]:\s*(\S+)", content))
+        if defs:
+            for m in re.finditer(r"\[([^\]]+)\]\[([^\]]*)\]", content):
+                text, ref = m.group(1), m.group(2) or m.group(1)  # [text][] → ref is text
+                if ref in defs:
+                    found.append((text, defs[ref]))
+        return found
 
     def __repr__(self):
         backend = self.get("backend", "?")
@@ -180,7 +284,10 @@ class FetchResult(dict):
             results = self.get("results", [])
             n = len(results)
             lines = [f"FetchResult({n} pages) [backend={backend}]{cached_tag}"]
-            lines.append("  Keys: results[list of {url,title,content}], raw_response[dict], backend[str]")
+            lines.append(
+                "  Keys: results[ResultItem: .title/.content or ['title']; snippet→content], "
+                "raw_response[dict], backend[str]"
+            )
             lines.append("  → result.results[i]['content'] | result.find(term) | result.links()")
             for r in results[:3]:
                 title = r.get("title", "")[:50]
@@ -231,10 +338,16 @@ class AnswerResult(dict):
             ) from exc
 
     def fetch(self, index):
-        """Fetch the full page for source at the given index. Returns a FetchResult."""
+        """Fetch the full page for source at the given index (single int, e.g. 0). Returns a FetchResult."""
         sources = self.get("sources", [])
-        url = sources[index]["url"]
+        url = _hit_url(sources, index, "fetch")
         return self._web.fetch(url)
+
+    def search_page(self, index, query, **kwargs):
+        """Search within the page for source at the given index (single int, e.g. 0). Returns a PageSearchResult."""
+        sources = self.get("sources", [])
+        url = _hit_url(sources, index, "search_page")
+        return self._web.search_page(url, query, **kwargs)
 
     def __repr__(self):
         backend = self.get("backend", "?")
@@ -242,8 +355,8 @@ class AnswerResult(dict):
         sources = self.get("sources", [])
         n_sources = len(sources)
         lines = [f"AnswerResult({n_sources} sources) [backend={backend}]"]
-        lines.append("  Keys: answer[str], sources[list of {title,url,snippet}], backend[str]")
-        lines.append("  → result.answer | page=result.fetch(i) → page.content | page.find(term) | page.links()")
+        lines.append("  Keys: answer[str], sources[ResultItem: .title or ['title']; content→snippet], backend[str]")
+        lines.append("  → result.answer | detail=result.search_page(i, query) | page=result.fetch(i) → page.find(term)")
         if answer:
             for line in answer.split("\n"):
                 lines.append(f"  {line}")
@@ -268,12 +381,20 @@ class StructuredOutputResult(dict):
             ) from exc
 
     def fetch(self, index):
-        """Fetch the full page for source at the given index. Returns a FetchResult."""
+        """Fetch the full page for source at the given index (single int, e.g. 0). Returns a FetchResult."""
         sources = self.get("sources", [])
         if not sources:
             raise WebToolboxError("No sources available in this result to fetch.")
-        url = sources[index]["url"]
+        url = _hit_url(sources, index, "fetch")
         return self._web.fetch(url)
+
+    def search_page(self, index, query, **kwargs):
+        """Search within the page for source at the given index (single int, e.g. 0). Returns a PageSearchResult."""
+        sources = self.get("sources", [])
+        if not sources:
+            raise WebToolboxError("No sources available in this result to search.")
+        url = _hit_url(sources, index, "search_page")
+        return self._web.search_page(url, query, **kwargs)
 
     def __repr__(self):
         backend = self.get("backend", "?")
@@ -281,11 +402,11 @@ class StructuredOutputResult(dict):
         # Show some of the fields to be helpful but not flood repr
         keys = list(data.keys()) if isinstance(data, dict) else []
         lines = [f"StructuredOutputResult [backend={backend}]"]
-        lines.append("  Fields: .structured_output, .sources, .backend")
+        lines.append("  Fields: .structured_output, .sources (ResultItem: .title or ['title']), .backend")
         sk = ", ".join(keys[:10]) + ("..." if len(keys) > 10 else "")
         lines.append(f"  Keys inside .structured_output: {sk or '(empty)'}")
         lines.append(
-            "  → result.structured_output | page=result.fetch(i) → page.content | page.find(term) | page.links()"
+            "  → result.structured_output | detail=result.search_page(i, query) | page=result.fetch(i) → page.find(term)"
         )
         # Pretty print a bit of JSON as preview — use 2-space indent, max 6 lines
         try:
@@ -297,6 +418,75 @@ class StructuredOutputResult(dict):
         except (TypeError, ValueError):
             lines.append(f"  {str(data)[:200]}...")
         return "\n".join(lines)
+
+
+class PageSearchResult(dict):
+    """dict subclass for within-page search results. Has a compact repr to avoid flooding the context window."""
+
+    def __init__(self, data, web=None):
+        super().__init__(data)
+        self._web = web
+
+    def __getattr__(self, name):
+        """Allow attribute-style access for dict keys (result.matches, result.url, ...)."""
+        try:
+            return self[name]
+        except KeyError as exc:
+            raise AttributeError(
+                f"'PageSearchResult' object has no attribute '{name}'. "
+                "Use attribute access (e.g. result.matches). See result.keys()."
+            ) from exc
+
+    def fetch(self):
+        """Fetch the full page these passages came from. Returns a FetchResult."""
+        return self._web.fetch(self.get("url", ""))
+
+    def __repr__(self):
+        backend = self.get("backend", "?")
+        matches = self.get("matches", [])
+        n = len(matches)
+        lines = [f"PageSearchResult({n} matches) [backend={backend}]"]
+        lines.append("  Keys: url[str], query[str], matches[ResultItem: .snippet or ['snippet']], backend[str]")
+        lines.append("  → result.matches[i]['snippet'] | page=result.fetch() → page.content")
+        for i, m in enumerate(matches[:5]):
+            heading = (m.get("heading") or "").strip()[:70]
+            snippet = (m.get("snippet") or "").replace("\n", " ").strip()[:150]
+            score = m.get("score")
+            tag = f" (score={score})" if score is not None else ""
+            prefix = f"  {i}. [{heading}]{tag}" if heading else f"  {i}.{tag}"
+            lines.append(prefix)
+            if snippet:
+                lines.append(f"     {snippet}")
+        if n > 5:
+            lines.append(f"  ... {n - 5} more")
+        return "\n".join(lines)
+
+
+def _normalize_fetch_url(url):
+    """
+    Normalize a URL for fetch: strip whitespace and prepend https:// when the
+    scheme is missing. Raise WebToolboxError for malformed URLs (empty,
+    non-http(s) scheme, missing or invalid host).
+    """
+    from urllib.parse import urlparse
+
+    if not isinstance(url, str) or not url.strip():
+        raise WebToolboxError(f"Invalid URL {url!r}: expected something like 'https://example.com'.")
+    url = url.strip()
+    if "://" not in url:
+        url = "https://" + url
+    try:
+        parts = urlparse(url)
+    except ValueError:
+        parts = None
+    if (
+        parts is None
+        or parts.scheme not in ("http", "https")
+        or not parts.netloc
+        or any(ch.isspace() for ch in parts.netloc)
+    ):
+        raise WebToolboxError(f"Invalid URL {url!r}: expected an http(s) URL like 'https://example.com'.")
+    return url
 
 
 def _normalize_tavily_single_page(result):

@@ -10,6 +10,7 @@ from babel import Locale
 
 from ..results import (
     ApiKeyError,
+    ResultItem,
     SearchResult,
     WebToolboxError,
     _default_locale_from_environment,
@@ -96,7 +97,7 @@ class BackendPlumbing:
             engine: Optional engine name for engine-specific handling
 
         Returns:
-            dict: Normalized result with "title", "url", "snippet"
+            ResultItem: Normalized result with "title", "url", "snippet"
         """
         # Handle dict results
         if isinstance(result, dict):
@@ -119,17 +120,19 @@ class BackendPlumbing:
             if "content" in result and len(snippet) > 200:
                 snippet = snippet[:200]
 
-            return {"title": title, "url": url, "snippet": snippet}
+            return ResultItem({"title": title, "url": url, "snippet": snippet})
 
         # Handle object results (LinkUp style)
         elif hasattr(result, "name"):
-            return {
-                "title": getattr(result, "name", ""),
-                "url": getattr(result, "url", ""),
-                "snippet": (getattr(result, "content", "") or getattr(result, "snippet", ""))[:200]
-                if getattr(result, "content", None) or getattr(result, "snippet", None)
-                else "",
-            }
+            return ResultItem(
+                {
+                    "title": getattr(result, "name", ""),
+                    "url": getattr(result, "url", ""),
+                    "snippet": (getattr(result, "content", "") or getattr(result, "snippet", ""))[:200]
+                    if getattr(result, "content", None) or getattr(result, "snippet", None)
+                    else "",
+                }
+            )
 
         # Unknown format
         raise ValueError(f"Result item is neither dict nor object: {type(result).__name__}")
