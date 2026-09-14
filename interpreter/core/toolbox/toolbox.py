@@ -53,8 +53,9 @@ class Toolbox:
         self.save_skills = True
 
         self.import_toolbox_api = False  # Defaults to false
-        # "names" lists just the callables; "full" restores the signatures and
-        # one-line descriptions, which cost about four times as many tokens.
+        # "names" lists the callables and their required arguments; "full"
+        # restores the exact signatures and the one-line descriptions, which
+        # cost about three times as many tokens.
         self.api_listing = "names"
         self._has_imported_toolbox_api = False  # Because we only want to do this once
 
@@ -80,13 +81,14 @@ class Toolbox:
         if self._system_message_override is not None:
             return self._system_message_override
 
-        # Names alone, by default. The full catalogue of signatures and
-        # descriptions costs about 1,400 tokens in every request, forever, to
-        # describe methods that a given session mostly will not touch; the names
-        # alone cost a quarter of that and are the part that cannot be recovered
-        # later. Everything else is one help() call away at the moment it is
-        # needed, and that call returns the live docstring, which cannot go stale
-        # the way a baked listing can.
+        # Names and required arguments, by default. The full catalogue of exact
+        # signatures and descriptions costs about 1,400 tokens in every request,
+        # forever, to describe methods a given session mostly will not touch.
+        # Everything beyond the argument list is one help() call away at the
+        # moment it is needed, and that call returns the live docstring, which
+        # cannot go stale the way a baked listing can. The argument list itself
+        # could not stay behind help(), because a model shown a bare name does
+        # not ask — it invents the arguments and burns a turn on the TypeError.
         if self.api_listing == "full":
             catalogue = "\n".join(self._get_all_toolbox_tools_signature_and_description())
         else:
@@ -111,8 +113,8 @@ class Toolbox:
 {catalogue}
 ```
 {note_block}
-Call `help(toolbox.module.method)` before using one, for its parameters, return
-shape and examples. Never guess a signature or a return format.
+`...` stands for optional arguments. Call `help(toolbox.module.method)` for
+those, the return shape and examples. Never guess a signature or a return format.
 """.strip()
 
     @system_message.setter
@@ -158,15 +160,19 @@ shape and examples. Never guess a signature or a return format.
         return tools
 
     def _get_all_toolbox_tool_names(self):
-        """Every callable as `toolbox.module.method`, with no signature or prose.
+        """Every callable as `toolbox.module.method(required, ...)`, with no prose.
 
-        The part of the catalogue a model cannot reconstruct for itself: it can
-        ask help() for any signature, but only if it knows the method is there.
+        The part of the catalogue a model cannot reconstruct for itself: the
+        name, and what it has to pass. Defaults, types and return shapes stay
+        behind help(), where they cannot go stale; what could not stay there is
+        the argument list, because a model that has never been shown one
+        invents it instead of asking — `toolbox.os.notify(title=..., message=...)`,
+        borrowed from plyer, for a method that takes one positional string.
         """
         names = []
         for tool in self._get_all_toolbox_tools_list():
             for method in self._extract_tool_info(tool)["methods"]:
-                names.append(method["signature"].split("(")[0])
+                names.append(method["brief"])
         return names
 
     def _get_all_toolbox_tools_signature_and_description(self):
@@ -216,9 +222,11 @@ shape and examples. Never guess a signature or a return format.
         for name, method in methods:
             if self._is_hidden_from_listing(f"{module}.{name}", method.__doc__):
                 continue
+            qualified = f"toolbox.{module}.{name}"
             tool_info["methods"].append(
                 {
-                    "signature": f"toolbox.{module}.{name}{self._render_parameters(method)}",
+                    "signature": qualified + self._render_parameters(method),
+                    "brief": qualified + self._render_required_parameters(method),
                     "description": self._get_first_line(method.__doc__),
                 }
             )
@@ -229,9 +237,11 @@ shape and examples. Never guess a signature or a return format.
         for name, prop in properties:
             if self._is_hidden_from_listing(f"{module}.{name}", prop.fget.__doc__):
                 continue
+            qualified = f"toolbox.{module}.{name}"
             tool_info["methods"].append(
                 {
-                    "signature": f"toolbox.{module}.{name}",
+                    "signature": qualified,
+                    "brief": qualified,
                     "description": self._get_first_line(prop.fget.__doc__),
                 }
             )
@@ -295,6 +305,30 @@ shape and examples. Never guess a signature or a return format.
                 rendered.append(param.name)
             else:
                 rendered.append(f"{param.name}={param.default!r}")
+        return "(" + ", ".join(rendered) + ")"
+
+    @staticmethod
+    def _render_required_parameters(method):
+        """Just enough of the signature to stop a model guessing the rest.
+
+        Required parameters and `*args` are named; everything optional
+        (defaults and `**kwargs`) collapses to `...`, which says "there is
+        more, ask help()" without paying per default value in every request.
+        So `toolbox.os.notify(text)`, `toolbox.keyboard.hotkey(*args, ...)`,
+        `toolbox.calendar.create_event(title, start_date, end_date, ...)` —
+        each of those was being called wrongly for want of this one line.
+        """
+        rendered = []
+        has_optional = False
+        for param in inspect.signature(method).parameters.values():
+            if param.kind == param.VAR_POSITIONAL:
+                rendered.append(f"*{param.name}")
+            elif param.kind == param.VAR_KEYWORD or param.default != param.empty:
+                has_optional = True
+            else:
+                rendered.append(param.name)
+        if has_optional:
+            rendered.append("...")
         return "(" + ", ".join(rendered) + ")"
 
     def _get_first_line(self, docstring):
