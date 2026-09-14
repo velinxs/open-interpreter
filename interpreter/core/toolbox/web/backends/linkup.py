@@ -295,7 +295,19 @@ class LinkupBackend:
 
         try:
             client = LinkupClient(api_key=api_key)
+        except Exception as e:
+            self._handle_api_request_error("LinkUp", e)
 
+        if not hasattr(client, "fetch"):
+            # Old SDK versions (0.2.x) predate the fetch endpoint; without this
+            # guard the AttributeError below is caught by the handler beneath
+            # and reported as "check your API key", which it is not.
+            raise WebToolboxError(
+                "The installed linkup-sdk has no fetch support. "
+                "Upgrade: pip install --upgrade linkup-sdk (or use backend='serper'/'tavily'/'direct')."
+            )
+
+        try:
             # Build fetch parameters
             # LinkUp fetch() returns markdown by default, no output_format parameter needed
             fetch_params = {"url": url, "render_js": render_js, **kwargs}

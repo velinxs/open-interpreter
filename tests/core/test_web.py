@@ -484,3 +484,25 @@ class TestFetchResultLinks(unittest.TestCase):
         """serper keeps [text][21] uses but strips the definitions; that is not a link."""
         page = self._page("See [docs][21] for details.", backend="serper")
         self.assertEqual(page.links(), [])
+
+
+class TestLinkupFetchGuard(unittest.TestCase):
+    """An SDK too old to fetch says so, instead of blaming the API key."""
+
+    def test_old_linkup_sdk_asks_for_an_upgrade(self):
+        """linkup-sdk 0.2.x has no fetch(); the AttributeError read as an auth failure.
+
+        Ported from classic/develop: the AttributeError was caught by the
+        handler that reports "Check your API key and internet connection", so
+        the one fix that works — upgrading the SDK — was never suggested.
+        """
+        web = Web(MagicMock())
+        client = MagicMock()
+        del client.return_value.fetch
+        with patch.dict(os.environ, {"LINKUP_API_KEY": "fake_key"}):
+            with fake_sdk("linkup", LinkupClient=client):
+                with self.assertRaises(WebToolboxError) as context:
+                    web.fetch("https://example.com", backend="linkup")
+        msg = str(context.exception)
+        self.assertIn("--upgrade linkup-sdk", msg)
+        self.assertNotIn("API key", msg)
