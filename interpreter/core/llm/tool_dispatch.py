@@ -212,6 +212,46 @@ def _mint_tool_call_id(request_params, model):
     return candidate
 
 
+def unrun_tool_calls(extra_calls, request_params, model):
+    """Chunks answering the tool calls this turn cannot run.
+
+    A turn runs exactly one block — respond() executes
+    ``interpreter.messages[-1]`` and message_stream concatenates consecutive code
+    chunks into one message, so a second call has nowhere to go. It used to be
+    discarded silently where the stream was converted: the model asked for two
+    things, one happened, and the history it read next turn contained no trace of
+    the other. It either assumed the second had run or sent it again — and on a
+    provider that streams calls without an index, re-sending it was what produced
+    the concatenated arguments string in the first place.
+
+    Each unrun call is recorded (so the provider sees a real assistant/tool pair)
+    and answered with a response saying plainly that nothing in it happened and
+    when to send it. One notice goes to the user, who would otherwise see one of
+    two requested actions quietly not occur.
+    """
+    for call in extra_calls:
+        function_call = call.get("function")
+        if not isinstance(function_call, dict):
+            function_call = {}
+        call_id = call.get("id") or _mint_tool_call_id(request_params, model)
+        yield _tool_call_chunk(call_id, function_call)
+        yield _error_chunk(
+            call_id,
+            "Not run: one tool call runs per turn and this was not the first, so nothing "
+            "in it happened. Send it again on your next turn, after reading the first "
+            "call's output.",
+        )
+    yield {
+        "role": "computer",
+        "type": "notice",
+        "format": "error",
+        "content": (
+            f"The model sent {len(extra_calls) + 1} tool calls in one turn; only the first ran. "
+            "The rest were returned to the model unrun."
+        ),
+    }
+
+
 def dispatch_function_call(llm, accumulated_deltas, request_params, tool_call_id_for_error, verbose, language):
     """Yield the chunks for the pending function call, if there is one."""
     # Process the converted function_call (if any) to yield code

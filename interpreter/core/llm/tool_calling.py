@@ -13,7 +13,7 @@ import re
 
 from ..terminal.base_language import format_execute_language_description
 from ..tools.file_edit import EDIT_LANGUAGES
-from .tool_dispatch import dispatch_function_call
+from .tool_dispatch import dispatch_function_call, unrun_tool_calls
 from .tool_messages import process_messages
 from .tool_schema import (
     VIEW_IMAGE_ALLOWED_EXTENSIONS,
@@ -25,6 +25,43 @@ from .tool_schema import (
 from .utils.merge_deltas import merge_deltas, normalize_delta_to_dict
 from .utils.parse_partial_json import parse_partial_json
 from .utils.stream_usage import record_stream_chunk_usage
+
+_PARALLEL_TOOL_CALLS_ACCEPTED = {}
+
+
+def _accepts_parallel_tool_calls(model):
+    """Whether this model's provider accepts the `parallel_tool_calls` request field.
+
+    Cached per model: the answer never changes within a run, and it is asked on
+    every request.
+    """
+    if model not in _PARALLEL_TOOL_CALLS_ACCEPTED:
+        try:
+            import litellm
+
+            supported = litellm.get_supported_openai_params(model=model) or []
+        except Exception:
+            supported = []
+        _PARALLEL_TOOL_CALLS_ACCEPTED[model] = "parallel_tool_calls" in supported
+    return _PARALLEL_TOOL_CALLS_ACCEPTED[model]
+
+
+def _declare_one_call_per_turn(llm, request_params):
+    """Tell the provider not to batch tool calls, because a turn runs exactly one.
+
+    One turn runs one block: respond() executes interpreter.messages[-1], and
+    message_stream concatenates consecutive code chunks into a single message, so
+    there is nowhere for a second call to go. The rule was enforced anyway — the
+    extra call was dropped — but never stated: the request did not carry
+    parallel_tool_calls and nothing in the tool schema mentions cardinality. A
+    model told off for batching had no way to learn the rule, so it batched again
+    on the next task.
+
+    Only sent where the provider accepts the field; setdefault so an explicit
+    choice by the caller still wins.
+    """
+    if _accepts_parallel_tool_calls(llm.model):
+        request_params.setdefault("parallel_tool_calls", False)
 
 
 def run_tool_calling_llm(llm, request_params):
@@ -39,6 +76,7 @@ def run_tool_calling_llm(llm, request_params):
             print(f"[DEBUG] reasoning parameter: {request_params['reasoning']}", flush=True)
 
     request_params["tools"] = build_request_tools(llm.interpreter, messages=request_params["messages"])
+    _declare_one_call_per_turn(llm, request_params)
 
     # Append tool-calling-specific instructions to the system message (analogous to
     # how run_text_llm appends execution_instructions in markdown/no-functions mode).
@@ -360,6 +398,14 @@ def run_tool_calling_llm(llm, request_params):
                 )
 
             if isinstance(tool_calls, list) and len(tool_calls) > 0:
+                # Everything after the first is answered rather than dropped, and
+                # answered *first*: respond() runs interpreter.messages[-1], so
+                # the code chunk dispatch_function_call yields below has to be the
+                # last thing this turn stores. Yielding these afterwards would
+                # leave a role:tool message trailing and nothing would run.
+                extra_calls = [call for call in tool_calls[1:] if isinstance(call, dict)]
+                if extra_calls:
+                    yield from unrun_tool_calls(extra_calls, request_params, getattr(llm, "model", None))
                 tool_call = tool_calls[0]
                 # Extract tool_call_id for potential error response
                 if isinstance(tool_call, dict) and "id" in tool_call:
