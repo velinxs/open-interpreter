@@ -165,12 +165,16 @@ def test_every_outgoing_tool_call_carries_parseable_arguments():
             json.loads(arguments)  # this is the call that used to raise
 
 
-def test_a_malformed_call_still_shows_the_model_its_own_text():
-    """Making arguments parseable must not hide what the model actually sent.
+def test_a_malformed_call_leaves_nothing_imitable_in_the_assistant_slot():
+    """Making arguments parseable must not leave a shape the model will copy.
 
-    The point of recording the real call was that a fabricated one told the
-    model it had written something it never wrote. Wrapping the raw text keeps
-    it visible; replacing it would reintroduce that.
+    The raw text used to be kept here, wrapped as {"_unparsed_arguments": ...},
+    so the model could see what it had sent. But this is the model's own
+    assistant slot: it reads it as its own prior output and imitates it, and a
+    thrashing turn filled that history with wrapper-shaped calls the model then
+    started sending for real. An empty object is the one shape there is no harm
+    in it repeating. What it sent reaches it through the paired error instead —
+    see test_the_corrective_turn_shows_the_call_the_model_really_made.
     """
     import json
 
@@ -186,4 +190,5 @@ def test_a_malformed_call_still_shows_the_model_its_own_text():
     converted = convert_to_openai_messages(messages, function_calling=True, interpreter=_converter_stub())
     arguments = [c["function"]["arguments"] for m in converted for c in (m.get("tool_calls") or [])]
     assert arguments, "the tool call was not rebuilt at all"
-    assert raw in arguments[0], f"the model's own text was dropped: {arguments[0]!r}"
+    assert json.loads(arguments[0]) == {}, arguments[0]
+    assert "_unparsed_arguments" not in arguments[0], arguments[0]

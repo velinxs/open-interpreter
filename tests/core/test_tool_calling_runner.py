@@ -281,13 +281,16 @@ def test_the_corrective_turn_shows_the_call_the_model_really_made(offline_interp
     assert len(assistant_calls) == 1 and len(tool_responses) == 1, outgoing
     call = assistant_calls[0]["tool_calls"][0]
     assert call["function"]["name"] == "execute"
-    # Wrapped, not raw: litellm's Ollama transform json.loads() this field, so
-    # malformed JSON here raises on every later request. The model's own text
-    # still has to be visible, which is the point of recording the real call.
+    # "{}", not the raw text: litellm's Ollama transform json.loads() this field,
+    # so malformed JSON here raises on every later request. Not the old
+    # {"_unparsed_arguments": ...} wrapper either — this is the model's own
+    # assistant slot and it imitates what it finds there. The text it sent
+    # reaches it through the paired error instead.
     arguments = call["function"]["arguments"]
-    assert json.loads(arguments) == {"_unparsed_arguments": "not json at all {{{"}
+    assert json.loads(arguments) == {}
     assert call["id"] == tool_responses[0]["tool_call_id"]
     assert "not valid JSON" in tool_responses[0]["content"]
+    assert "not json at all {{{" in tool_responses[0]["content"]
 
 
 def test_a_nameless_call_is_not_shown_to_the_model_as_an_execute_call(offline_interpreter):
@@ -379,12 +382,16 @@ def test_concatenated_argument_objects_are_named_as_the_mistake(offline_interpre
 
 
 def test_the_unparsed_arguments_wrapper_is_not_read_back_as_fields(offline_interpreter):
-    """A model imitating the wrapper in its history is told what is really wrong.
+    """A model imitating the wrapper from an old conversation is told what is really wrong.
 
-    Malformed arguments are recorded as {"_unparsed_arguments": "..."} so the
-    outgoing request still parses. Models copy what they see, so that came back
-    as a real call and the reply was "missing required fields, got
-    ['_unparsed_arguments']" — a key the model cannot do anything about.
+    Malformed arguments used to be recorded as {"_unparsed_arguments": "..."} so
+    the outgoing request still parsed. Models copy what they see, so that came
+    back as a real call and the reply was "missing required fields, got
+    ['_unparsed_arguments']" — a key the model cannot do anything about. Nothing
+    writes the wrapper any more, but conversations saved while it did still carry
+    it, so it must still be recognised and answered with something usable. The
+    key itself stays out of the reply: naming it would be one more place the
+    model could read it as a shape worth sending.
     """
     install_fake_llm(offline_interpreter, [])
     offline_interpreter.llm.supports_functions = True
@@ -400,4 +407,58 @@ def test_the_unparsed_arguments_wrapper_is_not_read_back_as_fields(offline_inter
     assert tool_messages, "the model was never told anything"
     content = tool_messages[-1]["content"]
     assert "_unparsed_arguments" not in content, f"the wrapper leaked to the model: {content}"
-    assert "not valid JSON" in content, content
+    assert "nested inside another object" in content, content
+    assert "not json at all {{{" in content, content
+
+
+def test_a_wrapper_around_valid_arguments_is_corrected_not_executed(offline_interpreter):
+    """A wrapped-but-valid payload is refused, so the wrapper never looks like it works.
+
+    This was the reinforcement loop. The wrapper was unwrapped before the
+    arguments were validated, so a model that copied it round a payload that
+    happened to be fine had its code run with no complaint — the shape was
+    rewarded. It only failed later, when it wrapped something broken, and by then
+    the habit was established. Refusing it costs one turn and corrects the shape.
+    """
+    install_fake_llm(offline_interpreter, [])
+    offline_interpreter.llm.supports_functions = True
+    wrapped = json.dumps({"_unparsed_arguments": '{"language": "python", "code": "print(7*7)"}'})
+    completions = ScriptedStreams(
+        [_raw_tool_call_stream("execute", wrapped), _text_stream("Resending directly.")]
+    )
+    offline_interpreter.llm.completions = completions
+
+    offline_interpreter.chat("go", display=False, stream=False)
+
+    assert not any(
+        m.get("type") == "console" and "49" in str(m.get("content")) for m in offline_interpreter.messages
+    ), "the wrapped call ran"
+    tool_messages = [m for m in offline_interpreter.messages if m.get("role") == "tool"]
+    assert tool_messages, "the model was never told anything"
+    assert "nested inside another object" in tool_messages[-1]["content"]
+
+
+def test_a_malformed_call_never_puts_a_shape_to_copy_in_the_assistant_slot(offline_interpreter):
+    """Repeated bad calls leave nothing imitable in the model's own history.
+
+    The loop the fork's owner hit: every failure was written back into the
+    assistant slot as {"_unparsed_arguments": "..."}, so by the eighth request
+    the model's recent history was seven wrapper-shaped calls of its own and it
+    kept sending more. What the model reads as its own prior output must stay a
+    shape we are happy for it to repeat.
+    """
+    install_fake_llm(offline_interpreter, [])
+    offline_interpreter.llm.supports_functions = True
+    completions = ScriptedStreams(
+        [_raw_tool_call_stream("execute", "not json at all {{{", call_id=f"c{i}") for i in range(3)]
+        + [_text_stream("Giving up on that shape.")]
+    )
+    offline_interpreter.llm.completions = completions
+
+    offline_interpreter.chat("go", display=False, stream=False)
+
+    assert len(completions.calls) > 1, "the model was never given a second turn"
+    for request in completions.calls[1:]:
+        for message in request["messages"]:
+            for call in message.get("tool_calls") or []:
+                assert "_unparsed_arguments" not in call["function"]["arguments"], request["messages"]

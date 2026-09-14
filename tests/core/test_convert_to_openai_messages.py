@@ -212,10 +212,13 @@ def test_a_tool_call_record_is_rebuilt_as_a_real_assistant_tool_call():
     pairing rule — a call the model never made, shown immediately above the
     error saying its call was invalid.
 
-    The model's text has to survive for the pair to make sense, but it cannot go
-    out raw: litellm's Ollama transform calls json.loads on this field, so
-    malformed JSON here raises on every later request and wedges the session. It
-    is wrapped instead, which keeps both properties.
+    The text cannot go out raw: litellm's Ollama transform calls json.loads on
+    this field, so malformed JSON here raises on every later request and wedges
+    the session. It used to be wrapped as {"_unparsed_arguments": "..."} so the
+    model could still see it, but this is the model's own assistant slot and
+    models imitate what they find there — a thrashing turn built up seven
+    wrapper-shaped calls and the model started sending wrappers itself. "{}" goes
+    out instead, and the paired tool response is what carries the text.
     """
     messages = [
         {
@@ -243,7 +246,8 @@ def test_a_tool_call_record_is_rebuilt_as_a_real_assistant_tool_call():
 
     arguments = call["function"]["arguments"]
     parsed = json.loads(arguments)  # every provider must be able to parse this
-    assert parsed == {"_unparsed_arguments": '{"language": "python", "code": '}
+    assert parsed == {}
+    assert "_unparsed_arguments" not in arguments
 
     assert out[1]["role"] == "tool"
     assert out[1]["tool_call_id"] == "call_7"
