@@ -28,6 +28,7 @@ from .python_preprocess import (
     strip_redundant_imports,
     wrap_in_try_except,
 )
+from .python_state import PythonStateMixin
 from .subprocess_language import DEFAULT_IDLE_TIMEOUT, _env_seconds
 
 DEBUG_MODE = False
@@ -44,7 +45,7 @@ if "ipykernel_launcher" in sys.argv:
     sys.exit(0)
 
 
-class JupyterLanguage(BaseLanguage):
+class JupyterLanguage(PythonStateMixin, BaseLanguage):
     file_extension = "py"
     name = "python"
 
@@ -507,67 +508,6 @@ ip.display_formatter.active_types = ['text/markdown', 'text/plain', 'image/png',
     def stop(self):
         self.finish_flag = True
 
-    def _get_active_state(self):
-        state_code = """
-import types as __oi_types
-import os as __oi_os
-__oi_globals = globals()
-__oi_cwd = __oi_os.getcwd()
-__oi_exclude = ['In', 'Out', 'get_ipython', 'exit', 'quit', 'open', 'original_ps1', 'is_wsl', 'REPLHooks', 'get_last_command', 'PS1', 'ip', 'plt']
-__oi_mods = []
-__oi_funcs = []
-__oi_vars = []
-
-for __oi_k, __oi_v in __oi_globals.items():
-    if __oi_k.startswith('_') or __oi_k in __oi_exclude:
-        continue
-    if isinstance(__oi_v, __oi_types.ModuleType):
-        __oi_mods.append(__oi_k)
-    elif callable(__oi_v):
-        __oi_funcs.append(__oi_k)
-    else:
-        __oi_vars.append(__oi_k)
-
-__oi_parts = [f"CWD: {__oi_cwd}"]
-if __oi_mods:
-    __oi_parts.append(f"Already imported: {', '.join(__oi_mods)}")
-if __oi_vars:
-    __oi_parts.append(f"Variables: {', '.join(__oi_vars)}")
-if __oi_funcs:
-    __oi_parts.append(f"Functions/Classes: {', '.join(__oi_funcs)}")
-
-__oi_res = f"\\n[Python REPL State: {' | '.join(__oi_parts)}]"
-print(__oi_res)
-"""
-        message_queue = queue.Queue()
-        self.finish_flag = False
-        self._execute_code(state_code.strip(), message_queue)
-
-        for output in self._capture_output(message_queue):
-            if output.get("type") == "console" and output.get("format") == "output":
-                yield output
-
-    _STATE_MODULES_RE = re.compile(r"Already imported:\s*([^|\]]*)")
-
-    def _maybe_update_imported_modules(self, output):
-        """Refresh the tracked module set from the kernel's REPL-state line.
-
-        The kernel reports exactly which modules are bound in its user
-        namespace after every run, so when that line appears we adopt it
-        wholesale — this corrects optimistic entries recorded from blocks that
-        failed to execute (e.g. an `import sklearn` that raised).
-        """
-        if not isinstance(output, dict):
-            return
-        content = output.get("content")
-        if not isinstance(content, str):
-            return
-        m = self._STATE_MODULES_RE.search(content)
-        if not m:
-            return
-        modules = [name.strip() for name in m.group(1).split(",") if name.strip()]
-        if modules:
-            self.imported_modules = set(modules)
 
     def strip_boilerplate(self, code):
         """Return (stripped_code, notice) after removing redundant top-level imports.
