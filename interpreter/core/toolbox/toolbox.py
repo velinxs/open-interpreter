@@ -81,12 +81,12 @@ class Toolbox:
             return self._system_message_override
 
         # Names alone, by default. The full catalogue of signatures and
-        # descriptions costs 1,519 tokens in every request, forever, to describe
-        # 61 methods that a given session mostly will not touch; the names alone
-        # cost 346 and are the part that cannot be recovered later. Everything
-        # else is one help() call away at the moment it is needed, and that call
-        # returns the live docstring, which cannot go stale the way a baked
-        # listing can.
+        # descriptions costs about 1,400 tokens in every request, forever, to
+        # describe methods that a given session mostly will not touch; the names
+        # alone cost a quarter of that and are the part that cannot be recovered
+        # later. Everything else is one help() call away at the moment it is
+        # needed, and that call returns the live docstring, which cannot go stale
+        # the way a baked listing can.
         if self.api_listing == "full":
             catalogue = "\n".join(self._get_all_toolbox_tools_signature_and_description())
         else:
@@ -210,71 +210,92 @@ shape and examples. Never guess a signature or a return format.
                         tool_info["module_doc"] = first_line
             except:
                 pass
-        if tool.__class__.__name__ == "Browser":
-            methods = []
-            for name in dir(tool):
-                if "driver" in name:
-                    continue  # Skip methods containing 'driver' in their name
-                attr = getattr(tool, name)
-                if (
-                    callable(attr)
-                    and not name.startswith("_")
-                    and not hasattr(attr, "__wrapped__")
-                    and not isinstance(attr, property)
-                ):
-                    # Construct the method signature manually
-                    param_str = ", ".join(param for param in attr.__code__.co_varnames[: attr.__code__.co_argcount])
-                    full_signature = f"toolbox.{tool.__class__.__name__.lower()}.{name}({param_str})"
-                    # Get the method description (first line only)
-                    method_description = self._get_first_line(attr.__doc__)
-                    # Get return format information if available
-                    # Append the method details
-                    tool_info["methods"].append(
-                        {
-                            "signature": full_signature,
-                            "description": method_description,
-                        }
-                    )
-            return tool_info
+        module = tool.__class__.__name__.lower()
+        methods, properties = self._public_members(tool)
 
-        for name, method in inspect.getmembers(tool, predicate=inspect.ismethod):
-            # Check if the method should be ignored based on its decorator
-            if not name.startswith("_") and not hasattr(method, "__wrapped__"):
-                # Get the method signature
-                method_signature = inspect.signature(method)
-                # Construct the signature string without *args and **kwargs
-                param_str = ", ".join(
-                    f"{param.name}" if param.default == param.empty else f"{param.name}={param.default!r}"
-                    for param in method_signature.parameters.values()
-                    if param.kind not in (param.VAR_POSITIONAL, param.VAR_KEYWORD)
-                )
-                full_signature = f"toolbox.{tool.__class__.__name__.lower()}.{name}({param_str})"
-                # Get the method description (first line only)
-                method_description = self._get_first_line(method.__doc__)
-                # Get return format information if available
-                # Append the method details
-                tool_info["methods"].append(
-                    {
-                        "signature": full_signature,
-                        "description": method_description,
-                    }
-                )
+        for name, method in methods:
+            if self._is_hidden_from_listing(f"{module}.{name}", method.__doc__):
+                continue
+            tool_info["methods"].append(
+                {
+                    "signature": f"toolbox.{module}.{name}{self._render_parameters(method)}",
+                    "description": self._get_first_line(method.__doc__),
+                }
+            )
 
         # ------------------------------------------------------------------
         # Include read-only @property attributes (e.g., ai2.available_models)
         # ------------------------------------------------------------------
-        for attr_name, attr_value in inspect.getmembers(tool.__class__):
-            if isinstance(attr_value, property) and not attr_name.startswith("_"):
-                full_signature = f"toolbox.{tool.__class__.__name__.lower()}.{attr_name}"
-                prop_doc = self._get_first_line(attr_value.fget.__doc__)
-                # Get return format information if available
-                tool_info["methods"].append(
-                    {
-                        "signature": full_signature,
-                        "description": prop_doc,
-                    }
-                )
+        for name, prop in properties:
+            if self._is_hidden_from_listing(f"{module}.{name}", prop.fget.__doc__):
+                continue
+            tool_info["methods"].append(
+                {
+                    "signature": f"toolbox.{module}.{name}",
+                    "description": self._get_first_line(prop.fget.__doc__),
+                }
+            )
         return tool_info
+
+    @staticmethod
+    def _public_members(tool):
+        """The public methods and properties of a tool, without evaluating any.
+
+        Attributes are read off the class with getattr_static, so a lazy
+        property is never triggered merely to be catalogued: `browser.driver`
+        would otherwise launch Chrome every time the system message is built.
+        That hazard is why Browser used to have its own branch here, which
+        built signatures from `co_varnames` and so advertised `self` as the
+        first parameter of every browser method.
+        """
+        methods, properties = [], []
+        for name in sorted(dir(tool.__class__)):
+            if name.startswith("_"):
+                continue
+            attr = inspect.getattr_static(tool, name, None)
+            if isinstance(attr, property):
+                properties.append((name, attr))
+            elif inspect.isfunction(attr) and not hasattr(attr, "__wrapped__"):
+                methods.append((name, getattr(tool, name)))
+        return methods, properties
+
+    # Callables that exist for the implementation rather than for the model:
+    # lazy bootstraps that every real call already performs for itself. Their
+    # docstrings carry no marker, so they are named here. Anything whose
+    # docstring opens with "[INTERNAL" or "DEPRECATED" is dropped without
+    # needing an entry.
+    _LISTING_EXCLUDED = frozenset({"browser.driver", "browser.setup", "vision.load", "ai2.client"})
+
+    @classmethod
+    def _is_hidden_from_listing(cls, qualified_name, docstring):
+        """Advertising a method the model must not call costs a turn and tokens."""
+        if qualified_name in cls._LISTING_EXCLUDED:
+            return True
+        first_line = (docstring or "").strip()
+        return first_line.startswith("[INTERNAL") or first_line.startswith("DEPRECATED")
+
+    @staticmethod
+    def _render_parameters(method):
+        """The exact signature, `*args` and `**kwargs` included.
+
+        Those two were dropped, which hid the *primary* argument of several
+        tools: `keyboard.hotkey(*args, interval=0.1)` listed as
+        `hotkey(interval=0.1)` gives a model no way to pass the keys, and
+        `mouse.click` no way to pass the target. A signature with the only
+        useful parameter missing is worse than no signature, because it looks
+        complete.
+        """
+        rendered = []
+        for param in inspect.signature(method).parameters.values():
+            if param.kind == param.VAR_POSITIONAL:
+                rendered.append(f"*{param.name}")
+            elif param.kind == param.VAR_KEYWORD:
+                rendered.append(f"**{param.name}")
+            elif param.default == param.empty:
+                rendered.append(param.name)
+            else:
+                rendered.append(f"{param.name}={param.default!r}")
+        return "(" + ", ".join(rendered) + ")"
 
     def _get_first_line(self, docstring):
         """One short sentence for the API listing; help() has the rest."""
