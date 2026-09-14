@@ -5,7 +5,7 @@ import os
 
 import requests
 
-from ..results import ApiKeyError, WebToolboxError
+from ..results import ApiKeyError, ResultItem, WebToolboxError
 
 
 class TavilyBackend:
@@ -122,11 +122,13 @@ class TavilyBackend:
                 raise ValueError(
                     f"Tavily result item is not a dict: {type(result).__name__}. Result: {str(result)[:200]}"
                 )
-            source = {
-                "title": result.get("title", ""),
-                "url": result.get("url", ""),
-                "snippet": result.get("content", "")[:200] if result.get("content") else "",
-            }
+            source = ResultItem(
+                {
+                    "title": result.get("title", ""),
+                    "url": result.get("url", ""),
+                    "snippet": result.get("content", "")[:200] if result.get("content") else "",
+                }
+            )
             normalized["sources"].append(source)
 
         return normalized
@@ -214,12 +216,14 @@ class TavilyBackend:
                     f"Tavily result item is not a dict: {type(result).__name__}. Result: {str(result)[:200]}"
                 )
             normalized["results"].append(
-                {
-                    "url": result.get("url", ""),
-                    "title": result.get("title", ""),
-                    "content": result.get("raw_content", "")
-                    or result.get("content", ""),  # Tavily returns "raw_content"
-                }
+                ResultItem(
+                    {
+                        "url": result.get("url", ""),
+                        "title": result.get("title", ""),
+                        "content": result.get("raw_content", "")
+                        or result.get("content", ""),  # Tavily returns "raw_content"
+                    }
+                )
             )
 
         # If some URLs failed but we have some results, include failed_results in raw_response

@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from interpreter.core.toolbox.web.web import StructuredOutputResult, Web, WebToolboxError
+from interpreter.core.toolbox.web.web import ResultItem, StructuredOutputResult, Web, WebToolboxError
 
 
 class TestWebToolbox(unittest.TestCase):
@@ -182,3 +182,53 @@ class TestKeylessFetch(unittest.TestCase):
             with pytest.raises(WebToolboxError) as excinfo:
                 self.web.fetch("example.com")
         assert "http" in str(excinfo.value).lower()
+
+
+class TestResultItem(unittest.TestCase):
+    """Result entries answer to whichever key the model guessed.
+
+    Ported from classic/develop: models kept writing `r.title` on a plain dict
+    and getting AttributeError, or `r["content"]` on a search hit whose key is
+    `snippet`. Both now work, and a wrong guess still fails loudly.
+    """
+
+    def setUp(self):
+        self.web = Web(MagicMock())
+
+    def test_result_item_model_style_access(self):
+        """Normalized items support the attribute access models kept guessing (r.title)."""
+        item = self.web._normalize_result_item({"title": "T", "link": "http://x", "snippet": "S"})
+        self.assertIsInstance(item, ResultItem)
+        # Attribute access (the style that raised AttributeError on plain dicts)
+        self.assertEqual(item.title, "T")
+        self.assertEqual(item.url, "http://x")
+        self.assertEqual(item.snippet, "S")
+        # Key access still works
+        self.assertEqual(item["title"], "T")
+        self.assertEqual(item.get("url"), "http://x")
+
+    def test_result_item_key_aliases(self):
+        """Common key guesses resolve: content<->snippet, link/href->url, name->title."""
+        item = self.web._normalize_result_item({"title": "T", "link": "http://x", "snippet": "S"})
+        self.assertEqual(item["content"], "S")
+        self.assertEqual(item.content, "S")
+        linky = ResultItem({"title": "T", "link": "http://x", "description": "D"})
+        self.assertEqual(linky.url, "http://x")
+        self.assertEqual(linky["url"], "http://x")
+        self.assertEqual(linky.snippet, "D")
+        self.assertEqual(ResultItem({"name": "N", "url": "http://x", "snippet": "S"}).title, "N")
+        # Reverse direction: fetch-style entries expose snippet as an alias of content
+        page = ResultItem({"url": "http://x", "title": "T", "content": "C"})
+        self.assertEqual(page.snippet, "C")
+        self.assertEqual(page["snippet"], "C")
+        self.assertEqual(page.get("snippet"), "C")
+
+    def test_result_item_truly_missing_keys_still_error(self):
+        """Forgiveness has limits: unknown keys raise KeyError/AttributeError, get() defaults."""
+        item = ResultItem({"title": "T"})
+        with self.assertRaises(KeyError):
+            item["nope"]
+        with self.assertRaises(AttributeError):
+            item.nope
+        self.assertIsNone(item.get("nope"))
+        self.assertEqual(item.get("nope", "fallback"), "fallback")

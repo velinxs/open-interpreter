@@ -74,6 +74,54 @@ class WebToolboxError(Exception):
         return [f"WebToolboxError: {self}"]
 
 
+class ResultItem(dict):
+    """A single result entry (search hit, source, or page). Forgiving by design.
+
+    All three access styles work: item.title, item["title"], item.get("title").
+    Common key aliases are accepted too: content<->snippet, link/href->url,
+    name->title, description/text->snippet. Truly missing keys still raise
+    KeyError (or AttributeError for attribute access) as usual.
+    """
+
+    _aliases = {
+        "title": ("name", "product_title"),
+        "url": ("link", "href"),
+        "snippet": ("content", "description", "text"),
+        "content": ("snippet", "description", "text"),
+    }
+
+    def _aliased(self, key):
+        """Return the value under an aliased key, or raise KeyError."""
+        for alias in self._aliases.get(key, ()):
+            if alias in self:
+                return self[alias]
+        raise KeyError(key)
+
+    def __getitem__(self, key):
+        try:
+            return super().__getitem__(key)
+        except KeyError:
+            return self._aliased(key)
+
+    def get(self, key, default=None):
+        if key in self:
+            return self[key]
+        try:
+            return self._aliased(key)
+        except KeyError:
+            return default
+
+    def __getattr__(self, name):
+        """Allow attribute-style access (item.title), including aliases."""
+        try:
+            return self[name]
+        except KeyError as exc:
+            raise AttributeError(
+                f"'ResultItem' object has no attribute '{name}'. "
+                "Use item.title, item['title'], or item.get('title'). See item.keys()."
+            ) from exc
+
+
 class SearchResult(dict):
     """dict subclass for web search results. Has a compact repr to avoid flooding the context window."""
 
@@ -102,7 +150,9 @@ class SearchResult(dict):
         results = self.get("results", [])
         n = len(results)
         lines = [f"SearchResult({n} results) [backend={backend}]"]
-        lines.append("  Keys: results[list of {title,url,snippet}], raw_response[dict], backend[str]")
+        lines.append(
+            "  Keys: results[ResultItem: .title or ['title']; content→snippet], raw_response[dict], backend[str]"
+        )
         lines.append("  → result.results[i] | page=result.fetch(i) → page.content | page.find(term) | page.links()")
         for i, r in enumerate(results[:5]):
             title = r.get("title", "")[:70]
@@ -180,7 +230,10 @@ class FetchResult(dict):
             results = self.get("results", [])
             n = len(results)
             lines = [f"FetchResult({n} pages) [backend={backend}]{cached_tag}"]
-            lines.append("  Keys: results[list of {url,title,content}], raw_response[dict], backend[str]")
+            lines.append(
+                "  Keys: results[ResultItem: .title/.content or ['title']; snippet→content], "
+                "raw_response[dict], backend[str]"
+            )
             lines.append("  → result.results[i]['content'] | result.find(term) | result.links()")
             for r in results[:3]:
                 title = r.get("title", "")[:50]
@@ -242,7 +295,7 @@ class AnswerResult(dict):
         sources = self.get("sources", [])
         n_sources = len(sources)
         lines = [f"AnswerResult({n_sources} sources) [backend={backend}]"]
-        lines.append("  Keys: answer[str], sources[list of {title,url,snippet}], backend[str]")
+        lines.append("  Keys: answer[str], sources[ResultItem: .title or ['title']; content→snippet], backend[str]")
         lines.append("  → result.answer | page=result.fetch(i) → page.content | page.find(term) | page.links()")
         if answer:
             for line in answer.split("\n"):
@@ -281,7 +334,7 @@ class StructuredOutputResult(dict):
         # Show some of the fields to be helpful but not flood repr
         keys = list(data.keys()) if isinstance(data, dict) else []
         lines = [f"StructuredOutputResult [backend={backend}]"]
-        lines.append("  Fields: .structured_output, .sources, .backend")
+        lines.append("  Fields: .structured_output, .sources (ResultItem: .title or ['title']), .backend")
         sk = ", ".join(keys[:10]) + ("..." if len(keys) > 10 else "")
         lines.append(f"  Keys inside .structured_output: {sk or '(empty)'}")
         lines.append(
