@@ -150,7 +150,50 @@ def _sanitize_conversation_title_slug(interpreter, raw):
     return s.rstrip("._-")
 
 
+_CONVERSATION_TITLE_ECHO_RUN_WORDS = 6
+
+_CONVERSATION_TITLE_ATTEMPTS = 3
+
+_CONVERSATION_TITLE_ECHO_CORRECTION = (
+    "That title was a direct quote from the transcript. Output a topic heading "
+    "in your own words that does not appear anywhere in the transcript."
+)
+
+
+def _conversation_title_slug_is_echo(interpreter, slug, transcript):
+    """True if the slug quotes the transcript verbatim (the model echoed the chat).
+
+    Models sometimes answer the title request by repeating a line that reads
+    like a summary — "Your crest-factor statement is correct and it's the
+    cleanest summary of the whole…" — which is useless as a filename. Six
+    consecutive words is the threshold: long enough that a genuine short topic
+    heading can never hit it by accident, short enough to catch a quoted
+    sentence. The slug's last word is ignored because the slug is truncated at
+    a character limit and may end mid-word.
+    """
+    if not slug:
+        return False
+    n = _CONVERSATION_TITLE_ECHO_RUN_WORDS
+    slug_words = re.findall(r"[a-z0-9'-]+", slug.lower())[:-1]
+    if len(slug_words) < n:
+        return False
+    runs = {tuple(slug_words[i : i + n]) for i in range(len(slug_words) - n + 1)}
+    for line in transcript.split("\n\n"):
+        line_words = re.findall(r"[a-z0-9'-]+", line.lower())
+        for j in range(len(line_words) - n + 1):
+            if tuple(line_words[j : j + n]) in runs:
+                return True
+    return False
+
+
 def _run_llm_for_conversation_title_slug(interpreter, transcript):
+    """Ask the model for a title slug, up to three times. "" if none is usable.
+
+    An attempt is spent either on a temporary provider error (retried with
+    backoff) or on a title that turns out to be a quote of the chat, which is
+    sent back with a corrective instruction. The loop used to be unbounded,
+    which meant a provider that kept failing hung the rename indefinitely.
+    """
     title_messages = [
         {
             "role": "system",
@@ -165,7 +208,7 @@ def _run_llm_for_conversation_title_slug(interpreter, transcript):
     ]
     interpreter.display_message("> Generating a short title for this conversation…")
     retry_count = 0
-    while True:
+    for _ in range(_CONVERSATION_TITLE_ATTEMPTS):
         content = ""
         try:
             for chunk in interpreter.llm.run(title_messages, auxiliary_title_request=True):
@@ -175,17 +218,29 @@ def _run_llm_for_conversation_title_slug(interpreter, transcript):
                     continue
                 if "content" in chunk:
                     content += chunk.get("content") or ""
-            break  # success
         except Exception as e:
             if _is_temporary_provider_error(e):
                 retry_count += 1
                 _render_temporary_retry_status(retry_count)
                 time.sleep(min(2**retry_count, 30))
-            else:
-                return ""
-    if not content:
-        return ""
-    return interpreter._sanitize_conversation_title_slug(content)
+                continue
+            return ""
+        if not content:
+            return ""
+        slug = interpreter._sanitize_conversation_title_slug(content)
+        if not interpreter._conversation_title_slug_is_echo(slug, transcript):
+            return slug
+        # The model quoted the chat back at us. Push back and try again, so the
+        # filename ends up a topic rather than a sentence from the transcript.
+        interpreter.display_message("> That title quoted the chat; retrying for a topic…")
+        title_messages.append(
+            {
+                "role": "user",
+                "type": "message",
+                "content": _CONVERSATION_TITLE_ECHO_CORRECTION,
+            }
+        )
+    return ""
 
 
 def rename_conversation_file_from_llm_title(interpreter, use_full_transcript=False, manual_title=None):

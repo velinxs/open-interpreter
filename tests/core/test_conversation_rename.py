@@ -75,6 +75,101 @@ def test_conversation_title_transcript_unchanged_under_cap():
     assert _conversation_title_transcript_trim_to_cap(body, 100) == body
 
 
+def test_conversation_title_slug_echo_detected():
+    """A slug that quotes a transcript line verbatim must be flagged for retry.
+
+    Models sometimes answer the title request by repeating an assistant line
+    that reads like a summary (observed: "Your crest-factor statement is
+    correct and it's the cleanest summary..."), which makes a useless filename.
+    """
+    oi = OpenInterpreter()
+    transcript = (
+        "User: check my audio gain math\n\n"
+        "Assistant: Your crest-factor statement is correct and it's the cleanest "
+        "summary of the whole chain"
+    )
+    slug = oi._sanitize_conversation_title_slug(
+        "Your_crest-factor_statement_is_correct_and_it's_the_cleanest_summary_of_the_whole_chain"
+    )
+    assert oi._conversation_title_slug_is_echo(slug, transcript)
+
+
+def test_conversation_title_slug_not_echo():
+    """A genuine topic heading must not be flagged, so good titles cost no retry."""
+    oi = OpenInterpreter()
+    transcript = "User: check my audio gain math\n\nAssistant: Your math checks out"
+    slug = oi._sanitize_conversation_title_slug("Audio gain chain verification")
+    assert not oi._conversation_title_slug_is_echo(slug, transcript)
+
+
+def test_conversation_title_slug_shorter_than_the_run_is_never_echo():
+    """Under six words a slug cannot be judged a quote, even reusing the wording.
+
+    Short topic headings legitimately reuse the transcript's nouns; flagging
+    them would send every good title back for a pointless retry.
+    """
+    oi = OpenInterpreter()
+    transcript = "User: check my audio gain math\n\nAssistant: your audio gain math is fine"
+    slug = oi._sanitize_conversation_title_slug("audio gain math")
+    assert not oi._conversation_title_slug_is_echo(slug, transcript)
+
+
+def test_conversation_title_retries_an_echo_then_gives_up(monkeypatch):
+    """An echoing model is asked again with a correction, and the loop is bounded.
+
+    The retry is what turns a quoted title into a topic; the bound is what stops
+    a model that always quotes from renaming the file forever.
+    """
+    oi = OpenInterpreter(offline=True)
+    oi.display_message = lambda _message: None
+    transcript = (
+        "User: check my audio gain math\n\n"
+        "Assistant: Your crest-factor statement is correct and it's the cleanest "
+        "summary of the whole chain"
+    )
+    seen = []
+
+    def always_echo(messages, **kwargs):
+        seen.append([m["content"] for m in messages])
+        yield {
+            "type": "message",
+            "content": (
+                "Your crest-factor statement is correct and it's the cleanest "
+                "summary of the whole chain"
+            ),
+        }
+
+    monkeypatch.setattr(oi.llm, "run", always_echo)
+
+    assert oi._run_llm_for_conversation_title_slug(transcript) == ""
+    assert len(seen) == 3
+    assert "does not appear anywhere in the transcript" in seen[-1][-1]
+
+
+def test_conversation_title_accepts_a_topic_after_one_echo(monkeypatch):
+    """Once the model stops quoting, that title is used — the retry is the point."""
+    oi = OpenInterpreter(offline=True)
+    oi.display_message = lambda _message: None
+    transcript = (
+        "User: check my audio gain math\n\n"
+        "Assistant: Your crest-factor statement is correct and it's the cleanest "
+        "summary of the whole chain"
+    )
+    replies = iter(
+        [
+            "Your crest-factor statement is correct and it's the cleanest summary of the whole chain",
+            "Audio crest factor analysis",
+        ]
+    )
+
+    def reply(messages, **kwargs):
+        yield {"type": "message", "content": next(replies)}
+
+    monkeypatch.setattr(oi.llm, "run", reply)
+
+    assert oi._run_llm_for_conversation_title_slug(transcript) == "Audio_crest_factor_analysis"
+
+
 def test_rename_with_manual_title(interpreter_with_conversation_file):
     """A user-supplied title becomes the filename prefix (after slug sanitization)."""
     oi = interpreter_with_conversation_file

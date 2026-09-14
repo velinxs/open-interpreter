@@ -408,6 +408,9 @@ class OpenInterpreter:
     def _sanitize_conversation_title_slug(self, raw):
         return conversation_title._sanitize_conversation_title_slug(self, raw)
 
+    def _conversation_title_slug_is_echo(self, slug, transcript):
+        return conversation_title._conversation_title_slug_is_echo(self, slug, transcript)
+
     def _run_llm_for_conversation_title_slug(self, transcript):
         return conversation_title._run_llm_for_conversation_title_slug(self, transcript)
 
