@@ -150,26 +150,30 @@ def preprocess_python(code):
 def add_active_line_prints(code):
     """
     Add print statements indicating line numbers to a python string.
+
+    The markers carry the line numbers of the *original* code: they come from
+    the ``lineno`` ast records for each statement, so comments and blank lines
+    are counted even though they parse to nothing. Nothing is rewritten before
+    parsing — text that merely looks like a comment (a ``#`` line inside a YAML
+    or Markdown string literal) belongs to the string and must be left alone.
     """
-    # Replace newlines and comments with pass statements, so the line numbers are accurate (ast will remove them otherwise)
-    code_lines = code.split("\n")
-    in_multiline_string = False
-    for i in range(len(code_lines)):
-        line = code_lines[i]
-        if '"""' in line or "'''" in line:
-            in_multiline_string = not in_multiline_string
-        if not in_multiline_string and (line.strip().startswith("#") or line == ""):
-            whitespace = len(line) - len(line.lstrip(" "))
-            code_lines[i] = " " * whitespace + "pass"
-    processed_code = "\n".join(code_lines)
-    try:
-        tree = ast.parse(processed_code)
-    except:
-        # If you can't parse the processed version, try the unprocessed version before giving up
-        tree = ast.parse(code)
+    tree = ast.parse(code)
     transformer = AddLinePrints()
     new_tree = transformer.visit(tree)
     return ast.unparse(new_tree)
+
+
+# Nodes whose first statement may be a docstring. A marker inserted ahead of it
+# would demote the docstring to a plain expression and leave ``__doc__`` None.
+DOCSTRING_OWNERS = (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+
+
+def _is_docstring(node):
+    return isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant) and isinstance(node.value.value, str)
+
+
+def _is_future_import(node):
+    return isinstance(node, ast.ImportFrom) and node.module == "__future__"
 
 
 class AddLinePrints(ast.NodeTransformer):
@@ -188,15 +192,26 @@ class AddLinePrints(ast.NodeTransformer):
             )
         )
 
-    def process_body(self, body):
+    def leading_statements(self, node, body):
+        """How many statements at the start of ``body`` must keep their position.
+
+        A docstring stops being one the moment anything precedes it, and
+        ``from __future__ import ...`` is a syntax error anywhere but at the
+        top of a module. Both are left un-marked rather than corrupted.
+        """
+        count = 0
+        if isinstance(node, DOCSTRING_OWNERS) and body and _is_docstring(body[0]):
+            count = 1
+        if isinstance(node, ast.Module):
+            while count < len(body) and _is_future_import(body[count]):
+                count += 1
+        return count
+
+    def process_body(self, body, skip=0):
         """Processes a block of statements, adding print calls."""
-        new_body = []
+        new_body = list(body[:skip])
 
-        # In case it's not iterable:
-        if not isinstance(body, list):
-            body = [body]
-
-        for sub_node in body:
+        for sub_node in body[skip:]:
             if hasattr(sub_node, "lineno"):
                 new_body.append(self.insert_print_statement(sub_node.lineno))
             new_body.append(sub_node)
@@ -207,12 +222,14 @@ class AddLinePrints(ast.NodeTransformer):
         """Overridden visit to transform nodes."""
         new_node = super().visit(node)
 
-        # If node has a body, process it
-        if hasattr(new_node, "body"):
-            new_node.body = self.process_body(new_node.body)
+        # If node has a block of statements, process it. `body`/`orelse` are
+        # single expressions on a lambda or a ternary, where there is no line to
+        # mark and inserting a statement would be a type error.
+        if isinstance(getattr(new_node, "body", None), list):
+            new_node.body = self.process_body(new_node.body, self.leading_statements(new_node, new_node.body))
 
         # If node has an orelse block (like in for, while, if), process it
-        if hasattr(new_node, "orelse") and new_node.orelse:
+        if isinstance(getattr(new_node, "orelse", None), list) and new_node.orelse:
             new_node.orelse = self.process_body(new_node.orelse)
 
         # Special case for Try nodes as they have multiple blocks
