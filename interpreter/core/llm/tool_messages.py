@@ -3,6 +3,9 @@
 Providers disagree about tool-call ids, about pairing each call with a
 response, and about where an image may sit relative to tool messages;
 process_messages() normalizes all of that before the request goes out.
+
+It also collapses runs of consecutive assistant and user messages, which we
+store as separate turns but no provider expects to receive that way.
 """
 
 import json
@@ -83,6 +86,109 @@ def _existing_tool_ids(messages):
         if call_id:
             ids.add(call_id)
     return ids
+
+
+def merge_consecutive_assistant_messages(messages):
+    """Collapse runs of consecutive `assistant` messages into single turns.
+
+    A tool-calling turn is stored internally as two assistant messages: a
+    content-only preamble (the model narrating its plan) and a separate message
+    carrying tool_calls with empty content and a copy of the reasoning. That
+    split shape is not canonical for OpenAI-compatible providers and is actively
+    harmful on DeepSeek V4: its chat template emits the `<|Assistant|>`
+    transition token only after user/developer turns, so a second consecutive
+    assistant renders with orphaned thinking content and unbalanced think tags.
+    The corrupted encoding accumulates across tool rounds and makes the model
+    spill paraphrased inner-monologue into the content channel (the repeated
+    "Let me do X ... Go ... Write" padding) before it finally emits a tool call.
+
+    Merging restores the canonical single-turn shape the model was trained on:
+    reasoning_content + content + tool_calls under one assistant message.
+    Content and reasoning are joined with a blank line, and identical adjacent
+    reasoning (from our own propagation, see convert_to_openai_messages) is
+    de-duplicated; tool calls are concatenated in order.
+
+    Only `assistant` messages merge, so a role:tool response never moves away
+    from the call it answers.
+    """
+    merged = []
+    for message in messages:
+        prev = merged[-1] if merged else None
+        if message.get("role") == "assistant" and prev is not None and prev.get("role") == "assistant":
+            # content: join the non-empty parts, preserving order
+            parts = [p for p in (prev.get("content"), message.get("content")) if isinstance(p, str) and p.strip()]
+            if parts:
+                prev["content"] = "\n\n".join(parts)
+
+            # reasoning: join distinct parts, dropping the duplicate that our
+            # propagation copies onto the tool_calls message
+            rparts = []
+            for r in (prev.get("reasoning_content"), message.get("reasoning_content")):
+                if isinstance(r, str) and r.strip() and (not rparts or rparts[-1] != r):
+                    rparts.append(r)
+            if rparts:
+                prev["reasoning_content"] = "\n\n".join(rparts)
+
+            # tool_calls: concatenate in order
+            if message.get("tool_calls"):
+                prev["tool_calls"] = (prev.get("tool_calls") or []) + message["tool_calls"]
+
+            continue
+        merged.append(dict(message))
+    return merged
+
+
+def _merge_user_content(first, second):
+    """Combine two user message contents, preserving order and image parts.
+
+    Plain strings are joined with a blank line. If either side is multimodal
+    (a list of content parts), both sides are normalized to part lists and
+    concatenated so text and image parts keep their original order.
+    """
+    if isinstance(first, str) and isinstance(second, str):
+        parts = [p for p in (first, second) if p and p.strip()]
+        return "\n\n".join(parts)
+
+    def to_parts(content):
+        if content is None:
+            return []
+        if isinstance(content, str):
+            return [{"type": "text", "text": content}] if content else []
+        return list(content)
+
+    return to_parts(first) + to_parts(second)
+
+
+def merge_consecutive_user_messages(messages):
+    """Collapse runs of consecutive `user` messages into single turns.
+
+    DeepSeek's chat format expects interleaved roles: "deepseek-reasoner does
+    not support successive user or assistant messages ... interleave the
+    user/assistant messages" (deepseek-ai/DeepSeek-R1#21). Successive same-role
+    messages are rejected by some DeepSeek endpoints and, on relays that
+    tolerate them, still distort the chat template and the thinking-mode
+    reasoning concatenation (the docs describe reasoning as spanning "between
+    two user messages").
+
+    We produce them naturally: resuming a saved session appends a SYSTEM ALERT
+    user message, and attaching an image appends the path as a text user message
+    plus the image itself, yielding runs of 2-5 user messages. Merging restores
+    the alternating shape without dropping content or images.
+
+    This mirrors DeepSeek's own V4.1 reference encoder: its `merge_tool_messages`
+    appends another user message's blocks onto the previous user message
+    (DeepSeek-V4.1-Flash `encoding/encoding.py`, huggingface.co/deepseek-ai).
+    DeepSeek's vision guide likewise says to keep an image and its instruction in
+    the same `content` array of a single user message.
+    """
+    merged = []
+    for message in messages:
+        prev = merged[-1] if merged else None
+        if message.get("role") == "user" and prev is not None and prev.get("role") == "user":
+            prev["content"] = _merge_user_content(prev.get("content"), message.get("content"))
+            continue
+        merged.append(dict(message))
+    return merged
 
 
 def process_messages(messages, model=None):
@@ -198,4 +304,8 @@ def process_messages(messages, model=None):
 
         i += 1
 
-    return processed_messages
+    # Last, because both merges assume the pairing above is already in place:
+    # the assistant merge can only ever fold a preamble into the tool_calls
+    # message that follows it, never across the role:tool response between them.
+    processed_messages = merge_consecutive_assistant_messages(processed_messages)
+    return merge_consecutive_user_messages(processed_messages)
