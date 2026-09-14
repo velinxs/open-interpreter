@@ -53,8 +53,9 @@ class Toolbox:
         self.save_skills = True
 
         self.import_toolbox_api = False  # Defaults to false
-        # "names" lists just the callables; "full" restores the signatures and
-        # one-line descriptions, which cost about four times as many tokens.
+        # "names" lists the callables and their required arguments; "full"
+        # restores the exact signatures and the one-line descriptions, which
+        # cost about three times as many tokens.
         self.api_listing = "names"
         self._has_imported_toolbox_api = False  # Because we only want to do this once
 
@@ -80,13 +81,14 @@ class Toolbox:
         if self._system_message_override is not None:
             return self._system_message_override
 
-        # Names alone, by default. The full catalogue of signatures and
-        # descriptions costs 1,519 tokens in every request, forever, to describe
-        # 61 methods that a given session mostly will not touch; the names alone
-        # cost 346 and are the part that cannot be recovered later. Everything
-        # else is one help() call away at the moment it is needed, and that call
-        # returns the live docstring, which cannot go stale the way a baked
-        # listing can.
+        # Names and required arguments, by default. The full catalogue of exact
+        # signatures and descriptions costs about 1,400 tokens in every request,
+        # forever, to describe methods a given session mostly will not touch.
+        # Everything beyond the argument list is one help() call away at the
+        # moment it is needed, and that call returns the live docstring, which
+        # cannot go stale the way a baked listing can. The argument list itself
+        # could not stay behind help(), because a model shown a bare name does
+        # not ask — it invents the arguments and burns a turn on the TypeError.
         if self.api_listing == "full":
             catalogue = "\n".join(self._get_all_toolbox_tools_signature_and_description())
         else:
@@ -111,8 +113,8 @@ class Toolbox:
 {catalogue}
 ```
 {note_block}
-Call `help(toolbox.module.method)` before using one, for its parameters, return
-shape and examples. Never guess a signature or a return format.
+`...` stands for optional arguments. Call `help(toolbox.module.method)` for
+those, the return shape and examples. Never guess a signature or a return format.
 """.strip()
 
     @system_message.setter
@@ -158,15 +160,19 @@ shape and examples. Never guess a signature or a return format.
         return tools
 
     def _get_all_toolbox_tool_names(self):
-        """Every callable as `toolbox.module.method`, with no signature or prose.
+        """Every callable as `toolbox.module.method(required, ...)`, with no prose.
 
-        The part of the catalogue a model cannot reconstruct for itself: it can
-        ask help() for any signature, but only if it knows the method is there.
+        The part of the catalogue a model cannot reconstruct for itself: the
+        name, and what it has to pass. Defaults, types and return shapes stay
+        behind help(), where they cannot go stale; what could not stay there is
+        the argument list, because a model that has never been shown one
+        invents it instead of asking — `toolbox.os.notify(title=..., message=...)`,
+        borrowed from plyer, for a method that takes one positional string.
         """
         names = []
         for tool in self._get_all_toolbox_tools_list():
             for method in self._extract_tool_info(tool)["methods"]:
-                names.append(method["signature"].split("(")[0])
+                names.append(method["brief"])
         return names
 
     def _get_all_toolbox_tools_signature_and_description(self):
@@ -210,71 +216,120 @@ shape and examples. Never guess a signature or a return format.
                         tool_info["module_doc"] = first_line
             except:
                 pass
-        if tool.__class__.__name__ == "Browser":
-            methods = []
-            for name in dir(tool):
-                if "driver" in name:
-                    continue  # Skip methods containing 'driver' in their name
-                attr = getattr(tool, name)
-                if (
-                    callable(attr)
-                    and not name.startswith("_")
-                    and not hasattr(attr, "__wrapped__")
-                    and not isinstance(attr, property)
-                ):
-                    # Construct the method signature manually
-                    param_str = ", ".join(param for param in attr.__code__.co_varnames[: attr.__code__.co_argcount])
-                    full_signature = f"toolbox.{tool.__class__.__name__.lower()}.{name}({param_str})"
-                    # Get the method description (first line only)
-                    method_description = self._get_first_line(attr.__doc__)
-                    # Get return format information if available
-                    # Append the method details
-                    tool_info["methods"].append(
-                        {
-                            "signature": full_signature,
-                            "description": method_description,
-                        }
-                    )
-            return tool_info
+        module = tool.__class__.__name__.lower()
+        methods, properties = self._public_members(tool)
 
-        for name, method in inspect.getmembers(tool, predicate=inspect.ismethod):
-            # Check if the method should be ignored based on its decorator
-            if not name.startswith("_") and not hasattr(method, "__wrapped__"):
-                # Get the method signature
-                method_signature = inspect.signature(method)
-                # Construct the signature string without *args and **kwargs
-                param_str = ", ".join(
-                    f"{param.name}" if param.default == param.empty else f"{param.name}={param.default!r}"
-                    for param in method_signature.parameters.values()
-                    if param.kind not in (param.VAR_POSITIONAL, param.VAR_KEYWORD)
-                )
-                full_signature = f"toolbox.{tool.__class__.__name__.lower()}.{name}({param_str})"
-                # Get the method description (first line only)
-                method_description = self._get_first_line(method.__doc__)
-                # Get return format information if available
-                # Append the method details
-                tool_info["methods"].append(
-                    {
-                        "signature": full_signature,
-                        "description": method_description,
-                    }
-                )
+        for name, method in methods:
+            if self._is_hidden_from_listing(f"{module}.{name}", method.__doc__):
+                continue
+            qualified = f"toolbox.{module}.{name}"
+            tool_info["methods"].append(
+                {
+                    "signature": qualified + self._render_parameters(method),
+                    "brief": qualified + self._render_required_parameters(method),
+                    "description": self._get_first_line(method.__doc__),
+                }
+            )
 
         # ------------------------------------------------------------------
         # Include read-only @property attributes (e.g., ai2.available_models)
         # ------------------------------------------------------------------
-        for attr_name, attr_value in inspect.getmembers(tool.__class__):
-            if isinstance(attr_value, property) and not attr_name.startswith("_"):
-                full_signature = f"toolbox.{tool.__class__.__name__.lower()}.{attr_name}"
-                prop_doc = self._get_first_line(attr_value.fget.__doc__)
-                # Get return format information if available
-                tool_info["methods"].append(
-                    {
-                        "signature": full_signature,
-                        "description": prop_doc,
-                    }
-                )
+        for name, prop in properties:
+            if self._is_hidden_from_listing(f"{module}.{name}", prop.fget.__doc__):
+                continue
+            qualified = f"toolbox.{module}.{name}"
+            tool_info["methods"].append(
+                {
+                    "signature": qualified,
+                    "brief": qualified,
+                    "description": self._get_first_line(prop.fget.__doc__),
+                }
+            )
         return tool_info
+
+    @staticmethod
+    def _public_members(tool):
+        """The public methods and properties of a tool, without evaluating any.
+
+        Attributes are read off the class with getattr_static, so a lazy
+        property is never triggered merely to be catalogued: `browser.driver`
+        would otherwise launch Chrome every time the system message is built.
+        That hazard is why Browser used to have its own branch here, which
+        built signatures from `co_varnames` and so advertised `self` as the
+        first parameter of every browser method.
+        """
+        methods, properties = [], []
+        for name in sorted(dir(tool.__class__)):
+            if name.startswith("_"):
+                continue
+            attr = inspect.getattr_static(tool, name, None)
+            if isinstance(attr, property):
+                properties.append((name, attr))
+            elif inspect.isfunction(attr) and not hasattr(attr, "__wrapped__"):
+                methods.append((name, getattr(tool, name)))
+        return methods, properties
+
+    # Callables that exist for the implementation rather than for the model:
+    # lazy bootstraps that every real call already performs for itself. Their
+    # docstrings carry no marker, so they are named here. Anything whose
+    # docstring opens with "[INTERNAL" or "DEPRECATED" is dropped without
+    # needing an entry.
+    _LISTING_EXCLUDED = frozenset({"browser.driver", "browser.setup", "vision.load", "ai2.client"})
+
+    @classmethod
+    def _is_hidden_from_listing(cls, qualified_name, docstring):
+        """Advertising a method the model must not call costs a turn and tokens."""
+        if qualified_name in cls._LISTING_EXCLUDED:
+            return True
+        first_line = (docstring or "").strip()
+        return first_line.startswith("[INTERNAL") or first_line.startswith("DEPRECATED")
+
+    @staticmethod
+    def _render_parameters(method):
+        """The exact signature, `*args` and `**kwargs` included.
+
+        Those two were dropped, which hid the *primary* argument of several
+        tools: `keyboard.hotkey(*args, interval=0.1)` listed as
+        `hotkey(interval=0.1)` gives a model no way to pass the keys, and
+        `mouse.click` no way to pass the target. A signature with the only
+        useful parameter missing is worse than no signature, because it looks
+        complete.
+        """
+        rendered = []
+        for param in inspect.signature(method).parameters.values():
+            if param.kind == param.VAR_POSITIONAL:
+                rendered.append(f"*{param.name}")
+            elif param.kind == param.VAR_KEYWORD:
+                rendered.append(f"**{param.name}")
+            elif param.default == param.empty:
+                rendered.append(param.name)
+            else:
+                rendered.append(f"{param.name}={param.default!r}")
+        return "(" + ", ".join(rendered) + ")"
+
+    @staticmethod
+    def _render_required_parameters(method):
+        """Just enough of the signature to stop a model guessing the rest.
+
+        Required parameters and `*args` are named; everything optional
+        (defaults and `**kwargs`) collapses to `...`, which says "there is
+        more, ask help()" without paying per default value in every request.
+        So `toolbox.os.notify(text)`, `toolbox.keyboard.hotkey(*args, ...)`,
+        `toolbox.calendar.create_event(title, start_date, end_date, ...)` —
+        each of those was being called wrongly for want of this one line.
+        """
+        rendered = []
+        has_optional = False
+        for param in inspect.signature(method).parameters.values():
+            if param.kind == param.VAR_POSITIONAL:
+                rendered.append(f"*{param.name}")
+            elif param.kind == param.VAR_KEYWORD or param.default != param.empty:
+                has_optional = True
+            else:
+                rendered.append(param.name)
+        if has_optional:
+            rendered.append("...")
+        return "(" + ", ".join(rendered) + ")"
 
     def _get_first_line(self, docstring):
         """One short sentence for the API listing; help() has the rest."""

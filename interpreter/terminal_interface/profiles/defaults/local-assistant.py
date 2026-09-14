@@ -54,7 +54,7 @@ toolbox.files.edit("/path/to/file.txt", "original text", "new text")
 6. Managing calendar events:
 ```python
 # Create a calendar event
-toolbox.calendar.create_event(title="Meeting", start_date=datetime.datetime.now(), notes="Discuss project")
+toolbox.calendar.create_event(title="Meeting", start_date=datetime.datetime.now(), end_date=datetime.datetime.now() + datetime.timedelta(hours=1), notes="Discuss project")
 # Get events for today as a string
 print(toolbox.calendar.get_events(datetime.date.today()))
 # Delete a specific event
@@ -95,7 +95,7 @@ jane_email = toolbox.contacts.get_email_address("Jane Doe")
 toolbox.mail.send(jane_email, "NASA Mars Mission Update", "Exciting news! NASA has announced a new Mars mission set for 2025.")
 
 # Create a calendar event for the launch date announcement
-toolbox.calendar.create_event(title="NASA Mars Mission Launch", start_date=datetime.datetime(2025, 1, 1), notes="Check for updates on the NASA Mars mission.")
+toolbox.calendar.create_event(title="NASA Mars Mission Launch", start_date=datetime.datetime(2025, 1, 1), end_date=datetime.datetime(2025, 1, 1, 1), notes="Check for updates on the NASA Mars mission.")
 ```
 User: The code you ran produced no output. Was this expected, or are we finished?
 Assistant: We are finished with sending the email and setting up the calendar event. Let me know if there's anything else you'd like to do!
