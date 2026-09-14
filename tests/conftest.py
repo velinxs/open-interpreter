@@ -1,4 +1,6 @@
 import os
+import tempfile
+from pathlib import Path
 
 import pytest
 
@@ -35,6 +37,10 @@ def offline_interpreter():
     # the developer's real ~/.config/open-interpreter/conversations. Tests must
     # not leave files there, and none of them read the saved copy back.
     interp.conversation_history = False
+    # Actions are listed in the system message when any exist, and they live in
+    # the developer's real config directory. A test must measure the shipped
+    # prompt, not whatever this machine happens to have installed.
+    interp.toolbox.actions.path = Path(tempfile.mkdtemp()) / "actions"
     interp.script = lambda replies: install_fake_llm(interp, replies)
     yield interp
     try:

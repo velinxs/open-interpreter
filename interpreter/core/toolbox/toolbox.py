@@ -3,6 +3,7 @@ import json
 import platform
 import re
 
+from .actions.actions import Actions
 from .ai.ai import Ai
 from .ai2 import Ai2
 from .browser.browser import Browser
@@ -47,6 +48,7 @@ class Toolbox:
         self.ai = Ai(self)
         self._ai2 = None
         self.files = Files(self)
+        self.actions = Actions(self)
 
         self.emit_images = True
         self.api_base = "https://api.openinterpreter.com/v0"
@@ -104,6 +106,28 @@ class Toolbox:
             )
         note_block = ("\n" + "\n".join(f"Note: {n}" for n in notes) + "\n") if notes else ""
 
+        # Actions are described only when some exist. A session with none pays
+        # nothing, which is the point of keeping them out of the catalogue: the
+        # long tail of specific capabilities should not be a standing cost in
+        # every request the way a toolbox method is.
+        available_actions = self.actions.list()
+        if available_actions:
+            listed = "\n".join(f"{a['name']} — {a['summary']}" for a in available_actions)
+            action_block = f"""
+
+### Actions
+
+Project-specific Python modules, loaded only when used. Read one with
+`toolbox.actions.show(name)`; load it with `toolbox.actions.load(name)`, which
+returns the module and runs nothing until you call one of its functions.
+
+```
+{listed}
+```
+"""
+        else:
+            action_block = ""
+
         return f"""
 ## The `toolbox` API
 
@@ -115,7 +139,7 @@ class Toolbox:
 {note_block}
 `...` stands for optional arguments. Call `help(toolbox.module.method)` for
 those, the return shape and examples. Never guess a signature or a return format.
-""".strip()
+{action_block}""".strip()
 
     @system_message.setter
     def system_message(self, value):
