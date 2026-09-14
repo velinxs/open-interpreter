@@ -34,6 +34,7 @@ from .backends import (
     SerperBackend,
     TavilyBackend,
 )
+from .backends.linkup import _normalize_structured_schema
 from .results import (
     AnswerResult,
     ApiKeyError,
@@ -341,14 +342,17 @@ class Web(BackendPlumbing, BraveBackend, DirectMixin, SerperBackend, SerpApiBack
         self, query: str, schema: Any, backend: str | None = "linkup", **kwargs
     ) -> StructuredOutputResult:
         """
-        Search and extract specific fields defined by schema (dict or Pydantic). PREFERRED for data extraction.
+        Search and extract specific fields (simple field map, JSON schema, or Pydantic). PREFERRED for data extraction.
 
         This method is best for tasks requiring extracting specific fields (like author, year, title)
         directly from web resources into a schema-defined format.
 
         Args:
             query (str): The search query or data extraction prompt.
-            schema (dict or Pydantic model): The JSON schema defining the desired output structure.
+            schema: What to extract — a simple field map ({"name": "string", "founded": "integer"};
+                all fields required; types: string, integer, number, boolean, array, object, null),
+                a full JSON schema dict, a JSON string, or a Pydantic model class.
+                A dict with a "properties" mapping is treated as a full schema.
             backend (str, optional): Force a specific backend (default: "linkup").
             **kwargs: Additional backend-specific parameters:
                 - For linkup: depth ("standard" or "deep"), etc.
@@ -356,8 +360,15 @@ class Web(BackendPlumbing, BraveBackend, DirectMixin, SerperBackend, SerpApiBack
         Returns:
             StructuredOutputResult: .structured_output, .sources, .backend (use attribute access)
 
-        Example:
-            # Using journal article schema
+        Examples:
+            # Simple field map (converted to a schema with all fields required)
+            result = toolbox.web.structured_output(
+                "Apple Inc",
+                schema={"name": "string", "founded": "integer", "headquarters": "string"},
+            )
+            print(result.structured_output["name"])
+
+            # Full JSON schema, e.g. for a journal article
             schema = {
                 "type": "object",
                 "properties": {
@@ -370,41 +381,10 @@ class Web(BackendPlumbing, BraveBackend, DirectMixin, SerperBackend, SerpApiBack
             result = toolbox.web.structured_output("Attention is All You Need journal article", schema=schema)
             print(result.structured_output["author_last_name"])
         """
-        import json
-
-        # LinkUp SDK expects a Pydantic model CLASS or a JSON STRING or None.
-        # It does NOT accept a dictionary directly.
-        is_pydantic = False
-        try:
-            # Check if it's a Pydantic class (v1 or v2)
-            if isinstance(schema, type):
-                # Try to import any version of Pydantic to check inheritance
-                try:
-                    from pydantic import BaseModel as BM2
-
-                    if issubclass(schema, BM2):
-                        is_pydantic = True
-                except ImportError:
-                    pass
-
-                if not is_pydantic:
-                    try:
-                        from pydantic.v1 import BaseModel as BM1
-
-                        if issubclass(schema, BM1):
-                            is_pydantic = True
-                    except ImportError:
-                        pass
-            elif hasattr(schema, "__pydantic_model__"):  # some wrappers
-                is_pydantic = True
-        except Exception:
-            # If any check fails, treat as non-pydantic
-            pass
-
-        if not is_pydantic and isinstance(schema, dict):
-            # Convert dictionary to JSON string as expected by the LinkUp SDK
-            schema = json.dumps(schema)
-        # If it is a Pydantic class or already a string, pass it through to the backend.
+        # Field maps become full JSON schemas here, so a bad one fails with a
+        # local message instead of a backend 400. Full schemas, Pydantic
+        # classes and JSON strings pass through; the backend encodes them.
+        schema = _normalize_structured_schema(schema)
 
         if backend:
             backend = backend.lower()

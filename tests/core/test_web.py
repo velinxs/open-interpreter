@@ -1,11 +1,31 @@
 import json
 import os
+import sys
+import types
 import unittest
+from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+from interpreter.core.toolbox.web.backends.linkup import _normalize_structured_schema
 from interpreter.core.toolbox.web.web import ResultItem, StructuredOutputResult, Web, WebToolboxError
+
+
+@contextmanager
+def fake_sdk(module_name, **attributes):
+    """Stand in for an optional SDK so a test runs where it is not installed.
+
+    linkup-sdk and tavily-python are optional dependencies and absent from a
+    default install, so patching `linkup.LinkupClient` skips the test instead
+    of running it. The backends import their client inside the call, so a stub
+    module in sys.modules is all they need.
+    """
+    module = types.ModuleType(module_name)
+    for name, value in attributes.items():
+        setattr(module, name, value)
+    with patch.dict(sys.modules, {module_name: module}):
+        yield
 
 
 class TestWebToolbox(unittest.TestCase):
@@ -105,7 +125,7 @@ class TestWebToolbox(unittest.TestCase):
         # Ensure no API keys are set
         with patch.dict(os.environ, {}, clear=True):
             with self.assertRaises(WebToolboxError) as context:
-                self.web.structured_output("test", schema={})
+                self.web.structured_output("test", schema={"name": "string"})
             # It might raise the specific ApiKeyError message or the aggregate No backends message
             err_msg = str(context.exception)
             self.assertTrue("No structured output backends are working" in err_msg or "LINKUP_API_KEY" in err_msg)
@@ -288,3 +308,84 @@ class TestResultIndexGuidance(unittest.TestCase):
         """bool is not silently accepted as an integer index (True would fetch result 1)."""
         with self.assertRaises(WebToolboxError):
             self._search_result().fetch(True)
+
+
+class TestStructuredOutputSchema(unittest.TestCase):
+    """A field map is a schema too.
+
+    Ported from classic/develop: the full JSON Schema form is a lot of syntax
+    to get right from memory, and getting it wrong came back as an opaque
+    backend 400 that read like an authentication failure.
+    """
+
+    def setUp(self):
+        self.web = Web(MagicMock())
+
+    def test_simple_field_map_becomes_a_schema_with_all_fields_required(self):
+        """{"name": "string"} expands to the object schema LinkUp expects."""
+        self.assertEqual(
+            _normalize_structured_schema({"name": "string", "founded": "integer"}),
+            {
+                "type": "object",
+                "properties": {"name": {"type": "string"}, "founded": {"type": "integer"}},
+                "required": ["name", "founded"],
+            },
+        )
+
+    def test_full_schema_passes_through_untouched(self):
+        """A dict with a "properties" mapping is already a schema, not a field map."""
+        schema = {"type": "object", "properties": {"a": {"type": "string"}}, "required": ["a"]}
+        self.assertIs(_normalize_structured_schema(schema), schema)
+
+    def test_field_named_type_is_read_as_a_field(self):
+        """{"type": "string"} is ambiguous; it resolves to a field named "type"."""
+        normalized = _normalize_structured_schema({"type": "string"})
+        self.assertEqual(normalized["properties"], {"type": {"type": "string"}})
+
+    def test_property_schema_values_are_kept(self):
+        """A field map may still spell one field out in full, for arrays and the like."""
+        normalized = _normalize_structured_schema({"tags": {"type": "array", "items": {"type": "string"}}})
+        self.assertEqual(normalized["properties"]["tags"], {"type": "array", "items": {"type": "string"}})
+
+    def test_unknown_type_name_fails_locally(self):
+        """ "str" is not a JSON Schema type; say so here rather than as a backend 400."""
+        with self.assertRaises(WebToolboxError) as context:
+            _normalize_structured_schema({"name": "str"})
+        self.assertIn("Valid types", str(context.exception))
+
+    def test_empty_schema_raises(self):
+        """An empty schema asks for nothing; the error says what to write instead."""
+        with self.assertRaises(WebToolboxError) as context:
+            self.web.structured_output("q", schema={})
+        self.assertIn("at least one field", str(context.exception))
+
+    def test_field_map_reaches_the_backend_as_a_json_schema(self):
+        """The conversion happens before the request, not only in the caller's head."""
+        client = MagicMock()
+        client.return_value.search.return_value = MagicMock(structured_output={}, sources=[])
+        with patch.dict(os.environ, {"LINKUP_API_KEY": "fake_key"}):
+            with fake_sdk("linkup", LinkupClient=client):
+                self.web.structured_output("Apple Inc", schema={"name": "string", "founded": "integer"})
+        sent = client.return_value.search.call_args.kwargs["structured_output_schema"]
+        self.assertEqual(
+            json.loads(sent),
+            {
+                "type": "object",
+                "properties": {"name": {"type": "string"}, "founded": {"type": "integer"}},
+                "required": ["name", "founded"],
+            },
+        )
+
+    def test_schema_rejection_blames_the_schema_not_the_api_key(self):
+        """A backend 400 mentioning the schema used to read as "check your API key"."""
+        client = MagicMock()
+        client.return_value.search.side_effect = Exception(
+            "Validation failed structuredOutputSchema: must be valid JSON schema of type object."
+        )
+        with patch.dict(os.environ, {"LINKUP_API_KEY": "fake_key"}):
+            with fake_sdk("linkup", LinkupClient=client):
+                with self.assertRaises(WebToolboxError) as context:
+                    self.web.structured_output("q", schema={"name": "string"})
+        msg = str(context.exception)
+        self.assertIn("schema", msg.lower())
+        self.assertNotIn("API key", msg)
