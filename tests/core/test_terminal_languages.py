@@ -458,6 +458,36 @@ class TestTerminalLanguages(unittest.TestCase):
         self.assertEqual(second, first)
         self.assertIsNone(second_notice)
 
+    def test_jupyter_strip_boilerplate_respects_gate(self):
+        """strip_redundant_code=false leaves python code exactly as written.
+
+        The gate is the one switch a user has to turn the rewriting off; if it
+        did not reach this stripper, a redundant `import os` would still vanish
+        from code the user asked to be left alone.
+        """
+        jl = object.__new__(JupyterLanguage)  # skip kernel startup
+        jl.imported_modules = {"os"}
+        jl.interpreter = type("I", (), {"strip_redundant_code": False})()
+        code = "import os\nos.getcwd()"
+        stripped, notice = jl.strip_boilerplate(code)
+        self.assertEqual(stripped, code)
+        self.assertIsNone(notice)
+
+    def test_bash_cd_strip_respects_gate(self):
+        """strip_redundant_code=false disables the bash redundant-cd strip.
+
+        Both the peek (track=False, from run_code) and the real run
+        (track=True, from preprocess_code) must honor it, and no notice may be
+        left behind claiming something was removed.
+        """
+        bash = Bash()
+        bash.cwd = "/home/user/project"
+        bash.interpreter = type("I", (), {"strip_redundant_code": False})()
+        code = "cd /home/user/project\nls"
+        self.assertEqual(bash._strip_redundant_cd(code, track=False), code)
+        self.assertEqual(bash._strip_redundant_cd(code, track=True), code)
+        self.assertIsNone(bash._pending_notice)
+
     def test_bash_redundant_cd_stripped(self):
         """A standalone `cd` to the tracked working directory is removed."""
         bash = Bash()
@@ -877,6 +907,7 @@ class TestRespondNotices(unittest.TestCase):
 
         class FakeInterpreter:
             verbose = False
+            toolbox = type("Toolbox", (), {"import_toolbox_api": True})()
 
         interp = FakeInterpreter()
         interp.messages = messages
@@ -975,6 +1006,178 @@ class TestRespondNotices(unittest.TestCase):
             ]
         )
         self.assertIsNone(chunk["content"]["removed"])
+
+    def test_import_toolbox_stripped_with_notice(self):
+        """`import toolbox` is stripped and reported before the prompt.
+
+        toolbox is injected into the kernel as a variable, so the import is
+        always redundant. The old code let it through to a post-approval guard
+        that raised ValueError — the user had already said yes to a block that
+        then never ran (regression).
+        """
+        chunk = self._confirmation(
+            [
+                {"role": "user", "type": "message", "content": "hi"},
+                {
+                    "role": "assistant",
+                    "type": "code",
+                    "format": "python",
+                    "content": "import toolbox\nr = toolbox.web.fetch('http://example.com')",
+                },
+            ]
+        )
+        content = chunk["content"]
+        self.assertEqual(content["format"], "python")
+        self.assertNotIn("import toolbox", content["content"])
+        self.assertIn("r = toolbox.web.fetch('http://example.com')", content["content"])
+        self.assertIn("import toolbox", content["removed"])
+
+    def test_import_toolbox_with_comment_stripped(self):
+        """An `import toolbox  # comment` line is stripped like the plain form.
+
+        The trailing comment is the spelling models reach for most often when
+        they explain themselves; matching only the bare line would leave it to
+        the post-approval guard.
+        """
+        chunk = self._confirmation(
+            [
+                {"role": "user", "type": "message", "content": "hi"},
+                {
+                    "role": "assistant",
+                    "type": "code",
+                    "format": "python",
+                    "content": "import toolbox  # needed\nprint(toolbox)",
+                },
+            ]
+        )
+        content = chunk["content"]
+        self.assertNotIn("import toolbox", content["content"])
+        self.assertIn("print(toolbox)", content["content"])
+
+    def test_import_toolbox_with_other_names_rewritten(self):
+        """`import toolbox, traceback` keeps `import traceback` and drops toolbox.
+
+        Only the toolbox token is redundant; dropping the whole line would take
+        a real import with it, and keeping the whole line sent the block to the
+        post-approval ValueError (regression).
+        """
+        chunk = self._confirmation(
+            [
+                {"role": "user", "type": "message", "content": "hi"},
+                {
+                    "role": "assistant",
+                    "type": "code",
+                    "format": "python",
+                    "content": "import toolbox, traceback\nfor x in range(3):\n    print(x)",
+                },
+            ]
+        )
+        content = chunk["content"]
+        self.assertIn("import traceback", content["content"])
+        self.assertNotIn("toolbox", content["content"])
+        self.assertIn("import toolbox", content["removed"])
+
+    def test_import_toolbox_after_other_names_rewritten(self):
+        """Toolbox later in the list (`import os, toolbox`) is dropped too.
+
+        Position in the name list must not decide whether the strip fires.
+        """
+        chunk = self._confirmation(
+            [
+                {"role": "user", "type": "message", "content": "hi"},
+                {
+                    "role": "assistant",
+                    "type": "code",
+                    "format": "python",
+                    "content": "import os, toolbox\nprint(os.getcwd())",
+                },
+            ]
+        )
+        content = chunk["content"]
+        self.assertIn("import os", content["content"])
+        self.assertNotIn("toolbox", content["content"])
+
+    def test_import_toolbox_as_kept_for_guard(self):
+        """Aliased `import toolbox as tb` is left for the post-approval guard.
+
+        Rewriting it would mean deciding what `tb` should now refer to; the
+        guard's error message tells the model to use `toolbox` directly instead.
+        """
+        chunk = self._confirmation(
+            [
+                {"role": "user", "type": "message", "content": "hi"},
+                {
+                    "role": "assistant",
+                    "type": "code",
+                    "format": "python",
+                    "content": "import toolbox as tb\nprint(tb)",
+                },
+            ]
+        )
+        self.assertIn("import toolbox as tb", chunk["content"]["content"])
+
+    def test_import_toolbox_not_stripped_when_api_disabled(self):
+        """With the toolbox API not injected, `import toolbox` is left alone.
+
+        There is no injected variable to shadow, so the import may well be a
+        real module the user installed.
+        """
+        from interpreter.core.respond import respond
+
+        class FakeInterpreter:
+            verbose = False
+            toolbox = type("Toolbox", (), {"import_toolbox_api": False})()
+
+        interp = FakeInterpreter()
+        interp.messages = [
+            {"role": "user", "type": "message", "content": "hi"},
+            {
+                "role": "assistant",
+                "type": "code",
+                "format": "python",
+                "content": "import toolbox\nprint(toolbox)",
+            },
+        ]
+        interp.terminal = _FakeTerminal()
+        with patch("interpreter.core.respond.assemble_system_message", return_value=""):
+            for chunk in respond(interp):
+                if chunk.get("type") == "confirmation":
+                    self.assertIn("import toolbox", chunk["content"]["content"])
+                    return
+        self.fail("respond() never yielded a confirmation chunk")
+
+    def test_import_toolbox_strip_respects_gate(self):
+        """strip_redundant_code=false leaves `import toolbox` in the block.
+
+        The gate covers every rewrite, including this one; the post-approval
+        guard still catches the import, which is what the user asked for by
+        turning the rewriting off.
+        """
+        from interpreter.core.respond import respond
+
+        class FakeInterpreter:
+            verbose = False
+            strip_redundant_code = False
+            toolbox = type("Toolbox", (), {"import_toolbox_api": True})()
+
+        interp = FakeInterpreter()
+        interp.messages = [
+            {"role": "user", "type": "message", "content": "hi"},
+            {
+                "role": "assistant",
+                "type": "code",
+                "format": "python",
+                "content": "import toolbox\nprint(toolbox)",
+            },
+        ]
+        interp.terminal = _FakeTerminal()
+        with patch("interpreter.core.respond.assemble_system_message", return_value=""):
+            for chunk in respond(interp):
+                if chunk.get("type") == "confirmation":
+                    self.assertIn("import toolbox", chunk["content"]["content"])
+                    self.assertIsNone(chunk["content"]["removed"])
+                    return
+        self.fail("respond() never yielded a confirmation chunk")
 
 
 class TestTerminalInterfaceNotices(unittest.TestCase):

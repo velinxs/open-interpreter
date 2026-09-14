@@ -277,6 +277,19 @@ def test_unknown_keys_are_reported_and_skipped_not_invented_as_attributes(interp
     assert not hasattr(interpreter.llm, "temprature")
 
 
+def test_strip_redundant_code_is_a_real_profile_key(interpreter, capsys):
+    """`strip_redundant_code: false` applies and is never reported as unknown.
+
+    The key is documented in the shipped profiles, so a user who copies the
+    commented line out must get the setting they asked for — not a warning and
+    a run that keeps rewriting their code.
+    """
+    profiles.apply_profile(interpreter, {**CURRENT, "strip_redundant_code": False}, "/tmp/x.yaml")
+
+    assert interpreter.strip_redundant_code is False
+    assert "strip_redundant_code" not in capsys.readouterr().out
+
+
 def test_a_typo_in_a_security_relevant_key_does_not_silently_apply(interpreter, capsys):
     """`auto_run_moed` leaves auto_run_mode at its default and names the likely fix.
 

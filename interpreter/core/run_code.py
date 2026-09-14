@@ -135,7 +135,7 @@ def run_pending_code(interpreter, state):
         # confirmation chunk and is shown beside the run prompt, not in
         # the command's terminal output.
         lang = interpreter.terminal.get_language_instance(language)
-        if lang is not None:
+        if lang is not None and getattr(interpreter, "strip_redundant_code", True):
             try:
                 stripped, strip_notice = lang.strip_boilerplate(code)
                 # Always adopt the stripped version when something was
@@ -149,6 +149,45 @@ def run_pending_code(interpreter, state):
                     notices.append(strip_notice)
             except Exception:
                 pass
+
+        # `toolbox` is injected into the python kernel as a variable, so a plain
+        # `import toolbox` is always redundant — strip it here rather than
+        # hitting the "cannot import toolbox" guard below, which raises after
+        # the user already approved the block. The injected object wins over any
+        # import (which would otherwise shadow it with a real module). Aliased
+        # (`import toolbox as tb`), dotted (`import toolbox.thing`) and
+        # `from toolbox import X` forms are left for that guard.
+        if (
+            language == "python"
+            and interpreter.toolbox.import_toolbox_api
+            and getattr(interpreter, "strip_redundant_code", True)
+        ):
+            kept_lines = []
+            removed_toolbox = False
+            for line in code.split("\n"):
+                m = re.match(r"^import\s+([^#]*?)(\s*#.*)?$", line)
+                if not m:
+                    kept_lines.append(line)
+                    continue
+                names = [name.strip() for name in m.group(1).split(",")]
+                # A bare `toolbox` name is redundant. Other names on the same
+                # line are real imports and stay: `import toolbox, traceback`
+                # becomes `import traceback`. An empty name means the line is
+                # malformed (`import toolbox,`); leave it for python to reject.
+                rest = [name for name in names if name != "toolbox"]
+                if "toolbox" not in names:
+                    kept_lines.append(line)
+                elif rest and all(rest):
+                    removed_toolbox = True
+                    kept_lines.append("import " + ", ".join(rest) + (m.group(2) or ""))
+                elif not rest:
+                    removed_toolbox = True  # `import toolbox` alone — drop the line
+                else:
+                    kept_lines.append(line)
+            if removed_toolbox:
+                code = "\n".join(kept_lines)
+                interpreter.messages[-1]["content"] = code
+                notices.append("Removed redundant `import toolbox` (toolbox is already available).")
 
         removed_notice = "; ".join(notices) if notices else None
 
