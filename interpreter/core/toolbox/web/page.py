@@ -49,7 +49,7 @@ class PageMixin:
                     - Other Tavily extract parameters
 
         Returns:
-            FetchResult: .url, .title, .content, .backend (single URL; multi-URL uses .results)
+            FetchResult: .url, .title, .content, .backend (single URL; multi-URL .results items: .title or ['title'])
 
         Examples:
             # Basic fetch (auto-selects backend)

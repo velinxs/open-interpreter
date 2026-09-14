@@ -177,7 +177,7 @@ class Web(
                     NOTE: Use country_code and language_code parameters (not gl/hl)
 
         Returns:
-            SearchResult: .results, .raw_response, .backend (use attribute access)
+            SearchResult: .results (items: .title or ['title']; content→snippet), .raw_response, .backend
 
         Examples:
             # Basic search (auto-selects backend)
@@ -304,7 +304,7 @@ class Web(
                 - For linkup: depth ("standard" or "deep"), include_inline_citations, etc.
 
         Returns:
-            AnswerResult: .answer, .sources, .backend (use attribute access)
+            AnswerResult: .answer, .sources (items: .title or ['title']; content→snippet), .backend
 
         Example:
             result = toolbox.web.answer("What is the latitude of Lilongwe in decimal format?")
@@ -371,7 +371,7 @@ class Web(
                 - For linkup: depth ("standard" or "deep"), etc.
 
         Returns:
-            StructuredOutputResult: .structured_output, .sources, .backend (use attribute access)
+            StructuredOutputResult: .structured_output, .sources (items: .title or ['title']), .backend
 
         Examples:
             # Simple field map (converted to a schema with all fields required)

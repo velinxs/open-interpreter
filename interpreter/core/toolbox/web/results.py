@@ -225,6 +225,7 @@ class FetchResult(dict):
     def find(self, term, context=100, max_results=None):
         """
         Find all occurrences of term in content (case-insensitive).
+        Tip: to avoid fetching the full page at all, use web.search_page(url, query) instead.
         Returns a list of snippet strings, each with up to `context` chars of surrounding text.
         Pass max_results to cap the number of matches returned.
         """
