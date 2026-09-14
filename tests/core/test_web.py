@@ -232,3 +232,59 @@ class TestResultItem(unittest.TestCase):
             item.nope
         self.assertIsNone(item.get("nope"))
         self.assertEqual(item.get("nope", "fallback"), "fallback")
+
+
+class TestResultIndexGuidance(unittest.TestCase):
+    """fetch(i) says what went wrong instead of leaking a Python error.
+
+    Ported from classic/develop: models passed lists, strings and
+    out-of-range indices, and got TypeError or IndexError with a full Jupyter
+    traceback, which says nothing about how to call it correctly.
+    """
+
+    def setUp(self):
+        self.web = Web(MagicMock())
+
+    def _search_result(self):
+        from interpreter.core.toolbox.web.web import SearchResult
+
+        return SearchResult(
+            {"results": [{"title": "T", "url": "http://a", "snippet": "S"}], "backend": "serper"},
+            web=self.web,
+        )
+
+    def test_fetch_list_index_guides(self):
+        """fetch([0, 1]) fails with guidance toward one-at-a-time fetching."""
+        with self.assertRaises(WebToolboxError) as context:
+            self._search_result().fetch([0, 1])
+        self.assertIn("single result index", str(context.exception))
+
+    def test_fetch_string_index_guides(self):
+        """A non-integer index raises WebToolboxError, not TypeError."""
+        from interpreter.core.toolbox.web.web import AnswerResult
+
+        result = AnswerResult(
+            {"answer": "A", "sources": [{"title": "T", "url": "http://b", "snippet": "S"}], "backend": "linkup"},
+            web=self.web,
+        )
+        with self.assertRaises(WebToolboxError):
+            result.fetch("0")
+
+    def test_fetch_out_of_range_guides(self):
+        """An out-of-range index names the valid range instead of leaking IndexError."""
+        result = StructuredOutputResult(
+            {
+                "structured_output": {},
+                "sources": [{"title": "T", "url": "http://c", "snippet": "S"}],
+                "backend": "linkup",
+            },
+            web=self.web,
+        )
+        with self.assertRaises(WebToolboxError) as context:
+            result.fetch(5)
+        self.assertIn("out of range", str(context.exception))
+
+    def test_fetch_bool_index_rejected(self):
+        """bool is not silently accepted as an integer index (True would fetch result 1)."""
+        with self.assertRaises(WebToolboxError):
+            self._search_result().fetch(True)
