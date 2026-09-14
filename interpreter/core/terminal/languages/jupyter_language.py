@@ -20,6 +20,7 @@ os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] = "True"
 from jupyter_client import KernelManager
 
 from ..base_language import BaseLanguage
+from .jupyter_display import display_chunk
 from .python_preprocess import (
     add_active_line_prints,
     preprocess_python,
@@ -47,6 +48,17 @@ class JupyterLanguage(BaseLanguage):
     file_extension = "py"
     name = "python"
 
+    # A kernel that exited takes the whole session's state with it. Say so once,
+    # plainly, so the model recreates what it needs instead of assuming its
+    # variables are still there.
+    RESTART_NOTICE = (
+        "\n[The Python kernel exited (exit(), sys.exit(), quit() or a crash) and has been "
+        "restarted. Every variable, import and definition from earlier blocks is gone — "
+        "recreate whatever you still need. Calling exit() ends the Python session, not the "
+        "task; don't call it again.]\n"
+    )
+    DIED_NOTICE = "\n[The Python kernel exited before this block finished; its remaining output is lost.]\n"
+
     def __init__(self, interpreter):
         self.interpreter = interpreter
 
@@ -62,6 +74,9 @@ class JupyterLanguage(BaseLanguage):
         self.finish_flag = False
         # The id of the execute_request currently being listened for.
         self._execution_id = None
+        # Guard against a restart triggering another restart from the setup
+        # code it runs on the new kernel.
+        self._restarting = False
 
         # Modules known to be bound in the kernel's user namespace. Populated
         # from each block's imports and refreshed from the REPL-state line the
@@ -69,6 +84,10 @@ class JupyterLanguage(BaseLanguage):
         # lines can be stripped before execution.
         self.imported_modules = set()
 
+        self._configure_kernel()
+
+    def _configure_kernel(self):
+        """Run the per-kernel setup. Re-run verbatim after a restart."""
         # Use Inline by default for broad compatibility. Users can opt into a GUI backend
         # (e.g. TkAgg/QtAgg) by setting INTERPRETER_MPL_BACKEND or MPLBACKEND.
         # INTERPRETER_MPL_BACKEND takes precedence so Open Interpreter can control behavior.
@@ -116,11 +135,15 @@ plt.show = _oi_mpl_show_with_hint
 
         # Configure IPython display formatter to prefer markdown or plain text
         # so that pandas doesn't output dataframes as HTML tables (which are
-        # then themselves executed).
+        # then themselves executed). The image formatters stay on: turning them
+        # off (they are off by default once active_types is set) made every plot
+        # and screenshot reach the model as "<Figure size 640x480 ...>". Whether
+        # the picture is forwarded or dropped in favour of that text repr is
+        # decided per output, by the model's vision support, in _display_chunk.
         ipython_config = """
 from IPython import get_ipython
 ip = get_ipython()
-ip.display_formatter.active_types = ['text/markdown', 'text/plain']
+ip.display_formatter.active_types = ['text/markdown', 'text/plain', 'image/png', 'image/jpeg']
 """.strip()
 
         for _ in self.run(ipython_config):
@@ -138,9 +161,71 @@ ip.display_formatter.active_types = ['text/markdown', 'text/plain']
         self.kc.stop_channels()
         self.km.shutdown_kernel()
 
-    def run(self, code):
-        while not self.kc.is_alive():
+    def _kernel_is_ready(self, timeout=10):
+        """True once the kernel process is up and its channels are running."""
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                if not self.km.is_alive():
+                    return False
+            except Exception:
+                return False
+            if self.kc.is_alive():
+                return True
             time.sleep(0.1)
+        return False
+
+    def _restart_kernel(self):
+        """Replace a dead kernel with a fresh one. True if the new one is usable."""
+        if self._restarting:
+            return False
+        self._restarting = True
+        try:
+            try:
+                self.kc.stop_channels()
+            except Exception:
+                pass
+            try:
+                self.km.restart_kernel(now=True)
+            except Exception:
+                self.km = KernelManager(kernel_name="python3")
+                self.km.start_kernel()
+            self.kc = self.km.client()
+            self.kc.start_channels()
+            try:
+                # Without this the first execute_request after a restart is sent
+                # before the new kernel binds its shell socket, and is dropped.
+                self.kc.wait_for_ready(timeout=60)
+            except Exception:
+                return False
+            # The new kernel's namespace is empty, so nothing is imported any
+            # more and the toolbox/skills injections have to run again.
+            self.imported_modules = set()
+            toolbox = getattr(self.interpreter, "toolbox", None)
+            if toolbox is not None:
+                toolbox._has_imported_toolbox_api = False
+                toolbox._has_imported_skills = False
+            self.finish_flag = False
+            self._execution_id = None
+            self._configure_kernel()
+            return True
+        finally:
+            self._restarting = False
+
+    def run(self, code):
+        # A block that calls exit()/sys.exit()/quit(), or one the OS kills, takes
+        # the kernel with it. This used to spin here forever — the channels of a
+        # dead kernel never come back alive — so the session was over with no
+        # message and no way out but Ctrl-C.
+        if not self._kernel_is_ready():
+            if not self._restart_kernel():
+                yield {
+                    "type": "console",
+                    "format": "output",
+                    "content": "\n[The Python kernel exited and could not be restarted. Python is unavailable.]\n",
+                }
+                return
+            yield {"type": "console", "format": "output", "content": self.RESTART_NOTICE}
 
         ################################################################
         ### OFFICIAL OPEN INTERPRETER GOVERNMENT ISSUE SKILL LIBRARY ###
@@ -219,6 +304,7 @@ ip.display_formatter.active_types = ['text/markdown', 'text/plain']
             max_retries = 100
             last_activity = time.monotonic()
             last_heartbeat = last_activity
+            dead_since = None
             while True:
                 silent_for = time.monotonic() - last_activity
                 if heartbeat and silent_for >= heartbeat and time.monotonic() - last_heartbeat >= heartbeat:
@@ -265,7 +351,22 @@ ip.display_formatter.active_types = ['text/markdown', 'text/plain']
                 try:
                     msg = self.kc.iopub_channel.get_msg(timeout=0.05)
                 except queue.Empty:
-                    continue
+                    # A kernel killed outright (os._exit, a segfault, the OOM
+                    # killer) never sends its "idle", so waiting for one only
+                    # burns the whole idle timeout before giving up. Nothing is
+                    # queued right now either, so confirm over a second to let
+                    # anything still in flight arrive, then stop.
+                    if self.km.is_alive():
+                        dead_since = None
+                        continue
+                    if dead_since is None:
+                        dead_since = time.monotonic()
+                        continue
+                    if time.monotonic() - dead_since < 1:
+                        continue
+                    message_queue.put({"type": "console", "format": "output", "content": self.DIED_NOTICE})
+                    self.finish_flag = True
+                    return
                 except Exception as e:
                     max_retries -= 1
                     if max_retries < 0:
@@ -328,47 +429,9 @@ ip.display_formatter.active_types = ['text/markdown', 'text/plain']
                         }
                     )
                 elif msg["msg_type"] in ["display_data", "execute_result"]:
-                    data = content["data"]
-                    if "image/png" in data:
-                        message_queue.put(
-                            {
-                                "type": "image",
-                                "format": "base64.png",
-                                "content": data["image/png"],
-                            }
-                        )
-                    elif "image/jpeg" in data:
-                        message_queue.put(
-                            {
-                                "type": "image",
-                                "format": "base64.jpeg",
-                                "content": data["image/jpeg"],
-                            }
-                        )
-                    elif "text/html" in data:
-                        message_queue.put(
-                            {
-                                "type": "code",
-                                "format": "html",
-                                "content": data["text/html"],
-                            }
-                        )
-                    elif "text/plain" in data:
-                        message_queue.put(
-                            {
-                                "type": "console",
-                                "format": "output",
-                                "content": data["text/plain"],
-                            }
-                        )
-                    elif "application/javascript" in data:
-                        message_queue.put(
-                            {
-                                "type": "code",
-                                "format": "javascript",
-                                "content": data["application/javascript"],
-                            }
-                        )
+                    chunk = self._display_chunk(content["data"])
+                    if chunk:
+                        message_queue.put(chunk)
 
         # Send first, listen second. The channel buffers, so nothing is missed, and
         # this is what gives us the request id before any message can be read.
@@ -381,6 +444,11 @@ ip.display_formatter.active_types = ['text/markdown', 'text/plain']
 
         if DEBUG_MODE:
             print("thread is on:", self.listener_thread.is_alive(), self.listener_thread)
+
+    def _display_chunk(self, data):
+        """Forward a display, with images only if the model can actually see them."""
+        vision = getattr(getattr(self.interpreter, "llm", None), "supports_vision", False) is True
+        return display_chunk(data, vision)
 
     def detect_active_line(self, line):
         if "##active_line" in line:
