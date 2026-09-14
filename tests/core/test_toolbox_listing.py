@@ -84,15 +84,12 @@ def test_browser_entries_are_real_signatures(offline_interpreter):
 def test_internal_and_deprecated_methods_are_not_advertised(offline_interpreter):
     """Naming a method the model must not call buys a wasted turn and tokens.
 
-    `skills.import_skills` says "[INTERNAL METHOD - NOT FOR Assistant USE]" in
-    its own docstring and `skills.run` says "DEPRECATED"; the lazy bootstraps
-    (`browser.setup`, `browser.driver`, `vision.load`, `ai2.client`) are run by
-    the real methods themselves.
+    The lazy bootstraps (`browser.setup`, `browser.driver`, `vision.load`,
+    `ai2.client`) are run by the real methods themselves, so naming them only
+    invites the model to call one and waste a turn.
     """
     toolbox = offline_interpreter.toolbox
     hidden = [
-        "toolbox.skills.import_skills",
-        "toolbox.skills.run",
         "toolbox.browser.setup",
         "toolbox.browser.driver",
         "toolbox.vision.load",
@@ -106,7 +103,7 @@ def test_internal_and_deprecated_methods_are_not_advertised(offline_interpreter)
     for name in hidden:
         assert name not in names, name
         assert name not in full, name
-    assert "toolbox.skills.list" in names, "the real skills methods should survive"
+    assert "toolbox.web.search" in names, "the real methods should survive"
 
 
 def test_building_the_listing_does_not_start_a_browser(offline_interpreter):

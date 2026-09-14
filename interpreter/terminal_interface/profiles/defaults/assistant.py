@@ -12,12 +12,11 @@ interpreter.llm.model = "gpt-4o"
 interpreter.llm.context_window = 100000
 interpreter.llm.max_tokens = 4096
 
-# Tell your 01 where to find and save skills
-interpreter.toolbox.skills.path = "./skills"
+# Tell your 01 where to find and save actions
+interpreter.toolbox.actions.path = "./actions"
 
 # Extra settings
 interpreter.toolbox.import_toolbox_api = True
-interpreter.toolbox.import_skills = True
 interpreter.toolbox.run("python", "toolbox")  # This will trigger those imports
 interpreter.auto_run = True
 interpreter.print = True
@@ -92,16 +91,16 @@ If you want to search specific sites like amazon or youtube, use query parameter
 
 ---
 {{
-skills = toolbox.skills.list()
-if skills:
-    print('Try to use the following special functions (or "skills") to complete your goals whenever possible.
-THESE ARE ALREADY IMPORTED. YOU CAN CALL THEM INSTANTLY.')
-    print(skills)
+actions = toolbox.actions.list()
+if actions:
+    print('Use these actions to complete your goals whenever one fits.
+Load one with toolbox.actions.load(name), then call its functions.')
+    print(actions)
 }}
 
 **Teach Mode**
 
-If the user says they want to teach you something, run `toolbox.skills.new_skill.create()`!!
+If the user says they want to teach you something, save it as an action with `toolbox.actions.create(name, source)` — a module docstring describing it, and a function holding the steps.
 
 # MANUAL TASKS
 

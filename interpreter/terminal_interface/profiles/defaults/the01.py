@@ -14,25 +14,24 @@ interpreter.llm.context_window = 100000
 interpreter.llm.max_tokens = 4096
 # interpreter.llm.api_key = "<your_openai_api_key_here>"
 
-# Tell your 01 where to find and save skills
-skill_path = "./skills"
-interpreter.toolbox.skills.path = skill_path
+# Tell your 01 where to find and save actions
+skill_path = "./actions"
+interpreter.toolbox.actions.path = skill_path
 
 setup_code = f"""from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 import datetime
-toolbox.skills.path = '{skill_path}'
+toolbox.actions.path = '{skill_path}'
 toolbox"""
 
 # Extra settings
 interpreter.toolbox.import_toolbox_api = True
-interpreter.toolbox.import_skills = True
 interpreter.toolbox.system_message = ""
 output = interpreter.toolbox.run("python", setup_code)  # This will trigger those imports
 interpreter.auto_run = True
 interpreter.loop = True
-# interpreter.loop_message = """Proceed with what you were doing (this is not confirmation, if you just asked me something). You CAN run code on my machine. If you want to run code, start your message with "```"! If the entire task is done, say exactly 'The task is done.' If you need some specific information (like username, message text, skill name, skill step, etc.) say EXACTLY 'Please provide more information.' If it's impossible, say 'The task is impossible.' (If I haven't provided a task, say exactly 'Let me know what you'd like to do next.') Otherwise keep going. CRITICAL: REMEMBER TO FOLLOW ALL PREVIOUS INSTRUCTIONS. If I'm teaching you something, remember to run the related `toolbox.skills.new_skill` function."""
-interpreter.loop_message = """Proceed with what you were doing (this is not confirmation, if you just asked me something. Say "Please provide more information." if you're looking for confirmation about something!). You CAN run code on my machine. If the entire task is done, say exactly 'The task is done.' AND NOTHING ELSE. If you need some specific information (like username, message text, skill name, skill step, etc.) say EXACTLY 'Please provide more information.' AND NOTHING ELSE. If it's impossible, say 'The task is impossible.' AND NOTHING ELSE. (If I haven't provided a task, say exactly 'Let me know what you'd like to do next.' AND NOTHING ELSE) Otherwise keep going. CRITICAL: REMEMBER TO FOLLOW ALL PREVIOUS INSTRUCTIONS. If I'm teaching you something, remember to run the related `toolbox.skills.new_skill` function. (Psst: If you appear to be caught in a loop, break out of it! Execute the code you intended to execute.)"""
+# interpreter.loop_message = """Proceed with what you were doing (this is not confirmation, if you just asked me something). You CAN run code on my machine. If you want to run code, start your message with "```"! If the entire task is done, say exactly 'The task is done.' If you need some specific information (like username, message text, skill name, skill step, etc.) say EXACTLY 'Please provide more information.' If it's impossible, say 'The task is impossible.' (If I haven't provided a task, say exactly 'Let me know what you'd like to do next.') Otherwise keep going. CRITICAL: REMEMBER TO FOLLOW ALL PREVIOUS INSTRUCTIONS. If I'm teaching you something, remember to save it with `toolbox.actions.create`."""
+interpreter.loop_message = """Proceed with what you were doing (this is not confirmation, if you just asked me something. Say "Please provide more information." if you're looking for confirmation about something!). You CAN run code on my machine. If the entire task is done, say exactly 'The task is done.' AND NOTHING ELSE. If you need some specific information (like username, message text, skill name, skill step, etc.) say EXACTLY 'Please provide more information.' AND NOTHING ELSE. If it's impossible, say 'The task is impossible.' AND NOTHING ELSE. (If I haven't provided a task, say exactly 'Let me know what you'd like to do next.' AND NOTHING ELSE) Otherwise keep going. CRITICAL: REMEMBER TO FOLLOW ALL PREVIOUS INSTRUCTIONS. If I'm teaching you something, remember to save it with `toolbox.actions.create`. (Psst: If you appear to be caught in a loop, break out of it! Execute the code you intended to execute.)"""
 interpreter.loop_breakers = [
     "The task is done.",
     "The task is impossible.",
@@ -141,18 +140,18 @@ If you want to search specific sites like amazon or youtube, use query parameter
 
 # SKILLS
 
-Try to use the following special Python functions (or "skills") to complete your goals whenever possible.
+Try to use the following special Python modules (or "actions") to complete your goals whenever possible.
 THESE ARE ALREADY IMPORTED in Python. YOU CAN CALL THEM INSTANTLY.
 
 ---
-{{toolbox.skills.list()}}
+{{toolbox.actions.list()}}
 ---
 
-You can always list your skills by running toolbox.skills.list() in Python.
+You can always list your actions by running toolbox.actions.list() in Python, and load one with toolbox.actions.load(name).
 
 **Teach Mode**
 
-If the USER says they want to teach you something, run `toolbox.skills.new_skill.create()` then follow the printed instructions exactly.
+If the USER says they want to teach you something, write it as an action with `toolbox.actions.create(name, source)` — a module docstring describing it, and a function holding the steps.
 
 # MANUAL TASKS
 

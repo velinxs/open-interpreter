@@ -197,9 +197,6 @@ print("__TOOLBOX_API_IMPORTED__")
                 ):
                     self.interpreter.toolbox._has_imported_toolbox_api = False
 
-            if self.interpreter.toolbox.import_skills and not self.interpreter.toolbox._has_imported_skills:
-                self.interpreter.toolbox._has_imported_skills = True
-                self.interpreter.toolbox.skills.import_skills()
 
         if stream == False:
             # If stream == False, *pull* from _streaming_run.

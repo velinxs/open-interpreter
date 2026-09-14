@@ -96,8 +96,6 @@ class OpenInterpreter:
         computer=None,
         sync_computer=False,
         import_computer_api=False,
-        skills_path=None,
-        import_skills=False,
         multi_line=True,
         contribute_conversation=False,
         plain_text_display=False,
@@ -182,10 +180,7 @@ class OpenInterpreter:
         self.computer = self.toolbox
 
         # Skills
-        if skills_path:
-            self.toolbox.skills.path = skills_path
 
-        self.toolbox.import_skills = import_skills
 
         # LLM
         self.llm = Llm(self) if llm is None else llm

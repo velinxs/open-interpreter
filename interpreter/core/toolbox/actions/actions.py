@@ -121,6 +121,49 @@ class Actions:
         """The action's source code, for reading before running it."""
         return self._file(name).read_text(encoding="utf-8")
 
+    def create(self, name, source, overwrite=False):
+        """Write a new action, refusing one that could not later be loaded.
+
+        The same rules load() enforces are checked here, so a file that would
+        be rejected on use cannot be written in the first place: it must parse,
+        it must carry a docstring for the listing, and it must do nothing at
+        import time.
+        """
+        if not name.isidentifier() or name.startswith("_"):
+            raise ActionError(
+                f"'{name}' is not a usable action name. Use a Python identifier, "
+                f"such as 'deploy_staging'."
+            )
+
+        try:
+            tree = ast.parse(source)
+        except SyntaxError as error:
+            raise ActionError(f"That action has a syntax error: {error}") from error
+
+        if not ast.get_docstring(tree):
+            raise ActionError(
+                "An action needs a module docstring — its first line is the "
+                "description shown in the listing, and is all anyone sees "
+                "before loading it."
+            )
+
+        if _acts_at_import(tree):
+            raise ActionError(
+                "An action must only define things at the top level. Move the "
+                "work into a function so it runs when it is called, in a code "
+                "block the user has approved."
+            )
+
+        self.path.mkdir(parents=True, exist_ok=True)
+        destination = self.path / f"{name}.py"
+        if destination.exists() and not overwrite:
+            raise ActionError(
+                f"'{name}' already exists. Read it with toolbox.actions.show('{name}'), "
+                f"or pass overwrite=True to replace it."
+            )
+        destination.write_text(source, encoding="utf-8")
+        return str(destination)
+
     def load(self, name):
         """Import an action and return its module.
 

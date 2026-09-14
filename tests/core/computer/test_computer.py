@@ -13,11 +13,11 @@ class TestToolbox(unittest.TestCase):
         # Act
         tools_list = self.toolbox._get_all_toolbox_tools_list()
 
-        # Assert: 13 core tools; macOS inserts mail, sms, calendar, contacts after clipboard (+4).
+        # Assert: 12 core tools; macOS inserts mail, sms, calendar, contacts after clipboard (+4).
         if platform.system() == "Darwin":
-            self.assertEqual(len(tools_list), 17)
+            self.assertEqual(len(tools_list), 16)
         else:
-            self.assertEqual(len(tools_list), 13)
+            self.assertEqual(len(tools_list), 12)
 
     def test_get_all_toolbox_tools_signature_and_description(self):
         # Act

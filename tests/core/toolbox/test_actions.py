@@ -165,3 +165,48 @@ def test_a_missing_directory_lists_nothing(actions):
     actions.path = Path(tempfile.mkdtemp()) / "does-not-exist"
 
     assert actions.list() == []
+
+
+def test_create_writes_an_action_that_can_then_be_loaded(actions):
+    """The round trip works: write it, list it, load it, call it."""
+    path = actions.create("greet", '"""Say hello to someone."""\n\ndef run(name):\n    return f"hi {name}"\n')
+
+    assert Path(path).exists()
+    assert {"name": "greet", "summary": "Say hello to someone."} in actions.list()
+    assert actions.load("greet").run("you") == "hi you"
+
+
+def test_create_refuses_an_action_that_would_act_at_import(actions):
+    """The load-time rule is enforced at write time, so a bad file cannot exist.
+
+    Refusing only on load would leave a file that lists fine and fails later;
+    refusing on write means every action on disk is one that can be loaded.
+    """
+    with pytest.raises(ActionError, match="define things"):
+        actions.create("bad", '"""Acts now."""\n\nprint("side effect")\n')
+
+    assert actions.list() == []
+
+
+def test_create_requires_a_docstring(actions):
+    """Without one there is nothing to show in the listing."""
+    with pytest.raises(ActionError, match="docstring"):
+        actions.create("undocumented", "def run():\n    pass\n")
+
+
+def test_create_rejects_a_name_that_is_not_an_identifier(actions):
+    """The name becomes a filename and a module name, so it must be usable as both."""
+    for bad in ["has space", "has-dash", "_private", "1leading"]:
+        with pytest.raises(ActionError, match="usable action name"):
+            actions.create(bad, '"""Fine."""\n')
+
+
+def test_create_will_not_silently_replace_an_existing_action(actions):
+    """Overwriting is possible but never accidental."""
+    actions.create("keep", '"""First."""\n\ndef run():\n    return 1\n')
+
+    with pytest.raises(ActionError, match="already exists"):
+        actions.create("keep", '"""Second."""\n\ndef run():\n    return 2\n')
+
+    actions.create("keep", '"""Second."""\n\ndef run():\n    return 2\n', overwrite=True)
+    assert actions.load("keep").run() == 2

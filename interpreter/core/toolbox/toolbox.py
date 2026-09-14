@@ -17,7 +17,6 @@ from .keyboard.keyboard import Keyboard
 from .mail.mail import Mail
 from .mouse.mouse import Mouse
 from .os.os import Os
-from .skills.skills import Skills
 from .sms.sms import SMS
 from .vision.vision import Vision
 from .web.web import Web
@@ -43,7 +42,6 @@ class Toolbox:
         self.os = Os(self)
         self.web = Web(self)
         self.vision = Vision(self)
-        self.skills = Skills(self)
         self.docs = Docs(self)
         self.ai = Ai(self)
         self._ai2 = None
@@ -52,7 +50,6 @@ class Toolbox:
 
         self.emit_images = True
         self.api_base = "https://api.openinterpreter.com/v0"
-        self.save_skills = True
 
         self.import_toolbox_api = False  # Defaults to false
         # "names" lists the callables and their required arguments; "full"
@@ -61,8 +58,6 @@ class Toolbox:
         self.api_listing = "names"
         self._has_imported_toolbox_api = False  # Because we only want to do this once
 
-        self.import_skills = False
-        self._has_imported_skills = False
         self.max_output = self.interpreter.max_output  # Should mirror interpreter.max_output
 
         self._system_message_override = None
@@ -173,7 +168,6 @@ those, the return shape and examples. Never guess a signature or a return format
             self.os,
             self.web,
             self.vision,
-            self.skills,
             self.docs,
             self.ai,
             self.ai2,

@@ -209,7 +209,7 @@ ip.display_formatter.active_types = ['text/markdown', 'text/plain', 'image/png',
             except Exception:
                 return False
             # The new kernel's namespace is empty, so nothing is imported or
-            # defined any more and the toolbox/skills injections have to run
+            # defined any more and the toolbox injection has to run
             # again. Keeping a fingerprint here would strip the re-definition
             # the model has to send to get its helper back.
             self.imported_modules = set()
@@ -218,7 +218,6 @@ ip.display_formatter.active_types = ['text/markdown', 'text/plain', 'image/png',
             toolbox = getattr(self.interpreter, "toolbox", None)
             if toolbox is not None:
                 toolbox._has_imported_toolbox_api = False
-                toolbox._has_imported_skills = False
             self.finish_flag = False
             self._execution_id = None
             self._configure_kernel()
@@ -251,8 +250,6 @@ ip.display_formatter.active_types = ['text/markdown', 'text/plain', 'image/png',
         #     # Non blocking
         #     functions = {}
 
-        # if self.toolbox.save_skills and functions:
-        #     skill_library_path = self.toolbox.skills.path
 
         #     if not os.path.exists(skill_library_path):
         #         os.makedirs(skill_library_path)
