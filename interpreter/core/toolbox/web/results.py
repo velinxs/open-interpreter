@@ -133,7 +133,8 @@ def _hit_url(entries, index, method):
     if isinstance(index, bool) or not isinstance(index, int):
         raise WebToolboxError(
             f"{method}() takes a single result index, e.g. {method}(0) — "
-            f"got {type(index).__name__}. Fetch pages one at a time."
+            f"got {type(index).__name__}. Fetch pages one at a time; for a "
+            "detail inside a page use search_page(i, query)."
         )
     try:
         return entries[index]["url"]
@@ -165,6 +166,12 @@ class SearchResult(dict):
         url = _hit_url(results, index, "fetch")
         return self._web.fetch(url)
 
+    def search_page(self, index, query, **kwargs):
+        """Search within the page for search result at the given index (single int, e.g. 0). Returns a PageSearchResult."""
+        results = self.get("results", [])
+        url = _hit_url(results, index, "search_page")
+        return self._web.search_page(url, query, **kwargs)
+
     def __repr__(self):
         backend = self.get("backend", "?")
         results = self.get("results", [])
@@ -173,7 +180,9 @@ class SearchResult(dict):
         lines.append(
             "  Keys: results[ResultItem: .title or ['title']; content→snippet], raw_response[dict], backend[str]"
         )
-        lines.append("  → result.results[i] | page=result.fetch(i) → page.content | page.find(term) | page.links()")
+        lines.append(
+            "  → result.results[i] | detail=result.search_page(i, query) | page=result.fetch(i) → page.find(term)"
+        )
         for i, r in enumerate(results[:5]):
             title = r.get("title", "")[:70]
             url = r.get("url", "")
@@ -333,6 +342,12 @@ class AnswerResult(dict):
         url = _hit_url(sources, index, "fetch")
         return self._web.fetch(url)
 
+    def search_page(self, index, query, **kwargs):
+        """Search within the page for source at the given index (single int, e.g. 0). Returns a PageSearchResult."""
+        sources = self.get("sources", [])
+        url = _hit_url(sources, index, "search_page")
+        return self._web.search_page(url, query, **kwargs)
+
     def __repr__(self):
         backend = self.get("backend", "?")
         answer = self.get("answer", "")
@@ -340,7 +355,7 @@ class AnswerResult(dict):
         n_sources = len(sources)
         lines = [f"AnswerResult({n_sources} sources) [backend={backend}]"]
         lines.append("  Keys: answer[str], sources[ResultItem: .title or ['title']; content→snippet], backend[str]")
-        lines.append("  → result.answer | page=result.fetch(i) → page.content | page.find(term) | page.links()")
+        lines.append("  → result.answer | detail=result.search_page(i, query) | page=result.fetch(i) → page.find(term)")
         if answer:
             for line in answer.split("\n"):
                 lines.append(f"  {line}")
@@ -372,6 +387,14 @@ class StructuredOutputResult(dict):
         url = _hit_url(sources, index, "fetch")
         return self._web.fetch(url)
 
+    def search_page(self, index, query, **kwargs):
+        """Search within the page for source at the given index (single int, e.g. 0). Returns a PageSearchResult."""
+        sources = self.get("sources", [])
+        if not sources:
+            raise WebToolboxError("No sources available in this result to search.")
+        url = _hit_url(sources, index, "search_page")
+        return self._web.search_page(url, query, **kwargs)
+
     def __repr__(self):
         backend = self.get("backend", "?")
         data = self.get("structured_output", {})
@@ -382,7 +405,7 @@ class StructuredOutputResult(dict):
         sk = ", ".join(keys[:10]) + ("..." if len(keys) > 10 else "")
         lines.append(f"  Keys inside .structured_output: {sk or '(empty)'}")
         lines.append(
-            "  → result.structured_output | page=result.fetch(i) → page.content | page.find(term) | page.links()"
+            "  → result.structured_output | detail=result.search_page(i, query) | page=result.fetch(i) → page.find(term)"
         )
         # Pretty print a bit of JSON as preview — use 2-space indent, max 6 lines
         try:
@@ -393,6 +416,48 @@ class StructuredOutputResult(dict):
                 lines.append("  ...")
         except (TypeError, ValueError):
             lines.append(f"  {str(data)[:200]}...")
+        return "\n".join(lines)
+
+
+class PageSearchResult(dict):
+    """dict subclass for within-page search results. Has a compact repr to avoid flooding the context window."""
+
+    def __init__(self, data, web=None):
+        super().__init__(data)
+        self._web = web
+
+    def __getattr__(self, name):
+        """Allow attribute-style access for dict keys (result.matches, result.url, ...)."""
+        try:
+            return self[name]
+        except KeyError as exc:
+            raise AttributeError(
+                f"'PageSearchResult' object has no attribute '{name}'. "
+                "Use attribute access (e.g. result.matches). See result.keys()."
+            ) from exc
+
+    def fetch(self):
+        """Fetch the full page these passages came from. Returns a FetchResult."""
+        return self._web.fetch(self.get("url", ""))
+
+    def __repr__(self):
+        backend = self.get("backend", "?")
+        matches = self.get("matches", [])
+        n = len(matches)
+        lines = [f"PageSearchResult({n} matches) [backend={backend}]"]
+        lines.append("  Keys: url[str], query[str], matches[ResultItem: .snippet or ['snippet']], backend[str]")
+        lines.append("  → result.matches[i]['snippet'] | page=result.fetch() → page.content")
+        for i, m in enumerate(matches[:5]):
+            heading = (m.get("heading") or "").strip()[:70]
+            snippet = (m.get("snippet") or "").replace("\n", " ").strip()[:150]
+            score = m.get("score")
+            tag = f" (score={score})" if score is not None else ""
+            prefix = f"  {i}. [{heading}]{tag}" if heading else f"  {i}.{tag}"
+            lines.append(prefix)
+            if snippet:
+                lines.append(f"     {snippet}")
+        if n > 5:
+            lines.append(f"  ... {n - 5} more")
         return "\n".join(lines)
 
 

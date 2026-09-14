@@ -40,6 +40,7 @@ from .results import (
     AnswerResult,
     ApiKeyError,
     FetchResult,
+    PageSearchResult,
     ResultItem,
     SearchResult,
     StructuredOutputResult,
@@ -53,6 +54,7 @@ __all__ = [
     "AnswerResult",
     "ApiKeyError",
     "FetchResult",
+    "PageSearchResult",
     "ResultItem",
     "SearchResult",
     "StructuredOutputResult",
@@ -246,7 +248,7 @@ class Web(
 
             result = backend_methods[backend](query, **backend_kwargs)
             result["backend"] = backend
-            print("→ result.results[i] | page=result.fetch(i) → page.content | page.find(term) | page.links()")
+            print("→ result.results[i] | detail=result.search_page(i, query) | page=result.fetch(i) → page.find(term)")
             return SearchResult(result, web=self)
 
         # Auto-select backend
@@ -260,7 +262,9 @@ class Web(
             try:
                 result = backend_methods[backend_name](query, **backend_kwargs)
                 result["backend"] = backend_name
-                print("→ result.results[i] | page=result.fetch(i) → page.content | page.find(term) | page.links()")
+                print(
+                    "→ result.results[i] | detail=result.search_page(i, query) | page=result.fetch(i) → page.find(term)"
+                )
                 return SearchResult(result, web=self)
             except (WebToolboxError, ApiKeyError) as e:
                 failed_results.append((backend_name, e))
@@ -320,7 +324,7 @@ class Web(
             backend_methods = {"linkup": self._answer_linkup, "tavily": self._answer_tavily}
             result = backend_methods[backend](question, **kwargs)
             result["backend"] = backend
-            print("→ result.answer | page=result.fetch(i) → page.content | page.find(term) | page.links()")
+            print("→ result.answer | detail=result.search_page(i, query) | page=result.fetch(i) → page.find(term)")
             return AnswerResult(result, web=self)
 
         backends_to_try = ["linkup", "tavily"]
@@ -333,7 +337,7 @@ class Web(
             try:
                 result = backend_methods[backend_name](question, **kwargs)
                 result["backend"] = backend_name
-                print("→ result.answer | page=result.fetch(i) → page.content | page.find(term) | page.links()")
+                print("→ result.answer | detail=result.search_page(i, query) | page=result.fetch(i) → page.find(term)")
                 return AnswerResult(result, web=self)
             except (WebToolboxError, ApiKeyError) as e:
                 failed_results.append((backend_name, e))
@@ -402,7 +406,9 @@ class Web(
             backend_methods = {"linkup": self._structured_output_linkup}
             result = backend_methods[backend](query, schema, **kwargs)
             result["backend"] = backend
-            print("→ result.structured_output | page=result.fetch(i) → page.content | page.find(term) | page.links()")
+            print(
+                "→ result.structured_output | detail=result.search_page(i, query) | page=result.fetch(i) → page.find(term)"
+            )
             return StructuredOutputResult(result, web=self)
 
         # Default/Auto-select (currently only linkup)
@@ -417,7 +423,7 @@ class Web(
                 result = backend_methods[backend_name](query, schema, **kwargs)
                 result["backend"] = backend_name
                 print(
-                    "→ result.structured_output | page=result.fetch(i) → page.content | page.find(term) | page.links()"
+                    "→ result.structured_output | detail=result.search_page(i, query) | page=result.fetch(i) → page.find(term)"
                 )
                 return StructuredOutputResult(result, web=self)
             except (WebToolboxError, ApiKeyError) as e:

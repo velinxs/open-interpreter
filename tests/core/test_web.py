@@ -506,3 +506,137 @@ class TestLinkupFetchGuard(unittest.TestCase):
         msg = str(context.exception)
         self.assertIn("--upgrade linkup-sdk", msg)
         self.assertNotIn("API key", msg)
+
+
+class TestSearchPage(unittest.TestCase):
+    """Reading the part of a page that answers the question, not the whole page.
+
+    Ported from classic/develop (without its vanshul backend): a fetch costs a
+    whole page of context to answer something a paragraph would settle.
+    """
+
+    def setUp(self):
+        self.web = Web(MagicMock())
+
+    def _page(self, content, backend="serper"):
+        from interpreter.core.toolbox.web.web import FetchResult
+
+        return FetchResult({"url": "https://example.com", "title": "", "content": content, "backend": backend})
+
+    def test_tavily_extracts_by_query_at_the_source(self):
+        """The query goes to tavily's extract, so only matching chunks come back."""
+        client = MagicMock()
+        client.return_value.extract.return_value = {
+            "results": [
+                {"url": "https://example.com", "title": "Example", "content": "Rate limits apply.", "score": 0.9}
+            ],
+            "failed_results": [],
+        }
+        with patch.dict(os.environ, {"TAVILY_API_KEY": "fake_key"}):
+            with fake_sdk("tavily", TavilyClient=client):
+                result = self.web.search_page("https://example.com", "rate limits", backend="tavily")
+        call_kwargs = client.return_value.extract.call_args.kwargs
+        self.assertEqual(call_kwargs["query"], "rate limits")
+        self.assertEqual(call_kwargs["urls"], ["https://example.com"])
+        self.assertEqual(call_kwargs["chunks_per_source"], 5)
+        self.assertEqual(result["backend"], "tavily")
+        self.assertEqual(len(result["matches"]), 1)
+        self.assertIn("Rate limits", result["matches"][0]["snippet"])
+
+    def test_a_backend_without_native_support_fetches_once_and_matches_locally(self):
+        """serper cannot extract by query, so the page is fetched and matched here."""
+        with patch.object(self.web, "fetch", return_value=self._page("Alpha pricing plans beta")):
+            result = self.web.search_page("https://example.com", "pricing", backend="serper")
+        self.assertEqual(result["backend"], "serper")
+        self.assertEqual(len(result["matches"]), 1)
+        self.assertIn("pricing", result["matches"][0]["snippet"])
+        self.assertIsNone(result["matches"][0]["score"], "emulated matches are unranked")
+
+    def test_auto_select_prefers_the_backend_that_extracts_by_query(self):
+        """With a tavily key, the page is never fetched in full."""
+        with patch.dict(os.environ, {"TAVILY_API_KEY": "fake"}, clear=True):
+            native = {"url": "https://example.com", "query": "q", "matches": [], "raw_response": {}}
+            with patch.object(self.web, "_search_page_tavily", return_value=native) as search_tavily:
+                with patch.object(self.web, "fetch") as fetch:
+                    result = self.web.search_page("https://example.com", "paraphrased query")
+        self.assertEqual(result["backend"], "tavily")
+        search_tavily.assert_called_once()
+        fetch.assert_not_called()
+
+    def test_auto_select_falls_through_to_fetch_emulation(self):
+        """With no keys at all it still works, and names the backend that read the page."""
+        with patch.dict(os.environ, {}, clear=True):
+            with patch.object(self.web, "fetch", return_value=self._page("Hello world", backend="direct")):
+                result = self.web.search_page("https://example.com", "hello")
+        self.assertEqual(result["backend"], "direct")
+        self.assertEqual(result["raw_response"]["emulated_via_fetch"], "direct")
+        self.assertEqual(len(result["matches"]), 1)
+
+    def test_unknown_backend_lists_the_supported_ones(self):
+        """A backend that cannot search a page names the ones that can."""
+        with self.assertRaises(WebToolboxError) as context:
+            self.web.search_page("https://example.com", "x", backend="brave")
+        self.assertIn("tavily", str(context.exception))
+
+    def test_search_page_normalizes_its_url(self):
+        """search_page validates and completes the URL exactly as fetch does."""
+        with self.assertRaises(WebToolboxError):
+            self.web.search_page("not a url", "q", backend="direct")
+        with patch.object(self.web, "fetch", return_value=self._page("hi", backend="direct")) as fetch:
+            self.web.search_page("example.com", "hi", backend="direct")
+        fetch.assert_called_once_with("https://example.com", backend="direct")
+
+    def test_matches_support_attribute_access(self):
+        """Passages are ResultItems, so match.snippet works as well as match['snippet']."""
+        with patch.object(self.web, "fetch", return_value=self._page("a pricing b")):
+            result = self.web.search_page("https://example.com", "pricing", backend="serper")
+        match = result.matches[0]
+        self.assertIsInstance(match, ResultItem)
+        self.assertIn("pricing", match.snippet)
+
+    def test_result_fetches_the_full_page_it_searched(self):
+        """When a passage looks promising, result.fetch() brings back the whole page."""
+        full = self._page("full text", backend="direct")
+        with patch.object(self.web, "fetch", return_value=full) as fetch:
+            result = self.web.search_page("https://example.com", "full", backend="direct")
+            self.assertEqual(result.fetch()["content"], "full text")
+        self.assertEqual(fetch.call_args_list[-1][0][0], "https://example.com")
+
+    def test_search_result_delegates_to_the_hit_url(self):
+        """SearchResult.search_page(i, query) searches within that result's page."""
+        from interpreter.core.toolbox.web.web import SearchResult
+
+        result = SearchResult(
+            {"results": [{"title": "T", "url": "http://a", "snippet": "S"}], "backend": "serper"},
+            web=self.web,
+        )
+        with patch.object(self.web, "search_page", return_value="PASSAGES") as search_page:
+            self.assertEqual(result.search_page(0, "pricing", max_results=3), "PASSAGES")
+        search_page.assert_called_once_with("http://a", "pricing", max_results=3)
+
+    def test_answer_result_delegates_to_the_source_url(self):
+        """AnswerResult.search_page(i, query) searches within that source's page."""
+        from interpreter.core.toolbox.web.web import AnswerResult
+
+        result = AnswerResult(
+            {"answer": "A", "sources": [{"title": "T", "url": "http://b", "snippet": "S"}], "backend": "linkup"},
+            web=self.web,
+        )
+        with patch.object(self.web, "search_page", return_value="PASSAGES") as search_page:
+            self.assertEqual(result.search_page(0, "query"), "PASSAGES")
+        search_page.assert_called_once_with("http://b", "query")
+
+    def test_structured_result_with_no_sources_says_so(self):
+        """There is nothing to search when the extraction returned no sources."""
+        result = StructuredOutputResult({"structured_output": {}, "sources": [], "backend": "linkup"}, web=self.web)
+        with self.assertRaises(WebToolboxError):
+            result.search_page(0, "query")
+
+    def test_index_guidance_points_at_search_page(self):
+        """The error for fetch([0, 1]) names the cheaper call the model wanted."""
+        from interpreter.core.toolbox.web.web import SearchResult
+
+        result = SearchResult({"results": [{"title": "T", "url": "http://a"}], "backend": "serper"}, web=self.web)
+        with self.assertRaises(WebToolboxError) as context:
+            result.fetch([0, 1])
+        self.assertIn("search_page(i, query)", str(context.exception))
