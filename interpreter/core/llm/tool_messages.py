@@ -4,8 +4,8 @@ Providers disagree about tool-call ids, about pairing each call with a
 response, and about where an image may sit relative to tool messages;
 process_messages() normalizes all of that before the request goes out.
 
-It also collapses runs of consecutive assistant messages, which we store as
-separate turns but no provider expects to receive that way.
+It also collapses runs of consecutive assistant and user messages, which we
+store as separate turns but no provider expects to receive that way.
 """
 
 import json
@@ -138,6 +138,59 @@ def merge_consecutive_assistant_messages(messages):
     return merged
 
 
+def _merge_user_content(first, second):
+    """Combine two user message contents, preserving order and image parts.
+
+    Plain strings are joined with a blank line. If either side is multimodal
+    (a list of content parts), both sides are normalized to part lists and
+    concatenated so text and image parts keep their original order.
+    """
+    if isinstance(first, str) and isinstance(second, str):
+        parts = [p for p in (first, second) if p and p.strip()]
+        return "\n\n".join(parts)
+
+    def to_parts(content):
+        if content is None:
+            return []
+        if isinstance(content, str):
+            return [{"type": "text", "text": content}] if content else []
+        return list(content)
+
+    return to_parts(first) + to_parts(second)
+
+
+def merge_consecutive_user_messages(messages):
+    """Collapse runs of consecutive `user` messages into single turns.
+
+    DeepSeek's chat format expects interleaved roles: "deepseek-reasoner does
+    not support successive user or assistant messages ... interleave the
+    user/assistant messages" (deepseek-ai/DeepSeek-R1#21). Successive same-role
+    messages are rejected by some DeepSeek endpoints and, on relays that
+    tolerate them, still distort the chat template and the thinking-mode
+    reasoning concatenation (the docs describe reasoning as spanning "between
+    two user messages").
+
+    We produce them naturally: resuming a saved session appends a SYSTEM ALERT
+    user message, and attaching an image appends the path as a text user message
+    plus the image itself, yielding runs of 2-5 user messages. Merging restores
+    the alternating shape without dropping content or images.
+
+    This mirrors DeepSeek's own V4.1 reference encoder: its `merge_tool_messages`
+    appends another user message's blocks onto the previous user message
+    (DeepSeek-V4.1-Flash `encoding/encoding.py`, huggingface.co/deepseek-ai).
+    DeepSeek's vision guide likewise says to keep an image and its instruction in
+    the same `content` array of a single user message.
+    """
+    merged = []
+    for message in messages:
+        prev = merged[-1] if merged else None
+        if message.get("role") == "user" and prev is not None and prev.get("role") == "user":
+            prev["content"] = _merge_user_content(prev.get("content"), message.get("content"))
+            continue
+        merged.append(dict(message))
+    return merged
+
+
 def process_messages(messages, model=None):
     processed_messages = []
     existing_ids = _existing_tool_ids(messages)
@@ -251,7 +304,8 @@ def process_messages(messages, model=None):
 
         i += 1
 
-    # Last, because the merge assumes the pairing above is already in place: it
-    # can only ever fold a preamble into the tool_calls message that follows it,
-    # never across the role:tool response between them.
-    return merge_consecutive_assistant_messages(processed_messages)
+    # Last, because both merges assume the pairing above is already in place:
+    # the assistant merge can only ever fold a preamble into the tool_calls
+    # message that follows it, never across the role:tool response between them.
+    processed_messages = merge_consecutive_assistant_messages(processed_messages)
+    return merge_consecutive_user_messages(processed_messages)
