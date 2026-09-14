@@ -183,6 +183,75 @@ def test_a_missing_index_defaults_to_the_first_call():
     assert message["tool_calls"][0]["function"]["arguments"] == "{}"
 
 
+def test_two_calls_stamped_with_the_same_index_do_not_concatenate():
+    """A second call sharing the first one's index starts its own entry.
+
+    litellm's Delta.__init__ numbers index-less tool calls from zero *per
+    chunk*, so a provider that streams two finished calls in two chunks — its
+    native Ollama path does exactly this — hands both of them index 0. Merging
+    on index alone appended the second call's arguments onto the first,
+    producing {"language":"python",...}{"language":"bash",...} in one arguments
+    string. That is the malformed call the model was then told it had sent, and
+    the reason it could not correct itself: it had not sent it. The differing id
+    is what says these are two calls.
+    """
+    message = {}
+    merge_deltas(
+        message,
+        {
+            "tool_calls": [
+                {"index": 0, "id": "a", "function": {"name": "execute", "arguments": '{"language": "python"}'}}
+            ]
+        },
+    )
+    merge_deltas(
+        message,
+        {
+            "tool_calls": [
+                {"index": 0, "id": "b", "function": {"name": "execute", "arguments": '{"language": "bash"}'}}
+            ]
+        },
+    )
+
+    assert len(message["tool_calls"]) == 2, message["tool_calls"]
+    assert message["tool_calls"][0]["function"]["arguments"] == '{"language": "python"}'
+    assert message["tool_calls"][1]["function"]["arguments"] == '{"language": "bash"}'
+    # The renumber keeps index usable as a lookup key for any later index-only delta.
+    assert message["tool_calls"][0]["index"] != message["tool_calls"][1]["index"]
+
+
+def test_a_late_arriving_id_still_joins_the_call_it_belongs_to():
+    """An id that turns up after the call opened is adopted, not read as a new call.
+
+    Some providers send the function name in the opening delta and the id with
+    the first arguments fragment. Treating "an id we have not seen" as proof of
+    a second call would split every such call in half.
+    """
+    message = {}
+    merge_deltas(message, {"tool_calls": [{"index": 0, "function": {"name": "execute", "arguments": "{"}}]})
+    merge_deltas(message, {"tool_calls": [{"index": 0, "id": "call_1", "function": {"arguments": "}"}}]})
+
+    assert len(message["tool_calls"]) == 1
+    assert message["tool_calls"][0]["id"] == "call_1"
+    assert message["tool_calls"][0]["function"]["arguments"] == "{}"
+
+
+def test_a_repeated_id_continues_its_own_call_whatever_the_index_says():
+    """Fragments are matched by id first, so a re-stamped index cannot mis-route them.
+
+    A provider that repeats the id on every fragment but lets litellm re-stamp
+    the index (0 in each chunk) would otherwise feed the second call's tail into
+    the first.
+    """
+    message = {}
+    merge_deltas(message, {"tool_calls": [{"index": 0, "id": "a", "function": {"name": "execute", "arguments": "1"}}]})
+    merge_deltas(message, {"tool_calls": [{"index": 0, "id": "b", "function": {"name": "execute", "arguments": "2"}}]})
+    merge_deltas(message, {"tool_calls": [{"index": 0, "id": "b", "function": {"arguments": "3"}}]})
+
+    by_id = {call["id"]: call["function"]["arguments"] for call in message["tool_calls"]}
+    assert by_id == {"a": "1", "b": "23"}
+
+
 def test_non_tool_call_lists_are_extended():
     """Ordinary list fields accumulate by extension.
 

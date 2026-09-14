@@ -25,11 +25,17 @@ def _error_chunk(tool_call_id_for_error, error_msg):
     when the last message has role == "tool"; a role: assistant message would
     end the turn with the user seeing the error and the model never reading
     it, which is the failure this whole function exists to avoid.
+
+    ``format: "error"`` is what tells that same re-prompt in respond() apart
+    from a benign tool response (a view_image approval, say). It is how the
+    retry cap counts consecutive failures; without it the loop cannot see the
+    difference between a model correcting itself and a model thrashing.
     """
     return {
         "role": "tool",
         "tool_call_id": tool_call_id_for_error,
         "type": "message",
+        "format": "error",
         "content": error_msg,
     }
 
@@ -50,7 +56,10 @@ def _tool_call_chunk(tool_call_id, function_call):
     ``arguments`` is kept exactly as the model sent it, unparseable JSON
     included. It is paired with an error that says the JSON was bad, so
     "repairing" it here would put a call the model never made in front of that
-    error and reintroduce the contradiction.
+    error and reintroduce the contradiction. What goes *out* to the provider is
+    a separate question: convert_to_openai_messages sends "{}" in this slot,
+    because the assistant slot is the one the model imitates. The text itself
+    reaches the model through the paired error (see _sent_text).
     """
     arguments = function_call.get("arguments")
     if not isinstance(arguments, (str, dict, list, int, float, bool, type(None))):
@@ -137,35 +146,47 @@ def _split_concatenated_calls(raw):
     return first, extra
 
 
-def _unwrap_recorded_arguments(arguments):
-    """Undo the wrapper convert_to_openai_messages puts round unparseable text.
+_RECORDED_WRAPPER_KEY = "_unparsed_arguments"
 
-    A malformed call is recorded as {"_unparsed_arguments": "<what was sent>"}
-    so the outgoing request still parses. Models imitate what they see in their
-    own history, so that wrapper comes back as a real call — and reporting
-    "missing required fields, got ['_unparsed_arguments']" tells the model
-    nothing it can act on. Treat it as the raw text it stands for.
+_SENT_TEXT_LIMIT = 500
+
+
+def _sent_text(raw):
+    """"You sent: ..." for an error message, capped so one bad call cannot flood the turn.
+
+    The model's malformed text no longer goes into its own assistant slot —
+    convert_to_openai_messages records "{}" there, because whatever sits in that
+    slot is what the model imitates next turn. The error is where the text
+    belongs instead: this is the message the model reads to correct itself, and
+    it cannot correct something it is never shown.
     """
-    if isinstance(arguments, dict) and set(arguments) == {"_unparsed_arguments"}:
-        return arguments["_unparsed_arguments"]
-    return arguments
+    if not isinstance(raw, str):
+        raw = json.dumps(raw, default=str)
+    if len(raw) > _SENT_TEXT_LIMIT:
+        raw = raw[:_SENT_TEXT_LIMIT] + f"... ({len(raw)} characters in total)"
+    return f"You sent: {raw}"
 
 
-def _parse_arguments(arguments):
-    """Arguments as an object, seeing through a wrapper the model copied back.
+def _recorded_wrapper_text(arguments):
+    """The text inside a recorded-arguments wrapper, or None if this is a real call.
 
-    The unwrap has to happen after parsing as well as before it: the wrapper
-    arrives as a JSON *string*, so it only becomes recognisable once parsed, and
-    what it holds is then raw text that has to go through the parser itself.
+    Malformed arguments used to be recorded into the assistant slot as
+    {"_unparsed_arguments": "<what was sent>"} so the outgoing request still
+    parsed. Models copy what they find in that slot, so it came back as a real
+    call — and when what it held happened to be valid, it was unwrapped and run,
+    which taught the model the wrapper works. Conversations saved back then still
+    carry it, so it is still recognised here; it is answered with a correction
+    now rather than executed.
     """
-    for _ in range(2):
-        if isinstance(arguments, str):
-            arguments = parse_partial_json(arguments)
-        unwrapped = _unwrap_recorded_arguments(arguments)
-        if unwrapped is arguments:
-            break
-        arguments = unwrapped
-    return arguments
+    if isinstance(arguments, str):
+        try:
+            arguments = json.loads(arguments)
+        except ValueError:
+            return None
+    if isinstance(arguments, dict) and set(arguments) == {_RECORDED_WRAPPER_KEY}:
+        text = arguments[_RECORDED_WRAPPER_KEY]
+        return text if isinstance(text, str) else json.dumps(text, default=str)
+    return None
 
 
 def _mint_tool_call_id(request_params, model):
@@ -195,6 +216,46 @@ def _mint_tool_call_id(request_params, model):
         n += 1
         candidate = generate_tool_id(n, model)
     return candidate
+
+
+def unrun_tool_calls(extra_calls, request_params, model):
+    """Chunks answering the tool calls this turn cannot run.
+
+    A turn runs exactly one block — respond() executes
+    ``interpreter.messages[-1]`` and message_stream concatenates consecutive code
+    chunks into one message, so a second call has nowhere to go. It used to be
+    discarded silently where the stream was converted: the model asked for two
+    things, one happened, and the history it read next turn contained no trace of
+    the other. It either assumed the second had run or sent it again — and on a
+    provider that streams calls without an index, re-sending it was what produced
+    the concatenated arguments string in the first place.
+
+    Each unrun call is recorded (so the provider sees a real assistant/tool pair)
+    and answered with a response saying plainly that nothing in it happened and
+    when to send it. One notice goes to the user, who would otherwise see one of
+    two requested actions quietly not occur.
+    """
+    for call in extra_calls:
+        function_call = call.get("function")
+        if not isinstance(function_call, dict):
+            function_call = {}
+        call_id = call.get("id") or _mint_tool_call_id(request_params, model)
+        yield _tool_call_chunk(call_id, function_call)
+        yield _error_chunk(
+            call_id,
+            "Not run: one tool call runs per turn and this was not the first, so nothing "
+            "in it happened. Send it again on your next turn, after reading the first "
+            "call's output.",
+        )
+    yield {
+        "role": "computer",
+        "type": "notice",
+        "format": "error",
+        "content": (
+            f"The model sent {len(extra_calls) + 1} tool calls in one turn; only the first ran. "
+            "The rest were returned to the model unrun."
+        ),
+    }
 
 
 def dispatch_function_call(llm, accumulated_deltas, request_params, tool_call_id_for_error, verbose, language):
@@ -236,13 +297,30 @@ def dispatch_function_call(llm, accumulated_deltas, request_params, tool_call_id
         if tool_call_id_for_error is None:
             tool_call_id_for_error = _mint_tool_call_id(request_params, getattr(llm, "model", None))
 
+        # A call whose arguments are a recorded-arguments wrapper is answered
+        # before the per-tool branches, whatever tool it names: running it (which
+        # is what happened when the text inside was valid) is what taught the
+        # model the wrapper works, and every tool wants the same correction.
+        wrapper_text = _recorded_wrapper_text(function_call.get("arguments"))
+        if wrapper_text is not None:
+            error_msg = (
+                "Invalid tool call: the arguments were nested inside another object "
+                "instead of being sent directly. Send the tool's own arguments as the "
+                'arguments object, e.g. {"language": "python", "code": "print(1)"} for '
+                f"execute. {_sent_text(wrapper_text)}"
+            )
+            yield from _malformed_call(tool_call_id_for_error, function_call, error_msg)
+            if verbose:
+                print(f"[ERROR] {error_msg}", flush=True)
+            return
+
         # Only "execute" is supported as a direct tool call
         # Other functions (like toolbox.web.search) must be called from within Python code
         if function_name == "execute":
             raw_arguments = function_call.get("arguments")
             arguments = raw_arguments
             if isinstance(arguments, str):
-                arguments = _parse_arguments(arguments)
+                arguments = parse_partial_json(arguments)
 
             # Validate arguments and yield code, or yield error as tool response
             if isinstance(arguments, dict):
@@ -284,7 +362,8 @@ def dispatch_function_call(llm, accumulated_deltas, request_params, tool_call_id
                     # Missing language or code - yield error as tool response
                     error_msg = (
                         f"Invalid execute call: missing required fields. "
-                        f"execute requires 'language' and 'code'. Got: {list(arguments.keys())}"
+                        f"execute requires 'language' and 'code'. Got: {list(arguments.keys())}. "
+                        'Resend as e.g. {"language": "python", "code": "print(1)"}.'
                     )
                     if verbose:
                         print(f"[ERROR] {error_msg}. Arguments: {json.dumps(arguments, default=str)}", flush=True)
@@ -300,7 +379,7 @@ def dispatch_function_call(llm, accumulated_deltas, request_params, tool_call_id
                 # to something other than an object) — a model told "got NoneType"
                 # for a syntax error has no way to know it sent bad JSON at all,
                 # and will likely resend the same broken payload.
-                first, extra = _split_concatenated_calls(_unwrap_recorded_arguments(raw_arguments))
+                first, extra = _split_concatenated_calls(raw_arguments)
                 if extra:
                     # The commonest way this fails in practice: the model wanted to
                     # run several things at once and expressed it by concatenating
@@ -313,15 +392,20 @@ def dispatch_function_call(llm, accumulated_deltas, request_params, tool_call_id
                         f"Resend just the first one: {json.dumps(first)}"
                     )
                 elif isinstance(raw_arguments, str) and arguments is None:
+                    # Quoting the text back matters more since it stopped being
+                    # recorded in the assistant slot: this error is now the only
+                    # place the model can see what it actually sent.
                     error_msg = (
                         "Invalid execute call: arguments were not valid JSON and could not be repaired. "
                         "execute requires a JSON object with 'language' and 'code', "
-                        'e.g. {"language": "python", "code": "print(1)"}.'
+                        'e.g. {"language": "python", "code": "print(1)"}. '
+                        f"{_sent_text(raw_arguments)}"
                     )
                 else:
                     error_msg = (
                         f"Invalid execute call: arguments must be a dict, got {type(arguments).__name__}. "
-                        "execute requires a JSON object with 'language' and 'code'."
+                        "execute requires a JSON object with 'language' and 'code'. "
+                        f"{_sent_text(raw_arguments)}"
                     )
                 yield from _malformed_call(tool_call_id_for_error, function_call, error_msg)
                 if verbose:
@@ -329,7 +413,7 @@ def dispatch_function_call(llm, accumulated_deltas, request_params, tool_call_id
         elif function_name == "view_image":
             arguments = function_call.get("arguments")
             if isinstance(arguments, str):
-                arguments = _parse_arguments(arguments)
+                arguments = parse_partial_json(arguments)
             path = isinstance(arguments, dict) and arguments.get("path")
             if not path or not isinstance(path, str):
                 yield from _malformed_call(
@@ -388,7 +472,7 @@ def dispatch_function_call(llm, accumulated_deltas, request_params, tool_call_id
         elif function_name == "edit":
             arguments = function_call.get("arguments")
             if isinstance(arguments, str):
-                arguments = _parse_arguments(arguments)
+                arguments = parse_partial_json(arguments)
 
             if isinstance(arguments, dict):
                 edit_language = arguments.get("language")
@@ -463,3 +547,29 @@ def dispatch_function_call(llm, accumulated_deltas, request_params, tool_call_id
             yield from _malformed_call(tool_call_id_for_error, function_call, error_msg)
             if verbose:
                 print(f"[ERROR] {error_msg}. Function call: {json.dumps(function_call, default=str)}", flush=True)
+
+
+# A malformed tool call is answered with a role:tool error, and respond() gives
+# the model another turn to correct it — with no ceiling, so a model that could
+# not correct itself billed a request per attempt until it happened to reply
+# with text instead. Eight bad calls produced nine requests in testing. Three
+# attempts is about what a person watching would tolerate before intervening.
+MAX_CONSECUTIVE_TOOL_ERRORS = 3
+
+
+def give_up_notice(attempts):
+    """The chunk shown when a model cannot stop sending malformed tool calls.
+
+    Ending the turn silently would look like a hang, so this says what
+    happened and what the user can do about it.
+    """
+    return {
+        "role": "computer",
+        "type": "notice",
+        "format": "error",
+        "content": (
+            f"The model sent {attempts} malformed tool calls in a row "
+            "and is not recovering. Stopping here rather than retrying again — "
+            "try rephrasing, or a different model."
+        ),
+    }

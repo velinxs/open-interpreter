@@ -281,13 +281,16 @@ def test_the_corrective_turn_shows_the_call_the_model_really_made(offline_interp
     assert len(assistant_calls) == 1 and len(tool_responses) == 1, outgoing
     call = assistant_calls[0]["tool_calls"][0]
     assert call["function"]["name"] == "execute"
-    # Wrapped, not raw: litellm's Ollama transform json.loads() this field, so
-    # malformed JSON here raises on every later request. The model's own text
-    # still has to be visible, which is the point of recording the real call.
+    # "{}", not the raw text: litellm's Ollama transform json.loads() this field,
+    # so malformed JSON here raises on every later request. Not the old
+    # {"_unparsed_arguments": ...} wrapper either — this is the model's own
+    # assistant slot and it imitates what it finds there. The text it sent
+    # reaches it through the paired error instead.
     arguments = call["function"]["arguments"]
-    assert json.loads(arguments) == {"_unparsed_arguments": "not json at all {{{"}
+    assert json.loads(arguments) == {}
     assert call["id"] == tool_responses[0]["tool_call_id"]
     assert "not valid JSON" in tool_responses[0]["content"]
+    assert "not json at all {{{" in tool_responses[0]["content"]
 
 
 def test_a_nameless_call_is_not_shown_to_the_model_as_an_execute_call(offline_interpreter):
@@ -379,12 +382,16 @@ def test_concatenated_argument_objects_are_named_as_the_mistake(offline_interpre
 
 
 def test_the_unparsed_arguments_wrapper_is_not_read_back_as_fields(offline_interpreter):
-    """A model imitating the wrapper in its history is told what is really wrong.
+    """A model imitating the wrapper from an old conversation is told what is really wrong.
 
-    Malformed arguments are recorded as {"_unparsed_arguments": "..."} so the
-    outgoing request still parses. Models copy what they see, so that came back
-    as a real call and the reply was "missing required fields, got
-    ['_unparsed_arguments']" — a key the model cannot do anything about.
+    Malformed arguments used to be recorded as {"_unparsed_arguments": "..."} so
+    the outgoing request still parsed. Models copy what they see, so that came
+    back as a real call and the reply was "missing required fields, got
+    ['_unparsed_arguments']" — a key the model cannot do anything about. Nothing
+    writes the wrapper any more, but conversations saved while it did still carry
+    it, so it must still be recognised and answered with something usable. The
+    key itself stays out of the reply: naming it would be one more place the
+    model could read it as a shape worth sending.
     """
     install_fake_llm(offline_interpreter, [])
     offline_interpreter.llm.supports_functions = True
@@ -400,4 +407,307 @@ def test_the_unparsed_arguments_wrapper_is_not_read_back_as_fields(offline_inter
     assert tool_messages, "the model was never told anything"
     content = tool_messages[-1]["content"]
     assert "_unparsed_arguments" not in content, f"the wrapper leaked to the model: {content}"
-    assert "not valid JSON" in content, content
+    assert "nested inside another object" in content, content
+    assert "not json at all {{{" in content, content
+
+
+def test_a_wrapper_around_valid_arguments_is_corrected_not_executed(offline_interpreter):
+    """A wrapped-but-valid payload is refused, so the wrapper never looks like it works.
+
+    This was the reinforcement loop. The wrapper was unwrapped before the
+    arguments were validated, so a model that copied it round a payload that
+    happened to be fine had its code run with no complaint — the shape was
+    rewarded. It only failed later, when it wrapped something broken, and by then
+    the habit was established. Refusing it costs one turn and corrects the shape.
+    """
+    install_fake_llm(offline_interpreter, [])
+    offline_interpreter.llm.supports_functions = True
+    wrapped = json.dumps({"_unparsed_arguments": '{"language": "python", "code": "print(7*7)"}'})
+    completions = ScriptedStreams(
+        [_raw_tool_call_stream("execute", wrapped), _text_stream("Resending directly.")]
+    )
+    offline_interpreter.llm.completions = completions
+
+    offline_interpreter.chat("go", display=False, stream=False)
+
+    assert not any(
+        m.get("type") == "console" and "49" in str(m.get("content")) for m in offline_interpreter.messages
+    ), "the wrapped call ran"
+    tool_messages = [m for m in offline_interpreter.messages if m.get("role") == "tool"]
+    assert tool_messages, "the model was never told anything"
+    assert "nested inside another object" in tool_messages[-1]["content"]
+
+
+def test_a_malformed_call_never_puts_a_shape_to_copy_in_the_assistant_slot(offline_interpreter):
+    """Repeated bad calls leave nothing imitable in the model's own history.
+
+    The loop the fork's owner hit: every failure was written back into the
+    assistant slot as {"_unparsed_arguments": "..."}, so by the eighth request
+    the model's recent history was seven wrapper-shaped calls of its own and it
+    kept sending more. What the model reads as its own prior output must stay a
+    shape we are happy for it to repeat.
+    """
+    install_fake_llm(offline_interpreter, [])
+    offline_interpreter.llm.supports_functions = True
+    completions = ScriptedStreams(
+        [_raw_tool_call_stream("execute", "not json at all {{{", call_id=f"c{i}") for i in range(3)]
+        + [_text_stream("Giving up on that shape.")]
+    )
+    offline_interpreter.llm.completions = completions
+
+    offline_interpreter.chat("go", display=False, stream=False)
+
+    assert len(completions.calls) > 1, "the model was never given a second turn"
+    for request in completions.calls[1:]:
+        for message in request["messages"]:
+            for call in message.get("tool_calls") or []:
+                assert "_unparsed_arguments" not in call["function"]["arguments"], request["messages"]
+
+
+# --- more than one tool call in a turn --------------------------------------
+
+
+def _two_tool_call_stream(first, second, stamp_index=True):
+    """Two finished tool calls, in two chunks.
+
+    With stamp_index False the calls carry no index at all, which is what
+    litellm's native Ollama path passes through; Delta.__init__ then stamps 0 on
+    both, one per chunk.
+    """
+    from litellm.types.utils import Delta
+
+    for i, (call_id, arguments) in enumerate((("call_a", first), ("call_b", second))):
+        call = {
+            "id": call_id,
+            "type": "function",
+            "function": {"name": "execute", "arguments": json.dumps(arguments)},
+        }
+        if stamp_index:
+            call["index"] = i
+            yield {"choices": [{"delta": {"tool_calls": [call]}}]}
+        else:
+            yield {"choices": [{"delta": Delta(tool_calls=[call])}]}
+    yield {"choices": [{"delta": {}, "finish_reason": "tool_calls"}]}
+
+
+def test_index_less_parallel_calls_are_not_blamed_on_the_model(offline_interpreter):
+    """Two calls a provider sent without an index still run the first one normally.
+
+    litellm stamps index 0 on every index-less tool call, once per chunk, so a
+    provider that streams two finished calls in two chunks hands both of them
+    index 0. Merging on index alone concatenated the second call's arguments onto
+    the first, and the model was then told it had crammed "2 argument objects"
+    into one string — for a malformed call it had not made and could not correct.
+    Reproduces the loop the fork's owner hit across five turns.
+    """
+    install_fake_llm(offline_interpreter, [])
+    offline_interpreter.llm.supports_functions = True
+    completions = ScriptedStreams(
+        [
+            _two_tool_call_stream(
+                {"language": "python", "code": "print(6 * 7)"},
+                {"language": "python", "code": "print('second')"},
+                stamp_index=False,
+            ),
+            _text_stream("Done."),
+        ]
+    )
+    offline_interpreter.llm.completions = completions
+
+    offline_interpreter.chat("go", display=False, stream=False)
+
+    tool_messages = [m for m in offline_interpreter.messages if m.get("role") == "tool"]
+    assert not any("concatenated" in m["content"] for m in tool_messages), tool_messages
+    assert any(
+        m.get("type") == "console" and "42" in str(m.get("content")) for m in offline_interpreter.messages
+    ), "the first call did not run"
+
+
+def test_a_second_tool_call_is_answered_rather_than_dropped(offline_interpreter):
+    """The call that cannot run this turn is returned to the model, not discarded.
+
+    A turn runs one block: respond() executes interpreter.messages[-1] and
+    message_stream folds consecutive code chunks into one message. The extra call
+    used to vanish where the stream was converted — the model asked for two
+    things, got one, and read a history in which the second never existed. It
+    then either assumed it had run or sent it again, which is how the loop
+    restarted.
+    """
+    install_fake_llm(offline_interpreter, [])
+    offline_interpreter.llm.supports_functions = True
+    completions = ScriptedStreams(
+        [
+            _two_tool_call_stream(
+                {"language": "python", "code": "print('FIRST')"},
+                {"language": "python", "code": "print('SECOND')"},
+            ),
+            _text_stream("Sending the second one now."),
+        ]
+    )
+    offline_interpreter.llm.completions = completions
+
+    offline_interpreter.chat("go", display=False, stream=False)
+
+    assert any(
+        m.get("type") == "console" and "FIRST" in str(m.get("content")) for m in offline_interpreter.messages
+    ), "the first call did not run"
+    assert not any(
+        m.get("type") == "console" and "SECOND" in str(m.get("content")) for m in offline_interpreter.messages
+    ), "two blocks ran in one turn"
+
+    unrun = [m for m in offline_interpreter.messages if m.get("role") == "tool" and "Not run" in m["content"]]
+    assert len(unrun) == 1, offline_interpreter.messages
+    assert unrun[0]["tool_call_id"] == "call_b"
+    # The unrun call is recorded too, or the tool response has no assistant call
+    # to pair with and process_messages invents one.
+    assert any(
+        m.get("type") == "tool_call" and m.get("tool_call_id") == "call_b" for m in offline_interpreter.messages
+    ), offline_interpreter.messages
+
+
+def test_the_unrun_call_is_paired_and_the_first_call_still_runs_last(offline_interpreter):
+    """The outgoing history pairs the unrun call, and the code block is stored last.
+
+    Order is load-bearing: respond() only runs code when it is the trailing
+    message, so the unrun-call chunks have to be yielded before the code chunk.
+    """
+    install_fake_llm(offline_interpreter, [])
+    offline_interpreter.llm.supports_functions = True
+    completions = ScriptedStreams(
+        [
+            _two_tool_call_stream(
+                {"language": "python", "code": "print('FIRST')"},
+                {"language": "python", "code": "print('SECOND')"},
+            ),
+            _text_stream("Understood."),
+        ]
+    )
+    offline_interpreter.llm.completions = completions
+
+    offline_interpreter.chat("go", display=False, stream=False)
+
+    outgoing = completions.calls[1]["messages"]
+    answered = {m["tool_call_id"] for m in outgoing if m.get("role") == "tool"}
+    called = {c["id"] for m in outgoing for c in (m.get("tool_calls") or [])}
+    assert answered <= called, (answered, called)
+    assert "call_b" in answered
+
+
+def test_one_call_per_turn_is_declared_to_the_provider(offline_interpreter):
+    """The request says parallel_tool_calls: false, so the rule is not a secret.
+
+    The constraint was enforced (extra calls dropped) but never stated: nothing
+    in the request or the tool schema said a turn takes one call. A model told
+    off for batching had no way to learn the rule, so it batched again.
+    """
+    install_fake_llm(offline_interpreter, [])
+    offline_interpreter.llm.supports_functions = True
+    completions = ScriptedStreams([_text_stream("Nothing to run.")])
+    offline_interpreter.llm.completions = completions
+
+    offline_interpreter.chat("hello", display=False, stream=False)
+
+    assert completions.calls[0]["parallel_tool_calls"] is False
+
+
+def test_the_user_is_told_when_a_call_did_not_run(offline_interpreter, capsys):
+    """One terminal line explains why only one of two requested actions happened.
+
+    role:tool messages are never displayed, so without the notice the user
+    watches the model ask for two things and silently get one.
+    """
+    from interpreter.terminal_interface.terminal_interface import terminal_interface
+
+    install_fake_llm(offline_interpreter, [])
+    offline_interpreter.llm.supports_functions = True
+    offline_interpreter.plain_text_display = True
+    offline_interpreter.llm.completions = ScriptedStreams(
+        [
+            _two_tool_call_stream(
+                {"language": "python", "code": "print('FIRST')"},
+                {"language": "python", "code": "print('SECOND')"},
+            ),
+            _text_stream("Understood."),
+        ]
+    )
+
+    list(terminal_interface(offline_interpreter, "go"))
+
+    printed = capsys.readouterr().out
+    assert "only the first ran" in printed, printed
+
+
+# --- the retry ceiling ------------------------------------------------------
+
+
+def test_a_model_that_keeps_sending_bad_calls_is_stopped(offline_interpreter):
+    """A run of malformed calls ends the turn instead of billing a request each time.
+
+    respond() re-prompts whenever the trailing message is a tool response, which
+    is what gives a model the turn it needs to correct a bad call — but there was
+    no ceiling on it. Eight scripted bad calls produced nine requests, and the
+    turn could only end when the model happened to reply with text. A model that
+    had lost the shape of a tool call never did.
+    """
+    from interpreter.core.respond import MAX_CONSECUTIVE_TOOL_ERRORS
+
+    install_fake_llm(offline_interpreter, [])
+    offline_interpreter.llm.supports_functions = True
+    attempts = MAX_CONSECUTIVE_TOOL_ERRORS + 5
+    completions = ScriptedStreams(
+        [_raw_tool_call_stream("execute", "not json at all {{{", call_id=f"c{i}") for i in range(attempts)]
+        + [_text_stream("Never reached.")]
+    )
+    offline_interpreter.llm.completions = completions
+
+    offline_interpreter.chat("go", display=False, stream=False)
+
+    assert len(completions.calls) == MAX_CONSECUTIVE_TOOL_ERRORS, len(completions.calls)
+
+
+def test_a_model_that_recovers_is_not_cut_off(offline_interpreter):
+    """Running code resets the streak, so occasional bad calls never accumulate.
+
+    The cap counts *consecutive* failures. Counting every failure in a turn would
+    cut off a long, productive session that hit one bad call per few blocks.
+    """
+    from interpreter.core.respond import MAX_CONSECUTIVE_TOOL_ERRORS
+
+    install_fake_llm(offline_interpreter, [])
+    offline_interpreter.llm.supports_functions = True
+    streams = []
+    for _ in range(MAX_CONSECUTIVE_TOOL_ERRORS + 2):
+        streams.append(_raw_tool_call_stream("execute", "not json at all {{{", call_id=None))
+        streams.append(_tool_call_stream("execute", {"language": "python", "code": "print(1)"}))
+    streams.append(_text_stream("All done."))
+    completions = ScriptedStreams(streams)
+    offline_interpreter.llm.completions = completions
+
+    messages = offline_interpreter.chat("go", display=False, stream=False)
+
+    assert messages[-1]["content"] == "All done.", messages[-1]
+
+
+def test_the_user_is_told_why_the_turn_stopped(offline_interpreter, capsys):
+    """Hitting the cap prints a line, rather than ending in the same silence.
+
+    The role:tool errors are never displayed, so a turn that simply stopped would
+    look exactly like the hang this cap exists to end.
+    """
+    from interpreter.core.respond import MAX_CONSECUTIVE_TOOL_ERRORS
+    from interpreter.terminal_interface.terminal_interface import terminal_interface
+
+    install_fake_llm(offline_interpreter, [])
+    offline_interpreter.llm.supports_functions = True
+    offline_interpreter.plain_text_display = True
+    offline_interpreter.llm.completions = ScriptedStreams(
+        [
+            _raw_tool_call_stream("execute", "not json at all {{{", call_id=f"c{i}")
+            for i in range(MAX_CONSECUTIVE_TOOL_ERRORS)
+        ]
+    )
+
+    list(terminal_interface(offline_interpreter, "go"))
+
+    printed = capsys.readouterr().out
+    assert "malformed tool calls in a row" in printed, printed

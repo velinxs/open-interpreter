@@ -19,9 +19,6 @@ def image_path_exceeds_shrink_threshold(path: str) -> bool:
     return data_url_exceeds_shrink_threshold(content)
 
 
-_UNPARSED_ARGUMENTS_KEY = "_unparsed_arguments"
-
-
 def _tool_call_arguments_string(arguments):
     """The arguments string to put back on a rebuilt assistant tool call.
 
@@ -32,13 +29,19 @@ def _tool_call_arguments_string(arguments):
     field as model-generated text that is not always valid. Providers disagree:
     litellm's Ollama transform calls json.loads on it unconditionally, so one
     malformed call in the history raises JSONDecodeError on *every* later
-    request and the conversation cannot continue at all. That is worse than the
-    fabricated call this rebuild removed — a wedged session instead of a
-    confusing one.
+    request and the conversation cannot continue at all.
 
-    So the model's exact text is kept, wrapped in an object that says what it
-    is. The model still sees what it sent, the paired tool response still
-    explains what was wrong with it, and the request still goes out.
+    It used to be kept here, wrapped as {"_unparsed_arguments": "<what was
+    sent>"}, so that the model could still see its own text. That backfired:
+    this is the model's own assistant slot, models imitate what they find
+    there, and by the eighth request of a thrashing turn the recent history was
+    seven wrapper-shaped calls. The model duly sent wrappers of its own.
+
+    So this slot now carries "{}" — a well-formed arguments object with nothing
+    in it, the same thing the no-arguments case has always recorded, and a
+    shape there is no harm in the model copying. What was really sent belongs
+    in the paired tool response, which is the message the model reads to
+    correct itself rather than to imitate.
     """
     if isinstance(arguments, str):
         if not arguments.strip():
@@ -48,14 +51,14 @@ def _tool_call_arguments_string(arguments):
         try:
             json.loads(arguments)
         except ValueError:
-            return json.dumps({_UNPARSED_ARGUMENTS_KEY: arguments})
+            return "{}"
         return arguments
     if arguments is None:
         return "{}"
     try:
         return json.dumps(arguments)
     except (TypeError, ValueError):
-        return json.dumps({_UNPARSED_ARGUMENTS_KEY: str(arguments)})
+        return "{}"
 
 
 def _lmc_role_to_api_role(role):
