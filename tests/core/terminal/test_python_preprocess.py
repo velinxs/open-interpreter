@@ -40,7 +40,7 @@ def markers(code):
     [
         # A YAML/Markdown/SQL document held in a string: the `#` line is data.
         # The one-line docstring above it is what desynchronised the scanner.
-        'def write_config():\n'
+        "def write_config():\n"
         '    """Write config."""\n'
         '    cfg = """\n'
         "# database\n"
@@ -107,3 +107,19 @@ def test_lambdas_and_ternaries_are_instrumented(code):
     processed = preprocess_python(code)
     assert markers(processed), processed
     assert run(processed) == run(code)
+
+
+def test_an_except_handler_line_is_marked_once():
+    """Two markers for one line make the terminal report the same line twice."""
+    code = 'try:\n    x = 1\nexcept Exception:\n    print("handled")\nfinally:\n    print("done")'
+    assert markers(preprocess_python(code)) == [1, 2, 4, 6]
+
+
+def test_marker_numbers_match_the_line_the_model_wrote():
+    """Markers name lines in the model's code, so they must survive a stripped preamble.
+
+    Leading blank lines are dropped before the code is parsed; without an offset
+    every marker in such a block pointed the highlight at the wrong line.
+    """
+    code = "\n\n# a comment\nx = 1\nprint(x)"
+    assert markers(preprocess_python(code)) == [4, 5]

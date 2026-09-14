@@ -125,6 +125,10 @@ def preprocess_python(code):
     Wrap in a try except
     """
 
+    # Stripping the preamble drops whole lines, and the markers name lines in
+    # the code the model wrote — the terminal highlights that copy, not this
+    # one. Count what goes so the numbers still point at the right line.
+    dropped_lines = code[: len(code) - len(code.lstrip())].count("\n")
     code = code.strip()
 
     # Add print commands that tell us what the active line is
@@ -133,7 +137,7 @@ def preprocess_python(code):
         not any(line.strip().startswith(("!", "%")) for line in code.split("\n"))
         and os.environ.get("INTERPRETER_ACTIVE_LINE_DETECTION", "True").lower() == "true"
     ):
-        code = add_active_line_prints(code)
+        code = add_active_line_prints(code, line_offset=dropped_lines)
 
     # Wrap in a try except (DISABLED)
     # code = wrap_in_try_except(code)
@@ -147,18 +151,19 @@ def preprocess_python(code):
     return code
 
 
-def add_active_line_prints(code):
+def add_active_line_prints(code, line_offset=0):
     """
     Add print statements indicating line numbers to a python string.
 
     The markers carry the line numbers of the *original* code: they come from
     the ``lineno`` ast records for each statement, so comments and blank lines
-    are counted even though they parse to nothing. Nothing is rewritten before
+    are counted even though they parse to nothing. ``line_offset`` accounts for
+    lines the caller removed ahead of this code. Nothing is rewritten before
     parsing — text that merely looks like a comment (a ``#`` line inside a YAML
     or Markdown string literal) belongs to the string and must be left alone.
     """
     tree = ast.parse(code)
-    transformer = AddLinePrints()
+    transformer = AddLinePrints(line_offset)
     new_tree = transformer.visit(tree)
     return ast.unparse(new_tree)
 
@@ -182,12 +187,16 @@ class AddLinePrints(ast.NodeTransformer):
     before every executable line in the AST.
     """
 
+    def __init__(self, line_offset=0):
+        super().__init__()
+        self.line_offset = line_offset
+
     def insert_print_statement(self, line_number):
         """Inserts a print statement for a given line number."""
         return ast.Expr(
             value=ast.Call(
                 func=ast.Name(id="print", ctx=ast.Load()),
-                args=[ast.Constant(value=f"##active_line{line_number}##")],
+                args=[ast.Constant(value=f"##active_line{line_number + self.line_offset}##")],
                 keywords=[],
             )
         )
@@ -232,10 +241,10 @@ class AddLinePrints(ast.NodeTransformer):
         if isinstance(getattr(new_node, "orelse", None), list) and new_node.orelse:
             new_node.orelse = self.process_body(new_node.orelse)
 
-        # Special case for Try nodes as they have multiple blocks
+        # `finalbody` is the one block no node type reaches on its own: `body`
+        # and `orelse` are handled above, and each except clause is an
+        # ExceptHandler node whose own visit marks it.
         if isinstance(new_node, ast.Try):
-            for handler in new_node.handlers:
-                handler.body = self.process_body(handler.body)
             if new_node.finalbody:
                 new_node.finalbody = self.process_body(new_node.finalbody)
 
