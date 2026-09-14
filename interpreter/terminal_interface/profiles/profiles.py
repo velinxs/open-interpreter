@@ -17,6 +17,7 @@ import yaml
 
 from ...core.utils.prompt_choice import NoInteractiveInput, prompt_choice
 from ..utils.oi_dir import oi_dir
+from .env_expansion import expand_env
 from .historical_profiles import historical_profiles
 from .migrate import (
     determine_user_version,
@@ -415,7 +416,7 @@ def apply_profile_to_object(obj, profile):
             # runs; here we only need to not create/overwrite the attribute.
             if _is_unsettable(obj, key):
                 continue
-            setattr(obj, key, value)
+            setattr(obj, key, expand_env(value, key))
 
 
 def open_storage_dir(directory):

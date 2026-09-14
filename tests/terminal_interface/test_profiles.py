@@ -9,12 +9,14 @@ a setting that is wrong, renamed, or nested.
 
 import json
 import os
+from types import SimpleNamespace
 
 import pytest
 import yaml
 
 from interpreter.core.core import OpenInterpreter
 from interpreter.terminal_interface.profiles import profiles
+from interpreter.terminal_interface.profiles.env_expansion import expand_env
 
 
 @pytest.fixture(autouse=True)
@@ -623,3 +625,74 @@ def test_resetting_without_a_terminal_leaves_the_file_alone(_isolate_profile_dir
 
     assert path.read_text() == "my: custom settings\n"
     assert "no terminal to ask" in capsys.readouterr().out
+
+
+class TestProfileEnvironmentVariables:
+    """A profile value may name an environment variable instead of holding a secret.
+
+    An API key in a profile is a secret sitting in a config file. Naming the
+    variable instead lets the value live in a root-only file or a keyring while
+    the profile itself stays safe to read and to copy between machines.
+    """
+
+    def test_a_bare_variable_as_the_whole_value_is_substituted(self, monkeypatch):
+        """`api_key: $OLLAMA_PASS` sends the variable's value, not its name."""
+        monkeypatch.setenv("OLLAMA_PASS", "sk-from-the-environment")
+        obj = SimpleNamespace(api_key=None)
+
+        profiles.apply_profile_to_object(obj, {"api_key": "$OLLAMA_PASS"})
+
+        assert obj.api_key == "sk-from-the-environment"
+
+    def test_braces_are_substituted_inside_a_longer_value(self, monkeypatch):
+        """`${VAR}` is replaced wherever it appears, so hosts and paths compose."""
+        monkeypatch.setenv("OLLAMA_HOST", "gpu.internal")
+        obj = SimpleNamespace(api_base=None)
+
+        profiles.apply_profile_to_object(obj, {"api_base": "http://${OLLAMA_HOST}:11434"})
+
+        assert obj.api_base == "http://gpu.internal:11434"
+
+    def test_a_stray_dollar_in_prose_is_left_alone(self, monkeypatch):
+        """Only a whole-value $NAME or an explicit ${NAME} counts.
+
+        Prose settings routinely contain a stray "$". Rewriting part of a
+        user's system message because it mentioned a price would be far worse
+        than requiring braces where substitution is actually wanted.
+        """
+        obj = SimpleNamespace(custom_instructions=None)
+        text = "Quote prices like $5 and escape $$ in SQL"
+
+        profiles.apply_profile_to_object(obj, {"custom_instructions": text})
+
+        assert obj.custom_instructions == text
+
+    def test_command_substitution_is_not_evaluated(self, monkeypatch):
+        """`$(...)` stays literal — a profile is data, never a shell script."""
+        monkeypatch.setenv("OLLAMA_PASS", "sk-from-the-environment")
+        obj = SimpleNamespace(api_key=None)
+
+        profiles.apply_profile_to_object(obj, {"api_key": "$(echo $OLLAMA_PASS)"})
+
+        assert obj.api_key == "$(echo $OLLAMA_PASS)"
+
+    def test_an_unset_variable_is_an_error_rather_than_a_literal(self, monkeypatch):
+        """A missing variable stops startup and names itself.
+
+        Passing "$OLLAMA_PASS" through as the key would reach the provider and
+        come back a 401, which reads like a wrong credential rather than a
+        missing one — and sends the user looking in the wrong place.
+        """
+        monkeypatch.delenv("OLLAMA_PASS", raising=False)
+        obj = SimpleNamespace(api_key=None)
+
+        with pytest.raises(ValueError, match="OLLAMA_PASS"):
+            profiles.apply_profile_to_object(obj, {"api_key": "$OLLAMA_PASS"})
+
+    def test_non_string_values_are_untouched(self, monkeypatch):
+        """Numbers and booleans pass through the expansion unchanged."""
+        obj = SimpleNamespace(temperature=None, offline=None)
+
+        profiles.apply_profile_to_object(obj, {"temperature": 1.0, "offline": True})
+
+        assert obj.temperature == 1.0 and obj.offline is True
