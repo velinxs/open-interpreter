@@ -112,9 +112,7 @@ class Toolbox:
 
 ### Actions
 
-Project-specific Python modules, loaded only when used. Read one with
-`toolbox.actions.show(name)`; load it with `toolbox.actions.load(name)`, which
-returns the module and runs nothing until you call one of its functions.
+Project-specific modules. Loading one runs nothing until you call a function.
 
 ```
 {listed}
