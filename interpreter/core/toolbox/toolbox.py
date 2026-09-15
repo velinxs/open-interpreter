@@ -172,6 +172,7 @@ those, the return shape and examples. Never guess a signature or a return format
             self.ai,
             self.ai2,
             self.files,
+            self.actions,
         ]
         if platform.system() == "Darwin":
             tools = tools[:4] + [self.mail, self.sms, self.calendar, self.contacts] + tools[4:]
