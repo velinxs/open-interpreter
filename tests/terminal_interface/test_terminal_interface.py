@@ -81,7 +81,7 @@ def test_an_interactive_turn_reads_from_the_prompt(interpreter, monkeypatch):
     """With no message, the loop reads one line and sends it.
 
     A second read raises EOFError here, which the loop turns into
-    KeyboardInterrupt — the documented way the session ends.
+    SystemExit — the documented way the session ends.
     """
     lines = iter(["what is 21*2"])
 
@@ -94,7 +94,7 @@ def test_an_interactive_turn_reads_from_the_prompt(interpreter, monkeypatch):
     monkeypatch.setattr("builtins.input", _input)
     interpreter.script["chunks"] = _message_chunks("42")
 
-    with pytest.raises(KeyboardInterrupt):
+    with pytest.raises(SystemExit):
         list(terminal_interface(interpreter, None))
     assert interpreter.last_message == "what is 21*2"
 
@@ -106,7 +106,7 @@ def test_ctrl_d_exits_rather_than_looping_forever(interpreter, monkeypatch, caps
     nothing, forever.
     """
     monkeypatch.setattr("builtins.input", lambda prompt="": (_ for _ in ()).throw(EOFError))
-    with pytest.raises(KeyboardInterrupt):
+    with pytest.raises(SystemExit):
         list(terminal_interface(interpreter, None))
     assert "Exiting" in capsys.readouterr().out
 
@@ -121,7 +121,7 @@ def test_a_preseeded_message_is_consumed_instead_of_prompting(interpreter, monke
     interpreter.messages = [{"role": "user", "type": "message", "content": "I fix the build"}]
     interpreter.script["chunks"] = _message_chunks("ok")
 
-    with pytest.raises(KeyboardInterrupt):
+    with pytest.raises(SystemExit):
         list(terminal_interface(interpreter, None))
     assert interpreter.last_message == "I fix the build"
     assert interpreter.messages == []
@@ -336,7 +336,7 @@ def test_declining_a_provider_retry_returns_to_the_prompt_and_drops_the_unanswer
 
     # The loop is back at the prompt asking for input, which is the whole point;
     # the Ctrl-C raised by the exhausted script is how we leave it.
-    with pytest.raises(KeyboardInterrupt):
+    with pytest.raises(SystemExit):
         list(terminal_interface(interpreter, None))
 
     assert interpreter.messages == []

@@ -71,11 +71,15 @@ def _prepare_message(interpreter, message, interactive):
         return None
 
     if interactive and message.strip().lower() in _EXIT_WORDS:
-        # Ctrl-C and Ctrl-D already exit, but people reach for a word first and
-        # every spelling of it used to be sent to the model as a message —
-        # which looks exactly like the session ignoring them.
+        # People reach for a word to leave, and every spelling used to be sent
+        # to the model as a message. Raise SystemExit, not KeyboardInterrupt:
+        # the loop treats KeyboardInterrupt as "cancel this turn, back to the
+        # prompt", so an exit word raised as one looped back and never exited —
+        # which is what pushed people to kill the process, orphaning its kernel.
+        # SystemExit unwinds to a clean shutdown and the atexit hook stops the
+        # kernel and shell subprocesses.
         interpreter.display_message("\n\n`Exiting...`")
-        raise KeyboardInterrupt
+        raise SystemExit(0)
 
     if message.startswith("%") and interactive:
         handle_magic_command(interpreter, message)

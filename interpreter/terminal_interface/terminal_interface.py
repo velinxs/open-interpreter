@@ -110,9 +110,16 @@ def terminal_interface(interpreter, message):
                 try:
                     message = cli_input("> ").strip() if interpreter.multi_line else input("> ").strip()
                 except (KeyboardInterrupt, EOFError):
-                    # Treat Ctrl-D on an empty line the same as Ctrl-C by exiting gracefully
+                    # Ctrl-C or Ctrl-D at the prompt means leave. Raise SystemExit,
+                    # not KeyboardInterrupt: the loop's KeyboardInterrupt handler
+                    # cancels the current turn and returns to the prompt (the right
+                    # thing mid-response), so re-raising KeyboardInterrupt here just
+                    # looped back and the session could not be exited at all.
+                    # SystemExit is not caught by that handler, so it unwinds to a
+                    # clean shutdown — which is what runs the atexit hook that stops
+                    # the Jupyter kernel and shell subprocesses.
                     interpreter.display_message("\n\n`Exiting...`")
-                    raise KeyboardInterrupt
+                    raise SystemExit(0)
 
             try:
                 # This lets users hit the up arrow key for past messages

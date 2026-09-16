@@ -287,16 +287,17 @@ def test_the_ctrl_c_hint_is_dropped_in_plain_text_mode():
     ["/exit", "/quit", "%exit", "%quit", "exit", "quit", "  /exit  ", "/EXIT", "Quit"],
 )
 def test_typing_an_exit_word_ends_the_session(typed, _no_magic):
-    """Any spelling of "leave" at the prompt exits instead of being chatted.
+    """Any spelling of "leave" at the prompt exits the session.
 
-    Ctrl-C and Ctrl-D already exit, but people reach for a word first and
-    neither command prefix is obviously the right one. Every one of these used
-    to be sent to the model as an ordinary message, which is indistinguishable
-    from the session ignoring the user.
+    The exit is raised as SystemExit, not KeyboardInterrupt: the terminal loop
+    treats KeyboardInterrupt as "cancel this turn, back to the prompt", so an
+    exit word raised as one looped back and never exited — which is what pushed
+    people to kill the process, orphaning its Jupyter kernel. SystemExit
+    unwinds to a clean shutdown that runs the atexit cleanup.
     """
     interpreter = FakeInterpreter()
 
-    with pytest.raises(KeyboardInterrupt):
+    with pytest.raises(SystemExit):
         _prepare_message(interpreter, typed, interactive=True)
 
     assert any("Exiting" in message for message in interpreter.displayed)
