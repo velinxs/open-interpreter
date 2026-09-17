@@ -98,6 +98,35 @@ class JupyterLanguage(PythonStateMixin, BaseLanguage):
 
     def _configure_kernel(self):
         """Run the per-kernel setup. Re-run verbatim after a restart."""
+        # Tie the kernel's life to ours. terminate() (via the atexit hook)
+        # stops it on a clean exit, but a force-killed interpreter — a
+        # SIGKILL, a crash, a subprocess-timeout that kills a sub-session —
+        # never runs cleanup, and the kernel is a child process that would be
+        # reparented to init and keep holding its ZMQ sockets. A watchdog
+        # thread inside the kernel notices when its parent changes (the
+        # interpreter died and the kernel was reparented) and exits. This is
+        # done in the kernel rather than with PR_SET_PDEATHSIG on the launch,
+        # because PDEATHSIG fires on the death of the parent *thread* — and the
+        # async server starts the kernel from a short-lived worker thread, so
+        # it would kill the kernel after the first request. getppid is
+        # POSIX-only; on other platforms the atexit path is the only cleanup.
+        if os.name == "posix":
+            watchdog = """
+def _oi_install_parent_watchdog():
+    import os, threading, time
+    parent = os.getppid()
+    def _watch():
+        while True:
+            if os.getppid() != parent:
+                os._exit(0)
+            time.sleep(2)
+    threading.Thread(target=_watch, daemon=True).start()
+_oi_install_parent_watchdog()
+del _oi_install_parent_watchdog
+""".strip()
+            for _ in self.run(watchdog):
+                pass
+
         # Use Inline by default for broad compatibility. Users can opt into a GUI backend
         # (e.g. TkAgg/QtAgg) by setting INTERPRETER_MPL_BACKEND or MPLBACKEND.
         # INTERPRETER_MPL_BACKEND takes precedence so Open Interpreter can control behavior.

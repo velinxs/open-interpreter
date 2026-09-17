@@ -10,6 +10,10 @@ dead kernel never brings back.
 These tests drive a real ipykernel, like tests/core/terminal/test_process_lifetime.py.
 """
 
+import os
+import signal
+import subprocess
+import sys
 import time
 import types
 
@@ -150,6 +154,82 @@ def test_a_kernel_killed_outright_does_not_stall_the_block(doomed_kernel, monkey
     assert elapsed < 15, f"took {elapsed:.0f}s: {chunks}"
     assert "kernel exited" in _text(chunks), chunks
     assert "back" in _text(list(doomed_kernel.run("print('back')")))
+
+
+# A process that brings up a kernel and prints its pid, then waits to be killed.
+# Run as its own interpreter so the test can SIGKILL it — the way a crash, an
+# OOM kill or a subprocess-timeout kills the real interpreter, with no chance
+# for the atexit hook to stop the kernel.
+_KERNEL_HOST = """
+import time
+from types import SimpleNamespace
+from interpreter.core.terminal.languages.jupyter_language import JupyterLanguage
+
+lang = JupyterLanguage(SimpleNamespace(llm=SimpleNamespace(supports_vision=False), verbose=False, debug=False))
+for _ in lang.run("print(1)"):
+    pass
+print("KERNEL_PID", lang.km.provisioner.process.pid, flush=True)
+time.sleep(120)
+"""
+
+
+def _alive(pid):
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+@pytest.mark.skipif(os.name != "posix", reason="the watchdog is getppid-based, POSIX only")
+@pytest.mark.timeout(60)
+def test_a_force_killed_interpreter_takes_its_kernel_with_it():
+    """SIGKILL the interpreter and its orphaned kernel exits on its own.
+
+    A clean exit stops the kernel through the atexit hook, but a force-kill —
+    a crash, the OOM killer, a subprocess-timeout on a sub-session — runs no
+    cleanup, and the kernel is a child process that init would adopt and keep
+    running, holding its ZMQ sockets forever. A watchdog thread inside the
+    kernel watches its parent and exits when reparented, so the kernel dies
+    with the interpreter no matter how the interpreter dies.
+    """
+    host = subprocess.Popen(
+        [sys.executable, "-c", _KERNEL_HOST],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    try:
+        kernel_pid = None
+        deadline = time.monotonic() + 40
+        while time.monotonic() < deadline:
+            line = host.stdout.readline()
+            if not line:
+                break
+            if line.startswith("KERNEL_PID"):
+                kernel_pid = int(line.split()[1])
+                break
+        assert kernel_pid is not None, "kernel host never reported its pid"
+        assert _alive(kernel_pid)
+
+        host.send_signal(signal.SIGKILL)  # no atexit, no shutdown_kernel()
+        host.wait()
+
+        reaped = False
+        for _ in range(12):  # up to ~6s; the watchdog polls every 2s
+            time.sleep(0.5)
+            if not _alive(kernel_pid):
+                reaped = True
+                break
+        assert reaped, f"kernel {kernel_pid} outlived its force-killed interpreter"
+    finally:
+        if host.poll() is None:
+            host.kill()
+        if kernel_pid and _alive(kernel_pid):
+            try:
+                os.kill(kernel_pid, signal.SIGKILL)
+            except OSError:
+                pass
 
 
 HELPER = '''def summarize(rows, key='value'):
