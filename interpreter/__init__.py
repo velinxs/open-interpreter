@@ -55,10 +55,20 @@ def __getattr__(name):
         return _get_singleton().toolbox
     if name == "ai2":
         return _get_singleton().toolbox.ai2
+    if name == "subagent":
+        return importlib.import_module("interpreter.core.subagent")
     if name in _CLASSES:
         module_name, attr = _CLASSES[name]
         return getattr(importlib.import_module(module_name), attr)
     raise AttributeError(f"module 'interpreter' has no attribute {name!r}")
 
 
-__all__ = ["interpreter", "toolbox", "ai2", "OpenInterpreter", "AsyncInterpreter", "BaseLanguage"]
+__all__ = [
+    "interpreter",
+    "toolbox",
+    "ai2",
+    "subagent",
+    "OpenInterpreter",
+    "AsyncInterpreter",
+    "BaseLanguage",
+]

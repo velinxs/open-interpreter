@@ -1,7 +1,6 @@
 import getpass
 import os
 import platform
-import sys
 import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -49,8 +48,9 @@ def system_information(interpreter):
     # a venv that was never activated, so `python3` is the system one and the import
     # is `interpreter`, not the package name on PyPI. Both guesses failed in practice.
     lines.append(
-        f"- Sub-agents: `{sys.executable} -c 'from interpreter import OpenInterpreter'` "
-        "(that Python, not `python3`); each gets its own kernel, so run them in parallel"
+        "- Sub-agents: `from interpreter import subagent` then `subagent.run(\"task\")` "
+        "— inherits this session's model; each owns a kernel, so run them in parallel "
+        "(ThreadPoolExecutor)"
     )
     lines.append(f"- $PWD: {working_directory()}")
     return "\n".join(line for line in lines if line)

@@ -19,6 +19,7 @@ os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] = "True"
 # enough for the local cost map to take effect.
 from jupyter_client import KernelManager
 
+from ...subagent import kernel_env
 from ..base_language import BaseLanguage
 from .jupyter_display import display_chunk
 from .python_preprocess import (
@@ -65,7 +66,8 @@ class JupyterLanguage(PythonStateMixin, BaseLanguage):
         self.interpreter = interpreter
 
         self.km = KernelManager(kernel_name="python3")
-        self.km.start_kernel()
+        # Carries this session's model settings; see kernel_env.
+        self.km.start_kernel(env=kernel_env(self.interpreter))
         self.kc = self.km.client()
         self.kc.start_channels()
         while not self.kc.is_alive():
