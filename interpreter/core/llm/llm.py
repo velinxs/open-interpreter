@@ -44,6 +44,21 @@ from .utils.sanitize_secrets import sanitize_messages, should_sanitize_for_model
 logger = logging.getLogger("LiteLLM")
 
 
+def _model_window_is_known(model):
+    """Whether litellm can size this model's context window.
+
+    tokentrim raised for a model it could not size, and that exception is what
+    selected the 8000-token default below. litellm's trimmer instead returns the
+    messages untouched, so without an explicit check a long conversation with an
+    unrecognised model would never be trimmed at all and would fail at the
+    provider on context length.
+    """
+    try:
+        return bool(_litellm().get_max_tokens(model))
+    except Exception:
+        return False
+
+
 class SuppressDebugFilter(logging.Filter):
     def filter(self, record):
         # Suppress only the specific message containing the keywords
@@ -107,7 +122,7 @@ class Llm:
         # on a complete-turn boundary, the prefix stays stable for several
         # consecutive turns and the provider's KV prefix cache stays warm —
         # unlike a per-turn sliding window which busts the cache every call.
-        # None (default) falls back to tokentrim's sliding-window behaviour.
+        # None (default) falls back to litellm's sliding-window trimming.
         # See: https://github.com/character-ai/prompt-poet#cache-aware-truncation-explained
         self.retention_ratio = None
 
@@ -132,7 +147,7 @@ class Llm:
         no reasoning request, LiteLLM timeout, and no code-execution system suffix on the prompt.
         """
         litellm = _litellm()
-        import tokentrim as tt
+        from litellm.utils import trim_messages
 
         if not self._is_loaded:
             self.load()
@@ -282,24 +297,22 @@ class Llm:
                     retention_ratio=self.retention_ratio,
                     model=model,
                 )
-            elif self.context_window and self.max_tokens:
-                trim_to_be_this_many_tokens = self.context_window - self.max_tokens - 25  # arbitrary buffer
-                messages = tt.trim(
-                    messages,
-                    system_message=system_message,
-                    max_tokens=trim_to_be_this_many_tokens,
-                )
-            elif self.context_window and not self.max_tokens:
-                # Just trim to the context window if max_tokens not set
-                messages = tt.trim(
-                    messages,
-                    system_message=system_message,
-                    max_tokens=self.context_window,
-                )
             else:
-                try:
-                    messages = tt.trim(messages, system_message=system_message, model=model)
-                except:
+                # litellm's trimmer keeps the system message inside the list it is
+                # handed, rather than taking it separately, so reunite first. Build
+                # it in a local: if trimming raises, `messages` is still the
+                # system-less list and the handler below reunites it exactly once
+                # instead of prepending a second copy.
+                reunited = [{"role": "system", "content": system_message}] + messages
+                if self.context_window and self.max_tokens:
+                    trim_to_be_this_many_tokens = self.context_window - self.max_tokens - 25  # arbitrary buffer
+                    reunited = trim_messages(reunited, max_tokens=trim_to_be_this_many_tokens)
+                elif self.context_window and not self.max_tokens:
+                    # Just trim to the context window if max_tokens not set
+                    reunited = trim_messages(reunited, max_tokens=self.context_window)
+                elif _model_window_is_known(model):
+                    reunited = trim_messages(reunited, model=model)
+                else:
                     if len(messages) == 1:
                         if self.interpreter.in_terminal_interface:
                             self.interpreter.display_message(
@@ -323,7 +336,8 @@ Also please set `self.max_tokens = {max tokens per response}`.
 Continuing...
                             """
                             )
-                    messages = tt.trim(messages, system_message=system_message, max_tokens=8000)
+                    reunited = trim_messages(reunited, max_tokens=8000)
+                messages = reunited
         except:
             # If we're trimming messages, this won't work.
             # If we're trimming from a model we don't know, this won't work.

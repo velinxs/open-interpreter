@@ -191,7 +191,8 @@ def cache_aware_trim(messages, system_message, token_limit, retention_ratio=0.8,
 
     `messages` must NOT include the system message (it is passed separately
     as `system_message`).  Returns the full message list with the system
-    message prepended, matching the contract of tokentrim.trim.
+    message prepended, so callers get the same shape litellm's trim_messages
+    returns for the non-cache-aware paths.
 
     References:
     - https://github.com/character-ai/prompt-poet#cache-aware-truncation-explained
