@@ -110,7 +110,22 @@ class Ai2:
         # on it.
         self.toolbox = toolbox
         # Prefer newest model capable of structured outputs
-        self._default_model = default_model or os.getenv("AI2_MODEL", "gpt-4.1-nano")
+        # Default to whatever model the session was launched with, so a local
+        # or self-hosted session does not quietly answer its own helper calls
+        # on someone else's API. Precedence: an explicit argument, then
+        # AI2_MODEL (a deliberate choice for this helper specifically), then
+        # the session (published into the kernel's environment at startup),
+        # then a last-resort default for a bare import outside a session.
+        # A caller that wants a different model per job still passes model=.
+        self._default_model = (
+            default_model
+            or os.getenv("AI2_MODEL")
+            or os.getenv("OI_LLM_MODEL")
+            or "gpt-4.1-nano"
+        )
+        # The session's endpoint travels with its model; without it a local
+        # model name would be sent to the provider's default host.
+        self._default_api_base = os.getenv("OI_LLM_API_BASE") if not default_model else None
         self.temperature = temperature
 
         # Re-use the same API key the main interpreter is using (or env var)
@@ -311,6 +326,10 @@ class Ai2:
             }
             if api_key:
                 completion_kwargs["api_key"] = api_key
+            # Only when running the session's own model: a model passed per
+            # call belongs to whatever provider it names, not to this endpoint.
+            if self._default_api_base and model == self._default_model:
+                completion_kwargs["api_base"] = self._default_api_base
 
             response = litellm.completion(**completion_kwargs)
             return response.choices[0].message.content.strip()

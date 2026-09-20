@@ -30,6 +30,16 @@ _INHERITED_NUMERIC = {
 }
 
 
+# A sub-agent that spawns sub-agents is nearly always a mistake, and an
+# expensive one: nothing in a chain of them stops until a budget does.
+_DEPTH_VARIABLE = "OI_SUBAGENT_DEPTH"
+_MAX_DEPTH = 1
+
+
+class SubagentError(Exception):
+    """Raised when a sub-agent cannot be run."""
+
+
 def kernel_env(interpreter):
     """The environment for a kernel: ours, plus this session's model settings.
 
@@ -47,20 +57,20 @@ def kernel_env(interpreter):
         # presence, and an empty api_base is not the same as no api_base.
         if value not in (None, ""):
             env[variable] = str(value)
+    # How deep in sub-agents this kernel is. Carried on the interpreter rather
+    # than mutated in os.environ, so that sub-agents started side by side in
+    # one kernel are siblings at the same depth rather than racing a counter.
+    env[_DEPTH_VARIABLE] = str(getattr(interpreter, "_subagent_depth", 0))
     return env
 
-# A sub-agent that spawns sub-agents is nearly always a mistake, and an
-# expensive one: nothing in a chain of them stops until a budget does.
-_DEPTH_VARIABLE = "OI_SUBAGENT_DEPTH"
-_MAX_DEPTH = 1
+def apply_session_llm(llm):
+    """Point an Llm at the model this session was launched with.
 
-
-class SubagentError(Exception):
-    """Raised when a sub-agent cannot be run."""
-
-
-def _inherit(llm):
-    """Copy the parent session's model settings onto a new Llm."""
+    Used for both halves of the problem: the sub-agent an author builds here,
+    and the kernel's own `interpreter` singleton, which is a throwaway instance
+    at package defaults until something tells it otherwise -- and which
+    `toolbox.ai` delegates to.
+    """
     for variable, attribute in _INHERITED.items():
         value = os.environ.get(variable)
         if value:
@@ -92,7 +102,12 @@ def build(model=None, **settings):
         )
 
     interpreter = OpenInterpreter()
-    _inherit(interpreter.llm)
+    apply_session_llm(interpreter.llm)
+    # This one is a level deeper than the kernel that built it. Recorded on the
+    # object so it reaches only this sub-agent's own kernel (via kernel_env);
+    # nothing in the caller's environment changes, so sub-agents built side by
+    # side stay siblings instead of tripping over a shared counter.
+    interpreter._subagent_depth = depth + 1
     if model:
         interpreter.llm.model = model
     interpreter.auto_run = True
@@ -110,9 +125,6 @@ def run(task, model=None, **settings):
     happily -- a ThreadPoolExecutor over a list of tasks is the usual shape.
     """
     interpreter = build(model=model, **settings)
-    # Children see the incremented depth and refuse to spawn further.
-    previous = os.environ.get(_DEPTH_VARIABLE)
-    os.environ[_DEPTH_VARIABLE] = str(int(previous or "0") + 1)
     try:
         messages = interpreter.chat(task, display=False, stream=False)
         for message in reversed(messages):
@@ -120,10 +132,6 @@ def run(task, model=None, **settings):
                 return message.get("content", "")
         return ""
     finally:
-        if previous is None:
-            os.environ.pop(_DEPTH_VARIABLE, None)
-        else:
-            os.environ[_DEPTH_VARIABLE] = previous
         try:
             interpreter.computer.terminate()
         except Exception:

@@ -12,10 +12,12 @@ a live kernel.
 """
 
 import os
+from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 
 import pytest
 
+import interpreter.core.subagent as subagent_module
 from interpreter.core.subagent import _DEPTH_VARIABLE, SubagentError, build, kernel_env
 from interpreter.core.terminal.languages.jupyter_language import JupyterLanguage
 
@@ -127,6 +129,75 @@ def test_a_subagent_cannot_spawn_another(monkeypatch):
         build()
 
 
+def test_sub_agents_started_side_by_side_are_siblings_not_nested(monkeypatch):
+    """Several sub-agents from one kernel are all depth 1, not 1, 2, 3...
+
+    The depth counter used to live in os.environ and be incremented around each
+    run, which is process-global: three of these started together raced, and
+    whichever ran second saw the first one's increment and was refused as "too
+    deep". The docstring recommends exactly this ThreadPoolExecutor shape, so
+    the guard was rejecting the documented usage.
+    """
+    monkeypatch.delenv(_DEPTH_VARIABLE, raising=False)
+    monkeypatch.setenv("OI_LLM_MODEL", "ollama/qwen3")
+
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        children = list(pool.map(lambda _: build(), range(3)))
+
+    assert len(children) == 3
+    # Each is one level below the kernel that built them -- all the same level.
+    assert [child._subagent_depth for child in children] == [1, 1, 1]
+
+
+def test_a_childs_kernel_is_told_it_is_one_level_down(monkeypatch):
+    """The depth reaches the child through its own kernel, not the caller's env.
+
+    That is what makes the cap work without a shared counter: the child's
+    kernel carries depth 1, so a sub-agent started inside it is refused.
+    """
+    monkeypatch.delenv(_DEPTH_VARIABLE, raising=False)
+
+    child = build()
+
+    assert kernel_env(child)[_DEPTH_VARIABLE] == "1"
+    # ...and the caller's own environment was never touched.
+    assert _DEPTH_VARIABLE not in os.environ
+
+
+def test_running_a_subagent_never_mutates_the_shared_environment(monkeypatch):
+    """os.environ must be untouched *while* the sub-agent runs, not just after.
+
+    The depth counter used to be written into os.environ for the duration of
+    the run and restored afterwards. Restoring hid it from any check that ran
+    after the call -- but os.environ is process-global, so a sibling starting
+    during that window read the raised count and was refused as "too deep".
+    That is the failure that made a ThreadPoolExecutor over sub-agents blow up
+    on the second task, so the observation has to happen mid-flight.
+    """
+    monkeypatch.delenv(_DEPTH_VARIABLE, raising=False)
+    seen = {}
+
+    def _chat(*args, **kwargs):
+        # What a concurrent sibling would see at its own build() moment.
+        seen["during"] = os.environ.get(_DEPTH_VARIABLE)
+        return [{"role": "assistant", "type": "message", "content": "done"}]
+
+    monkeypatch.setattr(
+        subagent_module,
+        "build",
+        lambda model=None, **settings: SimpleNamespace(
+            chat=_chat, computer=SimpleNamespace(terminate=lambda: None)
+        ),
+    )
+
+    assert subagent_module.run("anything") == "done"
+    assert seen["during"] is None, (
+        f"run() raised the shared depth to {seen['during']!r} mid-flight; a "
+        f"sibling starting now would be refused"
+    )
+    assert _DEPTH_VARIABLE not in os.environ
+
+
 def test_the_default_model_is_the_thing_being_avoided(monkeypatch):
     """Pins why this exists: a bare interpreter really does default to gpt-4o-mini.
 
@@ -142,3 +213,51 @@ def test_the_default_model_is_the_thing_being_avoided(monkeypatch):
             monkeypatch.delenv(variable, raising=False)
 
     assert OpenInterpreter().llm.model == "gpt-4o-mini"
+
+
+def test_the_kernels_own_interpreter_is_pointed_at_the_session(monkeypatch):
+    """apply_session_llm fixes the throwaway instance toolbox.ai delegates to.
+
+    `from interpreter import interpreter` inside the kernel builds a *new*
+    singleton in that process, at package defaults. toolbox.ai routes through
+    it, so before this an ai.chat() from a local session called OpenAI at
+    gpt-4o-mini -- real spend, with nothing in the session to suggest it.
+    """
+    monkeypatch.setenv("OI_LLM_MODEL", "ollama/qwen3")
+    monkeypatch.setenv("OI_LLM_API_BASE", "http://127.0.0.1:11434")
+
+    host = SimpleNamespace(model="gpt-4o-mini", api_base=None, api_key=None,
+                           api_version=None, context_window=None, max_tokens=None)
+    subagent_module.apply_session_llm(host)
+
+    assert host.model == "ollama/qwen3"
+    assert host.api_base == "http://127.0.0.1:11434"
+
+
+def test_ai2_defaults_to_the_session_model(monkeypatch):
+    """ai2 answers helper calls on the launched model, not its own default.
+
+    It used to default to gpt-4.1-nano regardless, so every boolean_query from
+    an ollama session was an OpenAI call.
+    """
+    from interpreter.core.toolbox.ai2 import Ai2
+
+    monkeypatch.setenv("OI_LLM_MODEL", "ollama/qwen3")
+    monkeypatch.setenv("OI_LLM_API_BASE", "http://127.0.0.1:11434")
+    monkeypatch.delenv("AI2_MODEL", raising=False)
+
+    assert Ai2().default_model == "ollama/qwen3"
+    # An explicit choice still wins, so a job can pick the model that suits it.
+    assert Ai2(default_model="openai/gpt-4.1").default_model == "openai/gpt-4.1"
+    monkeypatch.setenv("AI2_MODEL", "openai/gpt-4.1-nano")
+    assert Ai2().default_model == "openai/gpt-4.1-nano"
+
+
+def test_ai2_falls_back_when_there_is_no_session(monkeypatch):
+    """Imported outside a session there is nothing to inherit, so keep a default."""
+    from interpreter.core.toolbox.ai2 import Ai2
+
+    for variable in ("OI_LLM_MODEL", "OI_LLM_API_BASE", "AI2_MODEL"):
+        monkeypatch.delenv(variable, raising=False)
+
+    assert Ai2().default_model == "gpt-4.1-nano"

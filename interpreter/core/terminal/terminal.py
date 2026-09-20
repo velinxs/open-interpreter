@@ -137,6 +137,14 @@ import time
 import datetime
 from interpreter import interpreter, ai2
 
+# `interpreter` here is a fresh singleton built inside this kernel process, so
+# it carries the package defaults (gpt-4o-mini) rather than the model the
+# session was launched with -- and toolbox.ai delegates to it, which is how a
+# local session ends up billing OpenAI. Point it at the session's settings,
+# published in this kernel's environment when it started.
+from interpreter.core.subagent import apply_session_llm
+apply_session_llm(interpreter.llm)
+
 toolbox = interpreter.toolbox
 print("__TOOLBOX_API_IMPORTED__")
 """.strip()
