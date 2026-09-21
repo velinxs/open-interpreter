@@ -15,6 +15,7 @@ from PIL import Image
 
 from ...utils.lazy_import import lazy_import
 from ...utils.recipient_utils import format_to_recipient
+from .ground import GroundingUnavailable, locate
 
 # Still experimenting with this
 # from utils.get_active_window import get_active_window
@@ -243,61 +244,38 @@ class Display:
         """
         if description.startswith('"') and description.endswith('"'):
             return self.find_text(description.strip('"'), screenshot)
-        else:
-            try:
-                if self.toolbox.debug:
-                    print("DEBUG MODE ON")
-                    print("NUM HASHES:", len(self._hashes))
-                else:
-                    message = format_to_recipient(
-                        "Locating this icon will take ~15 seconds. Subsequent icons should be found more quickly.",
-                        recipient="user",
-                    )
-                    print(message)
 
-                if len(self._hashes) > 5000:
-                    self._hashes = dict(list(self._hashes.items())[-5000:])
+        if screenshot is None:
+            screenshot = self.screenshot(show=False)
 
-                from .point.point import point
+        llm = getattr(self.toolbox.interpreter, "llm", None)
+        if getattr(llm, "supports_vision", False):
+            coordinates = locate(llm, screenshot, description)
+            # A bare (x, y) tuple per match: mouse.move unpacks it and scales by
+            # display.width/height. Empty list means "not on screen", which
+            # mouse.move reports rather than clicking somewhere arbitrary.
+            return [coordinates] if coordinates else []
 
-                result = point(description, screenshot, self.toolbox.debug, self._hashes)
+        # No model that can look at the screen. The old fallback embedded OCR
+        # candidates with sentence-transformers, which means several gigabytes
+        # and a macOS-only screenshot helper, so it stays opt-in rather than
+        # being the thing that happens when vision is off.
+        if self.toolbox.debug:
+            print("DEBUG MODE ON")
+            print("NUM HASHES:", len(self._hashes))
+        if len(self._hashes) > 5000:
+            self._hashes = dict(list(self._hashes.items())[-5000:])
+        try:
+            from .point.point import point
 
-                return result
-            except:
-                if self.toolbox.debug:
-                    # We want to know these bugs lmao
-                    raise
-                if self.toolbox.offline:
-                    raise
-                message = format_to_recipient(
-                    "Locating this icon will take ~30 seconds. We're working on speeding this up.",
-                    recipient="user",
-                )
-                print(message)
-
-                # Take a screenshot
-                if screenshot == None:
-                    screenshot = self.screenshot(show=False)
-
-                # Downscale the screenshot to 1920x1080
-                screenshot = screenshot.resize((1920, 1080))
-
-                # Convert the screenshot to base64
-                buffered = BytesIO()
-                screenshot.save(buffered, format="PNG")
-                screenshot_base64 = base64.b64encode(buffered.getvalue()).decode()
-
-                try:
-                    response = requests.post(
-                        f"{self.toolbox.api_base.strip('/')}/point/",
-                        json={"query": description, "base64": screenshot_base64},
-                    )
-                    return response.json()
-                except Exception as e:
-                    raise Exception(
-                        str(e)
-                        + "\n\nIcon locating API not available, or we were unable to find the icon. Please try another method to find this icon."
-                    )
+            return point(description, screenshot, self.toolbox.debug, self._hashes)
+        except ImportError as error:
+            raise GroundingUnavailable(
+                f"Cannot locate '{description}': this session's model has no vision, "
+                f"and the offline locator is not installed ({error}). Either use a "
+                f"model that can see screenshots (set llm.supports_vision), or pass "
+                f"explicit coordinates to toolbox.mouse.move(x=, y=)."
+            ) from error
 
     def find_text(self, text, screenshot=None):
         """
@@ -309,30 +287,23 @@ class Display:
         if screenshot == None:
             screenshot = self.screenshot(show=False)
 
-        if not self.toolbox.offline:
-            # Convert the screenshot to base64
-            buffered = BytesIO()
-            screenshot.save(buffered, format="PNG")
-            screenshot_base64 = base64.b64encode(buffered.getvalue()).decode()
+        llm = getattr(self.toolbox.interpreter, "llm", None)
+        if getattr(llm, "supports_vision", False):
+            coordinates = locate(llm, screenshot, f'the text "{text}"')
+            # similarity 1: the model was asked for this exact string, so a hit
+            # is exact as far as the caller is concerned. mouse.move only uses
+            # this to decide whether to show the user a disambiguation image.
+            return (
+                [{"coordinates": coordinates, "text": text, "similarity": 1}]
+                if coordinates
+                else []
+            )
 
-            try:
-                response = requests.post(
-                    f"{self.toolbox.api_base.strip('/')}/point/text/",
-                    json={"query": text, "base64": screenshot_base64},
-                )
-                response = response.json()
-                return response
-            except:
-                print("Attempting to find the text locally.")
-
-        # We'll only get here if 1) self.toolbox.offline = True, or the API failed
-
-        # Find the text in the screenshot
+        # Local OCR. Needs pytesseract and the Tesseract binary; raises with
+        # install instructions if they are missing.
         centers = find_text_in_image(screenshot, text, self.toolbox.debug)
 
-        return [
-            {"coordinates": center, "text": "", "similarity": 1} for center in centers
-        ]  # Have it deliver the text properly soon.
+        return [{"coordinates": center, "text": text, "similarity": 1} for center in centers]
 
     def get_text_as_list_of_lists(self, screenshot=None):
         """
@@ -343,24 +314,6 @@ class Display:
         """
         if screenshot == None:
             screenshot = self.screenshot(show=False, force_image=True)
-
-        if not self.toolbox.offline:
-            # Convert the screenshot to base64
-            buffered = BytesIO()
-            screenshot.save(buffered, format="PNG")
-            screenshot_base64 = base64.b64encode(buffered.getvalue()).decode()
-
-            try:
-                response = requests.post(
-                    f"{self.toolbox.api_base.strip('/')}/text/",
-                    json={"base64": screenshot_base64},
-                )
-                response = response.json()
-                return response
-            except:
-                print("Attempting to get the text locally.")
-
-        # We'll only get here if 1) self.toolbox.offline = True, or the API failed
 
         try:
             return pytesseract_get_text(screenshot)
