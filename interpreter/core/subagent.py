@@ -1,38 +1,24 @@
-"""Run a task in a second interpreter that matches this session's settings.
+"""Run a task in a second interpreter.
 
-The model is told it can spawn sub-agents in Python, and writing that by hand
-is three lines -- until you notice that a fresh `OpenInterpreter()` is *fresh*:
-the kernel is a separate process, so its instance carries the defaults
-(`gpt-4o-mini`, no api_base) rather than the session's model. A sub-agent
-spawned from a local or self-hosted session therefore calls OpenAI instead, on
-whatever key is in the environment, and the only symptom is the bill.
+`OpenInterpreter()` already inherits the session's model when it is built
+inside a kernel the session started (see llm/session_env.py), so a sub-agent
+written by hand is three honest lines. This exists for the two things those
+three lines leave out:
 
-This reads the settings the session published into the kernel's environment
-(see JupyterLanguage._kernel_env) so a sub-agent runs on the same model as its
-parent. It also stops the kernel it started, which hand-written code reliably
-forgets -- each sub-agent owns one, and a leaked kernel holds its sockets until
-the process dies.
+    - stopping the kernel afterwards, which each sub-agent owns and which
+      hand-written code reliably forgets; a leaked kernel holds its sockets
+      until the process dies.
+    - refusing to nest, since a chain of sub-agents spawning sub-agents stops
+      only when a budget does.
+
+Nothing here is required. `from interpreter import OpenInterpreter` still
+works, and now runs on the right model.
 """
 
 import os
 
-# Settings the session publishes into the kernel's environment, and that a
-# sub-agent reads back. Both halves live here so the names cannot drift apart.
-_INHERITED = {
-    "OI_LLM_MODEL": "model",
-    "OI_LLM_API_BASE": "api_base",
-    "OI_LLM_API_KEY": "api_key",
-    "OI_LLM_API_VERSION": "api_version",
-}
-_INHERITED_NUMERIC = {
-    "OI_LLM_CONTEXT_WINDOW": "context_window",
-    "OI_LLM_MAX_TOKENS": "max_tokens",
-}
+from .llm.session_env import DEPTH_VARIABLE
 
-
-# A sub-agent that spawns sub-agents is nearly always a mistake, and an
-# expensive one: nothing in a chain of them stops until a budget does.
-_DEPTH_VARIABLE = "OI_SUBAGENT_DEPTH"
 _MAX_DEPTH = 1
 
 
@@ -40,60 +26,16 @@ class SubagentError(Exception):
     """Raised when a sub-agent cannot be run."""
 
 
-def kernel_env(interpreter):
-    """The environment for a kernel: ours, plus this session's model settings.
-
-    Read off the live Llm rather than the profile file: a `.py` profile carries
-    its configuration as executed code with no `llm` section to copy, and
-    command-line overrides never reach a file at all. They travel in the
-    environment rather than in the kernel's setup code because that code is
-    printed when the toolbox runs verbose, and the api key would go with it.
-    """
-    env = dict(os.environ)
-    llm = getattr(interpreter, "llm", None)
-    for variable, attribute in {**_INHERITED, **_INHERITED_NUMERIC}.items():
-        value = getattr(llm, attribute, None)
-        # Left unset rather than written as "None": the reader checks for
-        # presence, and an empty api_base is not the same as no api_base.
-        if value not in (None, ""):
-            env[variable] = str(value)
-    # How deep in sub-agents this kernel is. Carried on the interpreter rather
-    # than mutated in os.environ, so that sub-agents started side by side in
-    # one kernel are siblings at the same depth rather than racing a counter.
-    env[_DEPTH_VARIABLE] = str(getattr(interpreter, "_subagent_depth", 0))
-    return env
-
-def apply_session_llm(llm):
-    """Point an Llm at the model this session was launched with.
-
-    Used for both halves of the problem: the sub-agent an author builds here,
-    and the kernel's own `interpreter` singleton, which is a throwaway instance
-    at package defaults until something tells it otherwise -- and which
-    `toolbox.ai` delegates to.
-    """
-    for variable, attribute in _INHERITED.items():
-        value = os.environ.get(variable)
-        if value:
-            setattr(llm, attribute, value)
-    for variable, attribute in _INHERITED_NUMERIC.items():
-        value = os.environ.get(variable)
-        if value:
-            try:
-                setattr(llm, attribute, int(value))
-            except ValueError:
-                pass
-
-
 def build(model=None, **settings):
     """An interpreter configured like this session, without running anything.
 
-    Use it when the task needs more than one message, or settings this
-    function does not take. Remember to call `.computer.terminate()` when you
-    are done with it, which `run()` does for you.
+    Use it when the task needs more than one message, or settings this function
+    does not take. Call `.computer.terminate()` when done, which `run()` does
+    for you.
     """
     from interpreter import OpenInterpreter
 
-    depth = int(os.environ.get(_DEPTH_VARIABLE, "0"))
+    depth = int(os.environ.get(DEPTH_VARIABLE, "0"))
     if depth >= _MAX_DEPTH:
         raise SubagentError(
             f"Already {depth} sub-agent(s) deep. A sub-agent spawning sub-agents "
@@ -101,12 +43,11 @@ def build(model=None, **settings):
             f"at {_MAX_DEPTH}. Do this work directly instead."
         )
 
-    interpreter = OpenInterpreter()
-    apply_session_llm(interpreter.llm)
-    # This one is a level deeper than the kernel that built it. Recorded on the
-    # object so it reaches only this sub-agent's own kernel (via kernel_env);
-    # nothing in the caller's environment changes, so sub-agents built side by
-    # side stay siblings instead of tripping over a shared counter.
+    interpreter = OpenInterpreter()  # inherits the session's model on its own
+    # A level below the kernel that built it. Recorded on the object so it
+    # reaches only this sub-agent's own kernel; nothing in the caller's
+    # environment changes, so sub-agents built side by side stay siblings
+    # rather than tripping over a shared counter.
     interpreter._subagent_depth = depth + 1
     if model:
         interpreter.llm.model = model

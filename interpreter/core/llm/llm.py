@@ -35,6 +35,7 @@ from .completions import _litellm, fixed_litellm_completions  # noqa: E402
 from .errors import AccessDeniedError, FunctionCallingNotSupportedError, ModelNotFoundError  # noqa: E402
 from .providers import configure, openrouter_model_entry  # noqa: E402
 from .reasoning import apply_reasoning_params  # noqa: E402
+from .session_env import apply_to
 from .tool_calling import run_tool_calling_llm
 from .utils.cache_aware_trim import cache_aware_trim
 from .utils.convert_to_openai_messages import convert_to_openai_messages
@@ -134,6 +135,12 @@ class Llm:
 
         # Filled from the final streaming chunk when the API sends usage (see stream_usage.record_stream_chunk_usage).
         self.last_completion_usage = None
+
+        # Inside a kernel an OI session started, take that session's model
+        # instead of the defaults set above -- so an OpenInterpreter() written
+        # there inherits the session without its author knowing any of this.
+        # Applied last so it wins, and a no-op outside a session.
+        apply_to(self)
 
     def run(self, messages, *, auxiliary_title_request=False):
         """

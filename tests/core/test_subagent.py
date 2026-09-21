@@ -18,7 +18,9 @@ from types import SimpleNamespace
 import pytest
 
 import interpreter.core.subagent as subagent_module
-from interpreter.core.subagent import _DEPTH_VARIABLE, SubagentError, build, kernel_env
+from interpreter.core.llm.session_env import DEPTH_VARIABLE as _DEPTH_VARIABLE
+from interpreter.core.llm.session_env import apply_to, kernel_env
+from interpreter.core.subagent import SubagentError, build
 from interpreter.core.terminal.languages.jupyter_language import JupyterLanguage
 
 
@@ -228,7 +230,7 @@ def test_the_kernels_own_interpreter_is_pointed_at_the_session(monkeypatch):
 
     host = SimpleNamespace(model="gpt-4o-mini", api_base=None, api_key=None,
                            api_version=None, context_window=None, max_tokens=None)
-    subagent_module.apply_session_llm(host)
+    apply_to(host)
 
     assert host.model == "ollama/qwen3"
     assert host.api_base == "http://127.0.0.1:11434"
@@ -261,3 +263,20 @@ def test_ai2_falls_back_when_there_is_no_session(monkeypatch):
         monkeypatch.delenv(variable, raising=False)
 
     assert Ai2().default_model == "gpt-4.1-nano"
+
+
+def test_a_plain_openinterpreter_inherits_the_session(monkeypatch):
+    """The naive SDK snippet is enough on its own -- no helper required.
+
+    This is the point of applying the session in Llm.__init__ rather than in a
+    wrapper: someone who writes the obvious three lines in a kernel gets the
+    session's model, instead of silently getting gpt-4o-mini and a bill.
+    """
+    monkeypatch.setenv("OI_LLM_MODEL", "ollama/qwen3")
+    monkeypatch.setenv("OI_LLM_API_BASE", "http://127.0.0.1:11434")
+    from interpreter import OpenInterpreter
+
+    plain = OpenInterpreter()
+
+    assert plain.llm.model == "ollama/qwen3"
+    assert plain.llm.api_base == "http://127.0.0.1:11434"

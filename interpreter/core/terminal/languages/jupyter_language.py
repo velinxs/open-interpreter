@@ -19,7 +19,7 @@ os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] = "True"
 # enough for the local cost map to take effect.
 from jupyter_client import KernelManager
 
-from ...subagent import kernel_env
+from ...llm.session_env import kernel_env
 from ..base_language import BaseLanguage
 from .jupyter_display import display_chunk
 from .python_preprocess import (
