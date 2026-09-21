@@ -1,15 +1,4 @@
-import base64
-import io
-import os
-import platform
-import pprint
-import subprocess
-import time
-import warnings
-from contextlib import redirect_stdout
-from io import BytesIO
 
-import requests
 from IPython.display import display
 from PIL import Image
 
