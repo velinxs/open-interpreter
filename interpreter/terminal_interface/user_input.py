@@ -22,8 +22,14 @@ from .utils.find_image_path import find_image_path
 
 
 def _print_mode_banner(interpreter):
-    """The one-time notice about which code needs approval in this session."""
-    if interpreter.auto_run_mode != "all" and not interpreter.offline and not (len(interpreter.messages) == 1):
+    """The one-time notice about which code needs approval in this session.
+
+    Not conditioned on `offline`: whether the model runs locally has nothing to
+    do with whether it will run code without asking, and gating on it meant a
+    local session -- the configuration most likely to be unusual -- was the one
+    told least about what was about to happen on its machine.
+    """
+    if interpreter.auto_run_mode != "all" and not (len(interpreter.messages) == 1):
         interpreter_intro_message = ["**Open Interpreter** will require approval before running code."]
 
         if interpreter.auto_run_mode == "allowlist":
@@ -47,7 +53,10 @@ def _print_mode_banner(interpreter):
         if (
             not interpreter.plain_text_display
         ):  # A proxy/heuristic for standard in mode, which isn't tracked (but prob should be)
-            interpreter_intro_message.append("Press `CTRL-C` to exit.")
+            # Ctrl-C cancels the current turn and returns to the prompt; it is
+            # `/exit` that leaves. Saying otherwise is what had people killing
+            # the process, which orphaned its kernel.
+            interpreter_intro_message.append("Type `/exit` to leave.")
 
         interpreter.display_message("\n\n".join(interpreter_intro_message) + "\n")
         print()

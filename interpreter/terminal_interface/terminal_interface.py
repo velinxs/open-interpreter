@@ -49,6 +49,7 @@ from .components.code_block import CodeBlock
 from .components.message_block import MessageBlock
 from .escape_watch import watch_for_escape
 from .magic_commands import handle_magic_command
+from .startup_banner import print_startup_banner
 from .user_input import _prepare_message, _print_mode_banner
 from .utils.check_for_package import check_for_package
 from .utils.cli_input import cli_input
@@ -82,9 +83,10 @@ def terminal_interface(interpreter, message):
     os.environ.pop("COLUMNS", None)
     os.environ.pop("LINES", None)
 
-    # Auto run and offline (this.. this isn't right) don't display messages.
-    # Probably worth abstracting this to something like "debug_cli" at some point.
-    # If (len(interpreter.messages) == 1), they probably used the advanced "i {command}" entry, so no message should be displayed.
+    # Which model, whether it asks before running code, and where it runs it.
+    print_startup_banner(interpreter)
+    # Then the detail that only matters in some modes: allowlist/denylist
+    # semantics, and a missing semgrep when safe mode is on.
     _print_mode_banner(interpreter)
 
     if message:
