@@ -115,18 +115,11 @@ class Browser:
         {elements_info}
         """
 
-        # response = self.toolbox.ai.chat(ai_query)
-
-        # screenshot = self.driver.get_screenshot_as_base64()
-        # old_model = self.toolbox.interpreter.llm.model
-        # self.toolbox.interpreter.llm.model = "gpt-4o-mini"
-        # response = self.toolbox.ai.chat(ai_query, base64=screenshot)
-        # self.toolbox.interpreter.llm.model = old_model
-
-        old_model = self.toolbox.interpreter.llm.model
-        self.toolbox.interpreter.llm.model = "gpt-4o-mini"
+        # Answered by whatever model the session is running. This used to swap
+        # in gpt-4o-mini for the call and swap back, which sent the page to
+        # OpenAI -- and billed for it -- from a session that had deliberately
+        # chosen a local or self-hosted model, with nothing to say so.
         response = self.toolbox.ai.chat(ai_query)
-        self.toolbox.interpreter.llm.model = old_model
 
         print(response)
         print(

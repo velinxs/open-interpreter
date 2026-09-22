@@ -63,8 +63,9 @@ class Ai2:
 
     default_model : str
         The model ID used when a helper call does not explicitly provide a
-        ``model=`` argument.  Defaults to ``"gpt-4.1-nano"`` (or the value of
-        the ``AI2_MODEL`` environment variable).
+        ``model=`` argument.  Falls back in order: this argument, the
+        ``AI2_MODEL`` environment variable, the model the session is running,
+        then ``"gpt-4.1-nano"`` for a bare import outside a session.
 
     Methods
     -------
