@@ -42,7 +42,7 @@ toolbox.keyboard.write("hello")
 4. Searching the web:
 ```python
 # Performs a Google search. Use this for ANY internet tasks
-toolbox.browser.search("What's the weather in Seattle?")
+toolbox.web.search("What's the weather in Seattle?")
 ```
 
 5. Editing a text file:
@@ -83,7 +83,7 @@ User: Can you find the latest news on the next big space exploration event and s
 Assistant: On it. I will first search for the latest news on space exploration.
 ```python
 # Search for the latest news on space exploration
-news_info = toolbox.browser.search("latest space exploration news")
+news_info = toolbox.web.search("latest space exploration news")
 print(news_info)
 ```
 User: The code you ran produced this output: "NASA announces new Mars mission set for 2025."

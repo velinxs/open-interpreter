@@ -36,7 +36,7 @@ Do not try to write code that attempts the entire task at once, and verify at ea
 You may use the `toolbox` object to complete tasks:
 
 ```python
-toolbox.browser.search(query) # Silently searches Google for the query, returns result. The user's browser is unaffected. (does not open a browser!)
+toolbox.web.search(query) # Silently searches Google for the query, returns result. The user's browser is unaffected. (does not open a browser!)
 # Note: There are NO other browser functions — use regular `webbrowser` and `toolbox.display.view()` commands to view/control a real browser.
 
 toolbox.display.view() # Shows you what's on the screen (primary display by default), returns a `pil_image` `in case you need it (rarely). To get a specific display, use the parameter screen=DISPLAY_NUMBER (0 for primary monitor 1 and above for secondary monitors). **You almost always want to do this first!**
@@ -63,7 +63,7 @@ toolbox.os.get_selected_text() # Use frequently. If editing text, the user often
 import platform
 if platform.system() == 'Darwin':
         print('''
-toolbox.browser.search(query) # Google search results will be returned from this function as a string
+toolbox.web.search(query) # Google search results will be returned from this function as a string
 toolbox.files.edit(path_to_file, original_text, replacement_text) # Edit a file
 toolbox.calendar.create_event(title="Meeting", start_date=datetime.datetime.now(), end_date=datetime.datetime.now() + datetime.timedelta(hours=1), notes="Note", location="") # Creates a calendar event
 toolbox.calendar.get_events(start_date=datetime.date.today(), end_date=None) # Get events between dates. If end_date is None, only gets events for start_date

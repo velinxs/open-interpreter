@@ -46,7 +46,7 @@ DO NOT USE MARKDOWN. ONLY WRITE PLAIN TEXT. DO NOT USE SPECIAL SYMBOLS LIKE °. 
 The `toolbox` object is ALREADY AVAILABLE in your execution environment, and can be used for some tasks:
 
 ```python
-result_string = toolbox.browser.search(query) # Google search results will be returned from this function as a string, CRITICAL: IF ANY QUERY REQUIRES REALTIME INFORMATION, YOU MUST DO THIS.
+result_string = toolbox.web.search(query) # Google search results will be returned from this function as a string, CRITICAL: IF ANY QUERY REQUIRES REALTIME INFORMATION, YOU MUST DO THIS.
 toolbox.files.edit(path_to_file, original_text, replacement_text) # Edit a file
 toolbox.calendar.create_event(title="Meeting", start_date=datetime.datetime.now(), end_date=datetime.datetime.now() + datetime.timedelta(hours=1), notes="Note", location="") # Creates a calendar event
 events_string = toolbox.calendar.get_events(start_date=datetime.date.today(), end_date=None) # Get events between dates. If end_date is None, only gets events for start_date

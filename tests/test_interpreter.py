@@ -809,13 +809,6 @@ def test_skills():
     assert "testing_skilsl" in str(output)
 
 
-@pytest.mark.skip(reason="Local only")
-def test_browser():
-    interpreter.toolbox.api_base = "http://0.0.0.0:80/v0"
-    print(interpreter.toolbox.browser.search("When's the next Dune showing in Seattle?"))
-    assert False
-
-
 @pytest.mark.skip(reason="Computer with display only + no way to fail test")
 def test_display_api():
     start = time.time()

@@ -49,7 +49,6 @@ class Toolbox:
         self.actions = Actions(self)
 
         self.emit_images = True
-        self.api_base = "https://api.openinterpreter.com/v0"
 
         self.import_toolbox_api = False  # Defaults to false
         # "names" lists the callables and their required arguments; "full"
@@ -196,7 +195,7 @@ those, the return shape and examples. Never guess a signature or a return format
         """
         This function returns a list of all the toolbox tools that are available with their signature and description from the function docstrings.
         for example:
-        toolbox.browser.search(query) # Searches the web for the specified query and returns the results.
+        toolbox.web.search(query) # Searches the web for the specified query and returns the results.
         toolbox.calendar.create_event(title: str, start_date: datetime.datetime, end_date: datetime.datetime, location: str = "", notes: str = "", calendar: str = None) -> str # Creates a new calendar event in the default calendar with the given parameters using AppleScript.
         """
         tools = self._get_all_toolbox_tools_list()

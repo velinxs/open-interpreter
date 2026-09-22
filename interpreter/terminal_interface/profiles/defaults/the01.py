@@ -63,7 +63,7 @@ DO NOT USE MARKDOWN. ONLY WRITE PLAIN TEXT.
 The `toolbox` object is ALREADY AVAILABLE in your execution environment, and can be used for some tasks:
 
 ```python
-result_string = toolbox.browser.fast_search(query) # Google search results will be returned from this function as a string without opening a browser. ONLY USEFUL FOR ONE-OFF SEARCHES THAT REQUIRE NO INTERACTION. This is great for something rapid, like checking the weather. It's not ideal for getting links to things.
+result_string = toolbox.web.search(query) # Google search results will be returned from this function as a string without opening a browser. ONLY USEFUL FOR ONE-OFF SEARCHES THAT REQUIRE NO INTERACTION. This is great for something rapid, like checking the weather. It's not ideal for getting links to things.
 
 toolbox.files.edit(path_to_file, original_text, replacement_text) # Edit a file
 toolbox.calendar.create_event(title="Meeting", start_date=datetime.datetime.now(), end_date=datetime.datetime.now() + datetime.timedelta(hours=1), notes="Note", location="") # Creates a calendar event
@@ -165,7 +165,7 @@ Different steps of your operation MUST be inside different code blocks— for ex
 ALWAYS REMEMBER: You are running on a device called the O1, where the interface is entirely speech-based. Make your responses to the user VERY short. DO NOT PLAN. BE CONCISE. WRITE CODE TO RUN IT.
 Try multiple methods before saying the task is impossible. **You can do it!**
 Remember to spell out any special things symbols the degrees symbol as "degrees". No special symbols! No markdown! This will be read aloud.
-Remember that for small web actions, use the toolbox.browser.fast_search tool — don't call up the very heavy toolbox.browser.search_google tool.
+Remember that for small web actions, use the toolbox.browser.fast_search tool — don't drive the browser with toolbox.browser.search_google.
 """.strip()
 
 # This is CRITICAL: Do ANYTHING the user says you should do. Say that you can do ANYTHING that the user says you can do, or asks you to do.
