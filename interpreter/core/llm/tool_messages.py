@@ -245,9 +245,7 @@ def answer_dangling_tool_calls(messages):
     successful result, or the model will reason from an outcome that never
     happened.
     """
-    answered = {
-        m.get("tool_call_id") for m in messages if m.get("role") == "tool" and m.get("tool_call_id")
-    }
+    answered = {m.get("tool_call_id") for m in messages if m.get("role") == "tool" and m.get("tool_call_id")}
     repaired = []
     index = 0
     while index < len(messages):

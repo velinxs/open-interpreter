@@ -34,12 +34,8 @@ def _long_vision_history():
     """A history far larger than the window below, ending in a screenshot."""
     messages = [{"role": "user", "type": "message", "content": OLDEST_TURN}]
     for index in range(40):
-        messages.append(
-            {"role": "assistant", "type": "message", "content": f"filler reply {index} " * 60}
-        )
-    messages.append(
-        {"role": "user", "type": "image", "format": "base64.png", "content": SCREENSHOT}
-    )
+        messages.append({"role": "assistant", "type": "message", "content": f"filler reply {index} " * 60})
+    messages.append({"role": "user", "type": "image", "format": "base64.png", "content": SCREENSHOT})
     return messages
 
 
@@ -50,9 +46,7 @@ def test_a_conversation_with_an_image_is_still_trimmed(offline_interpreter):
     and the swallowing `except` meant nothing was trimmed, so the request went
     out at full size. With trimming working, the oldest turn is dropped.
     """
-    fake = _vision_session(
-        offline_interpreter, ["Understood."], context_window=2000, max_tokens=500
-    )
+    fake = _vision_session(offline_interpreter, ["Understood."], context_window=2000, max_tokens=500)
     offline_interpreter.messages = _long_vision_history()
 
     offline_interpreter.chat("what is on my screen?", display=False, stream=False)
@@ -67,9 +61,7 @@ def test_trimming_an_image_turn_keeps_the_system_message(offline_interpreter):
     Trimming to a small window is exactly when the system message is at risk,
     and a request that loses it loses the model's instructions with it.
     """
-    fake = _vision_session(
-        offline_interpreter, ["Understood."], context_window=2000, max_tokens=500
-    )
+    fake = _vision_session(offline_interpreter, ["Understood."], context_window=2000, max_tokens=500)
     offline_interpreter.messages = _long_vision_history()
 
     offline_interpreter.chat("what is on my screen?", display=False, stream=False)
@@ -85,9 +77,7 @@ def test_a_screenshot_does_not_evict_a_recent_turn(offline_interpreter):
     The image's real cost is around a hundred tokens, so a short history plus a
     screenshot fits a modest window comfortably.
     """
-    fake = _vision_session(
-        offline_interpreter, ["Understood."], context_window=8000, max_tokens=1000
-    )
+    fake = _vision_session(offline_interpreter, ["Understood."], context_window=8000, max_tokens=1000)
     offline_interpreter.messages = [
         {"role": "user", "type": "message", "content": OLDEST_TURN},
         {"role": "assistant", "type": "message", "content": "Noted."},

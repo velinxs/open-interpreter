@@ -179,8 +179,8 @@ red is a regression.
 `tests/test_module_sizes.py` holds every module to 600 lines so each one fits in
 one head. Four are currently exempt as a **split backlog**, each pushed over by a
 feature this merge brought in, and each capped so it cannot grow further while it
-waits: `respond.py` (697), `terminal_interface.py` (643),
-`jupyter_language.py` (613), `llm/llm.py` (609). Splitting one removes its entry;
+waits: `respond.py` (697), `terminal_interface.py` (635),
+`jupyter_language.py` (612), `llm/llm.py` (602). Splitting one removes its entry;
 nothing else belongs on that list.
 
 ## Code change guidelines

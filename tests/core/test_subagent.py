@@ -73,16 +73,12 @@ def test_a_real_kernel_receives_the_settings():
     jupyter_client's business, and if it ever stops doing so every sub-agent
     silently falls back to the default model again.
     """
-    language = JupyterLanguage(
-        SimpleNamespace(llm=_session_llm(), verbose=False, debug=False)
-    )
+    language = JupyterLanguage(SimpleNamespace(llm=_session_llm(), verbose=False, debug=False))
     try:
         output = "".join(
             str(chunk.get("content", ""))
             for chunk in language.run(
-                "import os, json\n"
-                "print(json.dumps({k: v for k, v in os.environ.items() "
-                "if k.startswith('OI_LLM_')}))"
+                "import os, json\nprint(json.dumps({k: v for k, v in os.environ.items() if k.startswith('OI_LLM_')}))"
             )
         )
     finally:
@@ -187,15 +183,12 @@ def test_running_a_subagent_never_mutates_the_shared_environment(monkeypatch):
     monkeypatch.setattr(
         subagent_module,
         "build",
-        lambda model=None, **settings: SimpleNamespace(
-            chat=_chat, computer=SimpleNamespace(terminate=lambda: None)
-        ),
+        lambda model=None, **settings: SimpleNamespace(chat=_chat, computer=SimpleNamespace(terminate=lambda: None)),
     )
 
     assert subagent_module.run("anything") == "done"
     assert seen["during"] is None, (
-        f"run() raised the shared depth to {seen['during']!r} mid-flight; a "
-        f"sibling starting now would be refused"
+        f"run() raised the shared depth to {seen['during']!r} mid-flight; a sibling starting now would be refused"
     )
     assert _DEPTH_VARIABLE not in os.environ
 
@@ -228,8 +221,9 @@ def test_the_kernels_own_interpreter_is_pointed_at_the_session(monkeypatch):
     monkeypatch.setenv("OI_LLM_MODEL", "ollama/qwen3")
     monkeypatch.setenv("OI_LLM_API_BASE", "http://127.0.0.1:11434")
 
-    host = SimpleNamespace(model="gpt-4o-mini", api_base=None, api_key=None,
-                           api_version=None, context_window=None, max_tokens=None)
+    host = SimpleNamespace(
+        model="gpt-4o-mini", api_base=None, api_key=None, api_version=None, context_window=None, max_tokens=None
+    )
     apply_to(host)
 
     assert host.model == "ollama/qwen3"

@@ -35,9 +35,7 @@ class TestBlankLinesInsideStringsArePreserved(unittest.TestCase):
     """
 
     def _preprocess(self, code, *, active_line_detection):
-        with patch.dict(
-            os.environ, {"INTERPRETER_ACTIVE_LINE_DETECTION": active_line_detection}
-        ):
+        with patch.dict(os.environ, {"INTERPRETER_ACTIVE_LINE_DETECTION": active_line_detection}):
             return preprocess_python(code)
 
     def test_blank_line_in_triple_quoted_string_survives(self):
@@ -141,7 +139,7 @@ class TestBlankLinesOutsideStringsAreStillRemoved(unittest.TestCase):
 
     def test_blank_line_inside_function_body_does_not_break_the_body(self):
         """A blank line between statements keeps the rest of the function."""
-        source = 'def f():\n    x = 1\n\n    return x + 1\n'
+        source = "def f():\n    x = 1\n\n    return x + 1\n"
         out = self._preprocess(source)
         self.assertIn("return x + 1", out)
         self.assertNotIn("\n\n", out)
@@ -153,7 +151,7 @@ class TestBlankLinesOutsideStringsAreStillRemoved(unittest.TestCase):
         the fallback keeps the old behaviour rather than inventing a guess about
         which of its lines were meant to be string content.
         """
-        source = 'def f(:\n\n    pass\n'
+        source = "def f(:\n\n    pass\n"
         out = self._preprocess(source)
         self.assertNotIn("\n\n", out)
 

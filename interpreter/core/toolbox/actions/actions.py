@@ -131,8 +131,7 @@ class Actions:
         """
         if not name.isidentifier() or name.startswith("_"):
             raise ActionError(
-                f"'{name}' is not a usable action name. Use a Python identifier, "
-                f"such as 'deploy_staging'."
+                f"'{name}' is not a usable action name. Use a Python identifier, such as 'deploy_staging'."
             )
 
         try:

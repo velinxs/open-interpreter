@@ -121,6 +121,7 @@ def test_results_are_still_ordinary_dicts():
 
 # --- SearchResult -----------------------------------------------------------
 
+
 def test_search_repr_shows_at_most_five_results_and_a_count(capsys):
     """Only the first five hits are rendered, with the remainder summarised.
 
@@ -140,7 +141,10 @@ def test_search_repr_shows_the_domain_not_the_whole_url():
     that tells the model whether the hit is worth fetching.
     """
     result = SearchResult(
-        {"backend": "serper", "results": [{"title": "T", "url": "https://en.wikipedia.org/wiki/Foo?x=1", "snippet": ""}]}
+        {
+            "backend": "serper",
+            "results": [{"title": "T", "url": "https://en.wikipedia.org/wiki/Foo?x=1", "snippet": ""}],
+        }
     )
     text = repr(result)
     assert "en.wikipedia.org" in text
@@ -220,9 +224,7 @@ def test_links_only_extracts_http_urls():
     Handing the model a relative href it cannot fetch produces a failed fetch
     and a wasted turn.
     """
-    page = FetchResult(
-        {"content": "[ok](https://example.com) [rel](/local/path) [js](javascript:alert(1))"}
-    )
+    page = FetchResult({"content": "[ok](https://example.com) [rel](/local/path) [js](javascript:alert(1))"})
     assert page.links() == [("ok", "https://example.com")]
 
 
@@ -249,9 +251,7 @@ def test_multi_page_repr_lists_three_pages_and_counts_the_rest():
     page = FetchResult(
         {
             "backend": "tavily",
-            "results": [
-                {"title": f"T{i}", "url": f"https://e{i}.com/p", "content": "y" * 100} for i in range(7)
-            ],
+            "results": [{"title": f"T{i}", "url": f"https://e{i}.com/p", "content": "y" * 100} for i in range(7)],
         }
     )
     text = repr(page)
@@ -301,9 +301,7 @@ def test_structured_output_repr_lists_field_names_and_a_short_json_preview():
     Structured output can be a large nested object; the field list is what
     tells the model how to index into it without printing it.
     """
-    result = StructuredOutputResult(
-        {"backend": "linkup", "structured_output": {f"field{i}": i for i in range(20)}}
-    )
+    result = StructuredOutputResult({"backend": "linkup", "structured_output": {f"field{i}": i for i in range(20)}})
     text = repr(result)
     assert "field0" in text
     assert "field15" not in text.split("Keys inside")[1].split("\n")[0]
@@ -342,9 +340,7 @@ def test_api_key_errors_render_as_one_line_in_notebooks():
 
 def test_web_toolbox_errors_render_as_one_line_too():
     """Same treatment for the general web failures."""
-    assert WebToolboxError("no backends configured")._render_traceback_() == [
-        "WebToolboxError: no backends configured"
-    ]
+    assert WebToolboxError("no backends configured")._render_traceback_() == ["WebToolboxError: no backends configured"]
 
 
 # --- backend normalisation --------------------------------------------------

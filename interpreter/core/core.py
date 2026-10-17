@@ -46,6 +46,7 @@ def _launch_context():
     """
     return os.getcwd(), datetime.now()
 
+
 # After this many user messages, run one extra completion to rename the JSON once
 # (isolated `llm.run` message list — same pattern as `toolbox.ai.chat`, leaves `interpreter.messages` unchanged).
 # Slug segment before `__` + date (sanitized in code; navigator stays readable).
@@ -205,7 +206,6 @@ class OpenInterpreter:
         self.computer = self.toolbox
 
         # Skills
-
 
         # LLM
         self.llm = Llm(self) if llm is None else llm

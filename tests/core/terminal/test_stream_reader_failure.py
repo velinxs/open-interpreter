@@ -65,9 +65,7 @@ class TestStreamReaderSurvivesUnexpectedErrors(unittest.TestCase):
         trade a hang for the silent loss the abort was meant to stop.
         """
         reader = self._reader()
-        stream = _ExplodingStream(
-            ["kept line\n", "##end_of_execution##\n"], RuntimeError("boom")
-        )
+        stream = _ExplodingStream(["kept line\n", "##end_of_execution##\n"], RuntimeError("boom"))
 
         reader.handle_stream_output(stream, False)
 
@@ -121,9 +119,7 @@ class TestStreamReaderSurvivesUnexpectedErrors(unittest.TestCase):
             finally:
                 finished.set()
 
-        with mock.patch.object(
-            Bash, "detect_active_line", side_effect=RuntimeError("boom")
-        ):
+        with mock.patch.object(Bash, "detect_active_line", side_effect=RuntimeError("boom")):
             worker = threading.Thread(target=_drain, daemon=True)
             worker.start()
             try:

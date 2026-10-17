@@ -35,12 +35,12 @@ _TOOL_CALLING_INSTRUCTIONS = (
 _TOOL_CALLING_INSTRUCTIONS = (
     "Use only the tools in this request (`execute`, `edit`, and `view_image` when present). "
     "Read each tool's JSON schema for parameters and languages.\n\n"
-    "(What appears in the conversation log as {\"role\": \"assistant\", \"type\": \"code\", ...} "
-    "or {\"type\": \"edit\", ...} is our internal storage derived from your tool call; "
+    '(What appears in the conversation log as {"role": "assistant", "type": "code", ...} '
+    'or {"type": "edit", ...} is our internal storage derived from your tool call; '
     "you do not output that structure.) "
     "Code in message content is only shown and is not run. "
     "Do not call any other name as a tool (e.g. toolbox.web.answer). "
-    "Those are Python APIs: use them inside the \"code\" string you pass to execute."
+    'Those are Python APIs: use them inside the "code" string you pass to execute.'
 )
 
 # from .run_function_calling_llm import run_function_calling_llm
@@ -316,10 +316,7 @@ class Llm:
 
         # Cache-aware branch converts (incrementally) inside the trim step
         # below; every other branch converts here exactly as before.
-        cache_aware = (
-            bool(self.retention_ratio and self.context_window)
-            and not auxiliary_title_request
-        )
+        cache_aware = bool(self.retention_ratio and self.context_window) and not auxiliary_title_request
         if not cache_aware:
             # Convert to OpenAI messages format
             messages = convert_to_openai_messages(
@@ -338,9 +335,7 @@ class Llm:
             # replaces it from converted output (or raises the real conversion
             # error), so this seed only matters if messages is empty.
             raw_head = messages[0]["content"]
-            system_message = (
-                raw_head.strip() if isinstance(raw_head, str) else raw_head
-            )
+            system_message = raw_head.strip() if isinstance(raw_head, str) else raw_head
 
         # Trim messages
         pre_trim_messages = messages
@@ -471,9 +466,7 @@ Continuing...
             # across a %reset, and so the caller's own dict is never mutated.
             headers = dict(self.extra_headers or {})
             if self._is_opencode_go:
-                headers.setdefault(
-                    "x-opencode-session", self.interpreter.conversation_id
-                )
+                headers.setdefault("x-opencode-session", self.interpreter.conversation_id)
             params["extra_headers"] = headers
         if self.max_tokens:
             params["max_tokens"] = self.max_tokens

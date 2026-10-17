@@ -21,12 +21,12 @@ from interpreter.core.toolbox.display.ground import GroundingUnavailable, _coord
 
 def _toolbox(supports_vision=True):
     llm = SimpleNamespace(
-        model="ollama_chat/qwen3", api_base="http://127.0.0.1:11435",
-        api_key=None, supports_vision=supports_vision,
+        model="ollama_chat/qwen3",
+        api_base="http://127.0.0.1:11435",
+        api_key=None,
+        supports_vision=supports_vision,
     )
-    return SimpleNamespace(
-        interpreter=SimpleNamespace(llm=llm), debug=False, offline=True
-    )
+    return SimpleNamespace(interpreter=SimpleNamespace(llm=llm), debug=False, offline=True)
 
 
 # --- turning a reply into coordinates ---------------------------------------

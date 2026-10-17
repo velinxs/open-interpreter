@@ -60,9 +60,7 @@ _REDIRECT_OPERATORS = {
     "powershell": re.compile(r"(?:[1-6*]?>{1,2})"),
 }
 _COMMENT_BOUNDARY_CHARS = " \t\r\n;&|(){}=,"
-_BASH_HEREDOC_RE = re.compile(
-    r"<<-?[ \t]*(?:\"([^\n\"]*)\"|'([^'\n]*)'|([^\s;&|(){}<>]+))"
-)
+_BASH_HEREDOC_RE = re.compile(r"<<-?[ \t]*(?:\"([^\n\"]*)\"|'([^'\n]*)'|([^\s;&|(){}<>]+))")
 _NULL_TARGET_END_CHARS = " \t\r\n;&|(){}<>"
 
 
@@ -170,10 +168,7 @@ def replace_null_redirect_target(code, null_device, powershell=False):
                     if (
                         end is not None
                         and code[i + 1 : end - 1].lower() == "nul"
-                        and (
-                            end == n
-                            or code[end] in _NULL_TARGET_END_CHARS
-                        )
+                        and (end == n or code[end] in _NULL_TARGET_END_CHARS)
                     ):
                         output.append(null_device)
                         changed = True
@@ -185,10 +180,7 @@ def replace_null_redirect_target(code, null_device, powershell=False):
                     output.append(code[i:end])
                     i = end
                     continue
-                if (
-                    code[i : i + 3].lower() == "nul"
-                    and (i + 3 == n or code[i + 3] in _NULL_TARGET_END_CHARS)
-                ):
+                if code[i : i + 3].lower() == "nul" and (i + 3 == n or code[i + 3] in _NULL_TARGET_END_CHARS):
                     output.append(null_device)
                     changed = True
                     i += 3

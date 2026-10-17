@@ -215,7 +215,7 @@ def test_ollama_pings_the_model_and_restores_the_token_limits(interpreter, monke
 
 
 def test_selecting_a_download_entry_pulls_the_model(interpreter, monkeypatch):
-    """"↓ Download phi3" runs `ollama pull phi3` rather than setting a bogus model name.
+    """ "↓ Download phi3" runs `ollama pull phi3` rather than setting a bogus model name.
 
     The download entries share the menu with installed models. Treating one as
     a model id would set the model to "↓ Download phi3".
@@ -317,7 +317,9 @@ def test_an_unrelated_exception_from_the_ping_is_not_swallowed(interpreter, answ
     "ram_gb,max_tokens,context_window",
     [(32, 1200, 8000), (8, 1000, 3000)],
 )
-def test_token_limits_are_chosen_from_available_ram(interpreter, answers, monkeypatch, ram_gb, max_tokens, context_window):
+def test_token_limits_are_chosen_from_available_ram(
+    interpreter, answers, monkeypatch, ram_gb, max_tokens, context_window
+):
     """A local model's context window is sized from the machine, not the model.
 
     Local backends will happily accept a context larger than they can hold and

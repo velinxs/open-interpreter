@@ -92,7 +92,7 @@ def test_cancelling_the_search_prompt_exits_without_touching_the_interpreter(con
 
 
 def test_new_conversation_entry_starts_a_chat_without_loading_history(conversations_dir, answers):
-    """"New Conversation" is a menu entry, not a filename, and must not be looked up.
+    """ "New Conversation" is a menu entry, not a filename, and must not be looked up.
 
     It shares the list with real files; if it fell through to the filename
     lookup it would raise KeyError instead of starting a session.
@@ -108,7 +108,7 @@ def test_new_conversation_entry_starts_a_chat_without_loading_history(conversati
 
 
 def test_open_folder_entry_opens_the_directory_and_starts_nothing(conversations_dir, answers, monkeypatch):
-    """"Open Folder" shells out and returns; it must not also start a chat."""
+    """ "Open Folder" shells out and returns; it must not also start a chat."""
     opened = []
     monkeypatch.setattr(cn, "open_folder", lambda path: opened.append(path))
     answers.append({"search": ""})

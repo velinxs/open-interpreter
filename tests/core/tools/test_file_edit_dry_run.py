@@ -180,9 +180,7 @@ def test_patch_line_endings_are_normalised_before_preview(text_file):
     carriage returns as part of the context and rejects the hunk, so the
     normalisation is what stops a valid edit looking broken.
     """
-    diff = (
-        f"--- {text_file.name}\r\n+++ {text_file.name}\r\n@@ -1,3 +1,3 @@\r\n alpha\r\n-beta\r\n+BETA\r\n gamma\r\n"
-    )
+    diff = f"--- {text_file.name}\r\n+++ {text_file.name}\r\n@@ -1,3 +1,3 @@\r\n alpha\r\n-beta\r\n+BETA\r\n gamma\r\n"
     preview = dry_run_edit("patch", diff, str(text_file))
     assert preview["ok"] is True
 
@@ -214,7 +212,7 @@ def test_run_edit_requires_string_code(tmp_path):
 
 
 def test_run_edit_is_case_and_whitespace_insensitive_about_the_language(tmp_path):
-    """" WRITE " is the write language.
+    """ " WRITE " is the write language.
 
     The value comes straight from model-generated JSON, which is not reliably
     lowercase or trimmed.

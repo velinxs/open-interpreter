@@ -245,6 +245,8 @@ def test_a_tool_call_with_no_function_name_is_answered_not_dropped(offline_inter
     assert tool_errors, offline_interpreter.messages
     assert "function name is missing" in tool_errors[0]["content"]
     assert tool_errors[0]["tool_call_id"] == "call_1"
+
+
 # --- what the model, and the user, are shown afterwards ---------------------
 
 
@@ -316,6 +318,8 @@ def test_a_nameless_call_is_not_shown_to_the_model_as_an_execute_call(offline_in
     assistant_calls = [m for m in outgoing if m.get("tool_calls")]
     assert len(assistant_calls) == 1, outgoing
     assert assistant_calls[0]["tool_calls"][0]["function"]["name"] == ""
+
+
 def test_a_malformed_call_reaches_the_terminal_and_still_reaches_the_model(offline_interpreter, capsys):
     """The user sees one line about the bad call; the model still gets the tool response.
 
@@ -366,9 +370,7 @@ def test_concatenated_argument_objects_are_named_as_the_mistake(offline_interpre
     install_fake_llm(offline_interpreter, [])
     offline_interpreter.llm.supports_functions = True
     raw = '{"language": "bash", "code": "pwd"}{"language": "python", "code": "print(1)"}'
-    completions = ScriptedStreams(
-        [_raw_tool_call_stream("execute", raw), _text_stream("Sending one call.")]
-    )
+    completions = ScriptedStreams([_raw_tool_call_stream("execute", raw), _text_stream("Sending one call.")])
     offline_interpreter.llm.completions = completions
 
     offline_interpreter.chat("run some checks", display=False, stream=False)
@@ -396,9 +398,7 @@ def test_the_unparsed_arguments_wrapper_is_not_read_back_as_fields(offline_inter
     install_fake_llm(offline_interpreter, [])
     offline_interpreter.llm.supports_functions = True
     wrapped = json.dumps({"_unparsed_arguments": "not json at all {{{"})
-    completions = ScriptedStreams(
-        [_raw_tool_call_stream("execute", wrapped), _text_stream("Understood.")]
-    )
+    completions = ScriptedStreams([_raw_tool_call_stream("execute", wrapped), _text_stream("Understood.")])
     offline_interpreter.llm.completions = completions
 
     offline_interpreter.chat("go", display=False, stream=False)
@@ -423,9 +423,7 @@ def test_a_wrapper_around_valid_arguments_is_corrected_not_executed(offline_inte
     install_fake_llm(offline_interpreter, [])
     offline_interpreter.llm.supports_functions = True
     wrapped = json.dumps({"_unparsed_arguments": '{"language": "python", "code": "print(7*7)"}'})
-    completions = ScriptedStreams(
-        [_raw_tool_call_stream("execute", wrapped), _text_stream("Resending directly.")]
-    )
+    completions = ScriptedStreams([_raw_tool_call_stream("execute", wrapped), _text_stream("Resending directly.")])
     offline_interpreter.llm.completions = completions
 
     offline_interpreter.chat("go", display=False, stream=False)
@@ -518,9 +516,9 @@ def test_index_less_parallel_calls_are_not_blamed_on_the_model(offline_interpret
 
     tool_messages = [m for m in offline_interpreter.messages if m.get("role") == "tool"]
     assert not any("concatenated" in m["content"] for m in tool_messages), tool_messages
-    assert any(
-        m.get("type") == "console" and "42" in str(m.get("content")) for m in offline_interpreter.messages
-    ), "the first call did not run"
+    assert any(m.get("type") == "console" and "42" in str(m.get("content")) for m in offline_interpreter.messages), (
+        "the first call did not run"
+    )
 
 
 def test_a_second_tool_call_is_answered_rather_than_dropped(offline_interpreter):
@@ -548,9 +546,9 @@ def test_a_second_tool_call_is_answered_rather_than_dropped(offline_interpreter)
 
     offline_interpreter.chat("go", display=False, stream=False)
 
-    assert any(
-        m.get("type") == "console" and "FIRST" in str(m.get("content")) for m in offline_interpreter.messages
-    ), "the first call did not run"
+    assert any(m.get("type") == "console" and "FIRST" in str(m.get("content")) for m in offline_interpreter.messages), (
+        "the first call did not run"
+    )
     assert not any(
         m.get("type") == "console" and "SECOND" in str(m.get("content")) for m in offline_interpreter.messages
     ), "two blocks ran in one turn"

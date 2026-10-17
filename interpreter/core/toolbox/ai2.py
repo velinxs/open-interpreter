@@ -118,12 +118,7 @@ class Ai2:
         # the session (published into the kernel's environment at startup),
         # then a last-resort default for a bare import outside a session.
         # A caller that wants a different model per job still passes model=.
-        self._default_model = (
-            default_model
-            or os.getenv("AI2_MODEL")
-            or os.getenv("OI_LLM_MODEL")
-            or "gpt-4.1-nano"
-        )
+        self._default_model = default_model or os.getenv("AI2_MODEL") or os.getenv("OI_LLM_MODEL") or "gpt-4.1-nano"
         # The session's endpoint travels with its model; without it a local
         # model name would be sent to the provider's default host.
         self._default_api_base = os.getenv("OI_LLM_API_BASE") if not default_model else None

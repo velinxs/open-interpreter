@@ -195,13 +195,13 @@ def test_a_minted_id_for_a_mistral_model_still_matches_the_required_format_under
 
 
 def test_an_empty_string_id_is_treated_as_no_id_and_gets_one_minted(llm):
-    """"" is not a usable tool_call_id; it is treated as absent and a real id is minted instead."""
+    """ "" is not a usable tool_call_id; it is treated as absent and a real id is minted instead."""
     chunks = _dispatch(llm, "execute", '{"language": "python"}', tool_call_id="")
     assert _tool_response(chunks)["tool_call_id"]
 
 
 def test_a_whitespace_only_id_is_treated_as_no_id_and_gets_one_minted(llm):
-    """"   " is not a usable tool_call_id either.
+    """ "   " is not a usable tool_call_id either.
 
     A bare truthiness check would accept it, and sending it as a
     tool_call_id is exactly the blank-id pairing failure the id
@@ -365,6 +365,8 @@ def test_an_unknown_function_is_explained_rather_than_ignored(llm):
     assert "Unsupported function call" in response["content"]
     assert "execute" in response["content"]
     assert "toolbox.web.search" in response["content"]
+
+
 # --- the record of the call the model actually made -------------------------
 
 

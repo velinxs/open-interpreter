@@ -195,9 +195,7 @@ def _fast_path_eligible(cache, stored, derived_bare, system_head, settings_key, 
     """All gates for reusing the stashed conversion. Returns the covered
     length on success, 0 when a full rebuild is required."""
     template = getattr(interp, "user_message_template", "{content}")
-    if template != "{content}" and not getattr(
-        interp, "always_apply_user_message_template", False
-    ):
+    if template != "{content}" and not getattr(interp, "always_apply_user_message_template", False):
         # A custom template applies to the last user message only, so a
         # covered user that was last at stash time converts differently once
         # a newer prompt arrives. (The default template is the identity, and
@@ -230,9 +228,7 @@ def _fast_path_eligible(cache, stored, derived_bare, system_head, settings_key, 
     if not _is_pairing_clean(stored, covered):
         return 0
     suffix = stored[covered:]
-    if _suffix_has_reasoning(suffix) and (
-        not cache.converted or cache.converted[-1].get("role") == "assistant"
-    ):
+    if _suffix_has_reasoning(suffix) and (not cache.converted or cache.converted[-1].get("role") == "assistant"):
         # A full rebuild would backfill this reasoning into the stashed tail.
         return 0
     return covered
@@ -266,11 +262,7 @@ def cached_convert_and_trim(llm, derived, token_limit, model, use_cache=True):
     """
     raw_system_head = derived[0]["content"]
     # Mirror convert_to_openai_messages: string content is stripped.
-    system_head = (
-        raw_system_head.strip()
-        if isinstance(raw_system_head, str)
-        else raw_system_head
-    )
+    system_head = raw_system_head.strip() if isinstance(raw_system_head, str) else raw_system_head
     derived_bare = derived[1:]
     stored = llm.interpreter.messages
     ratio = llm.retention_ratio
@@ -279,12 +271,7 @@ def cached_convert_and_trim(llm, derived, token_limit, model, use_cache=True):
         cache = ConversionCache()
         llm._conversion_cache = cache
 
-    if (
-        use_cache
-        and llm.supports_functions
-        and isinstance(stored, list)
-        and _last_user_has_sent_at(stored)
-    ):
+    if use_cache and llm.supports_functions and isinstance(stored, list) and _last_user_has_sent_at(stored):
         try:
             settings_key = _conversion_settings_key(llm)
             covered = _fast_path_eligible(
@@ -301,12 +288,8 @@ def cached_convert_and_trim(llm, derived, token_limit, model, use_cache=True):
             try:
                 suffix = stored[covered:]
                 if suffix:
-                    suffix_converted, end_state = _convert_suffix(
-                        llm, suffix, covered, cache.seed
-                    )
-                    suffix_costs = [
-                        _count_message_tokens([m], model) for m in suffix_converted
-                    ]
+                    suffix_converted, end_state = _convert_suffix(llm, suffix, covered, cache.seed)
+                    suffix_costs = [_count_message_tokens([m], model) for m in suffix_converted]
                 else:
                     suffix_converted, suffix_costs = [], []
                     end_state = dict(cache.seed)
@@ -386,9 +369,7 @@ def cached_convert_and_trim(llm, derived, token_limit, model, use_cache=True):
     )
     if use_cache and llm.supports_functions and isinstance(stored, list):
         try:
-            clean_map = len(derived) - 1 == len(stored) and all(
-                derived[1 + i] is stored[i] for i in range(len(stored))
-            )
+            clean_map = len(derived) - 1 == len(stored) and all(derived[1 + i] is stored[i] for i in range(len(stored)))
             if clean_map and _last_user_has_sent_at(stored):
                 cache.store_full(
                     [dict(m) for m in stored],

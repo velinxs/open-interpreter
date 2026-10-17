@@ -113,7 +113,7 @@ def test_prompt_choice_ignores_leaked_report_bytes(tty, monkeypatch):
 
 
 def test_prompt_choice_rejects_spelled_out_answer(tty, monkeypatch):
-    """"yes" is not an answer: it re-prompts instead of counting as "y".
+    """ "yes" is not an answer: it re-prompts instead of counting as "y".
 
     Truncating to the first letter would let a multi-key or pasted answer act
     as a deliberate choice, so the prompt demands a single keypress.

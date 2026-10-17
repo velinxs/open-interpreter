@@ -295,7 +295,6 @@ ip.display_formatter.active_types = ['text/markdown', 'text/plain', 'image/png',
         #     # Non blocking
         #     functions = {}
 
-
         #     if not os.path.exists(skill_library_path):
         #         os.makedirs(skill_library_path)
 

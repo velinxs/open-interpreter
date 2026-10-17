@@ -97,9 +97,7 @@ def test_nested_usage_models_are_flattened_to_plain_data():
 
 def test_the_three_headline_numbers_are_shown():
     """Prompt, completion, and total tokens each get their own line."""
-    rendered = format_last_usage_markdown(
-        {"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120}
-    )
+    rendered = format_last_usage_markdown({"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120})
     assert "**Prompt tokens:** 100" in rendered
     assert "**Completion tokens:** 20" in rendered
     assert "**Total tokens:** 120" in rendered

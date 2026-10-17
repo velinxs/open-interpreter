@@ -44,9 +44,7 @@ def _environment_block(interpreter):
     if cwd is not None:
         lines.append(f"  Open Interpreter started in: {cwd}")
     if started is not None:
-        lines.append(
-            f"  Open Interpreter started at: {started.strftime('%Y-%m-%d %H:%M')}"
-        )
+        lines.append(f"  Open Interpreter started at: {started.strftime('%Y-%m-%d %H:%M')}")
     if not lines:
         return ""
     return (

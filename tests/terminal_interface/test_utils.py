@@ -129,7 +129,7 @@ def test_a_patch_is_highlighted_as_a_diff_whatever_it_patches():
 
 
 def test_token_counting_strips_a_provider_prefix():
-    """"openai/gpt-4o" is counted with gpt-4o's tokenizer.
+    """ "openai/gpt-4o" is counted with gpt-4o's tokenizer.
 
     tiktoken does not know prefixed names. Without the strip every prefixed
     model would fall into the exception handler and report zero tokens, making

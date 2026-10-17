@@ -8,7 +8,11 @@ def _point_module_path():
 
     return os.path.join(
         os.path.dirname(interpreter.__file__),
-        "core", "toolbox", "display", "point", "point.py",
+        "core",
+        "toolbox",
+        "display",
+        "point",
+        "point.py",
     )
 
 
@@ -67,10 +71,7 @@ class TestPointModelPathIsDefined(unittest.TestCase):
         for node in tree.body:
             if not isinstance(node, ast.Assign):
                 continue
-            if not any(
-                isinstance(t, ast.Name) and t.id == "model_path"
-                for t in node.targets
-            ):
+            if not any(isinstance(t, ast.Name) and t.id == "model_path" for t in node.targets):
                 continue
             names = {n.id for n in ast.walk(node.value) if isinstance(n, ast.Name)}
             self.assertIn(

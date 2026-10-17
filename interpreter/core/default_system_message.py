@@ -48,7 +48,7 @@ def system_information(interpreter):
     # a venv that was never activated, so `python3` is the system one and the import
     # is `interpreter`, not the package name on PyPI. Both guesses failed in practice.
     lines.append(
-        "- Sub-agents: `from interpreter import subagent` then `subagent.run(\"task\")` "
+        '- Sub-agents: `from interpreter import subagent` then `subagent.run("task")` '
         "— inherits this session's model; each owns a kernel, so run them in parallel "
         "(ThreadPoolExecutor)"
     )

@@ -82,9 +82,7 @@ class CwdTrackingMixin:
     # kept whole (a failed cd would have run the fallback). Any other trailing
     # content (`cd X | wc`, `cd X > f`) leaves the line unparseable and it is
     # left untouched (and never advances the tracked cwd).
-    _CD_TARGET_RE = re.compile(
-        r"^((?:\\.|[^\s\\;|&])+)(?:\s*((?:&&|\|\||;|&).*))?$"
-    )
+    _CD_TARGET_RE = re.compile(r"^((?:\\.|[^\s\\;|&])+)(?:\s*((?:&&|\|\||;|&).*))?$")
 
     def _cwd_marker_echo(self):
         raise NotImplementedError
@@ -188,10 +186,7 @@ class CwdTrackingMixin:
         )
 
     def _null_rewrite_notice(self):
-        return (
-            f"Replaced `nul` with `{self.null_device}` "
-            "(a bare `nul` redirect would create a file here)."
-        )
+        return f"Replaced `nul` with `{self.null_device}` (a bare `nul` redirect would create a file here)."
 
     def _postprocess_line(self, line):
         return line
@@ -209,9 +204,7 @@ class CwdTrackingMixin:
         ``cd`` commands: pass False when peeking (respond), True during the
         actual run (preprocess_code) so the tracked cwd follows the shell.
         """
-        if not getattr(
-            getattr(self, "interpreter", None), "strip_redundant_code", True
-        ):
+        if not getattr(getattr(self, "interpreter", None), "strip_redundant_code", True):
             return code
         removed = []
         self._pending_notice = None
@@ -247,9 +240,7 @@ class CwdTrackingMixin:
                 kept_lines.append(line)
         if removed:
             distinct = list(dict.fromkeys(removed))[:4]
-            self._pending_notice = (
-                f"Removed redundant cd {', '.join(distinct)} (already in that directory)."
-            )
+            self._pending_notice = f"Removed redundant cd {', '.join(distinct)} (already in that directory)."
         return "\n".join(kept_lines)
 
     def _parse_cd(self, line):

@@ -431,7 +431,6 @@ def local_setup(interpreter, provider=None, model=None):
             else:
                 model_path = os.path.join(models_dir, answers["model"])
 
-
         if model_path:
             # `process` was only ever unbound when Popen itself raised (a
             # missing +x bit, or the shell command not found), so the old
@@ -470,7 +469,9 @@ def local_setup(interpreter, provider=None, model=None):
             # downloaded model" used to be advised here regardless — useless in
             # the disk-full case, since no model was ever downloaded to pick.
             print("\nNo local model is available, so the llamafile server cannot start.\n")
-            print("Free up disk space or fix the download problem reported above, then run `interpreter --local` again.")
+            print(
+                "Free up disk space or fix the download problem reported above, then run `interpreter --local` again."
+            )
             sys.exit(1)
 
         # Set flags for Llamafile to work with interpreter

@@ -204,9 +204,7 @@ def fixed_litellm_completions(**params):
     # internal transforms). Each line is one request, tagged with a request_id
     # that the response dump repeats so the two files can be read as pairs.
     # The flag is popped unconditionally so it never reaches the provider.
-    debug_dump = bool(params.pop("_oi_log_requests", False)) or (
-        os.environ.get("OI_LOG_LITELLM_REQUESTS") == "1"
-    )
+    debug_dump = bool(params.pop("_oi_log_requests", False)) or (os.environ.get("OI_LOG_LITELLM_REQUESTS") == "1")
     debug_request_id = str(uuid.uuid4()) if debug_dump else None
 
     if debug_dump:

@@ -87,9 +87,7 @@ def locate(llm, screenshot, description):
                 "content": [
                     {
                         "type": "text",
-                        "text": _PROMPT.format(
-                            width=width, height=height, description=description
-                        ),
+                        "text": _PROMPT.format(width=width, height=height, description=description),
                     },
                     {
                         "type": "image_url",

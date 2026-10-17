@@ -112,10 +112,7 @@ def test_mistral_ids_still_match_the_required_format_after_a_collision_bump():
     ]
     out = process_messages(messages, model=model)
     newly_minted_ids = [
-        call["id"]
-        for message in out
-        for call in (message.get("tool_calls") or [])
-        if call["id"] != minted
+        call["id"] for message in out for call in (message.get("tool_calls") or []) if call["id"] != minted
     ]
 
     assert newly_minted_ids

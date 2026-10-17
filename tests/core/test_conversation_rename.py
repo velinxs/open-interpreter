@@ -133,10 +133,7 @@ def test_conversation_title_retries_an_echo_then_gives_up(monkeypatch):
         seen.append([m["content"] for m in messages])
         yield {
             "type": "message",
-            "content": (
-                "Your crest-factor statement is correct and it's the cleanest "
-                "summary of the whole chain"
-            ),
+            "content": ("Your crest-factor statement is correct and it's the cleanest summary of the whole chain"),
         }
 
     monkeypatch.setattr(oi.llm, "run", always_echo)

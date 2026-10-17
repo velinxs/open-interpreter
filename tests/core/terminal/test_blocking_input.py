@@ -34,9 +34,7 @@ from interpreter.core.terminal.languages.jupyter_language import (
 from interpreter.core.terminal.languages.subprocess_language import SubprocessLanguage
 
 _BASH = shutil.which("bash")
-needs_bash = pytest.mark.skipif(
-    not _BASH, reason="bash not installed"
-)
+needs_bash = pytest.mark.skipif(not _BASH, reason="bash not installed")
 
 
 # --------------------------------------------------------------------------
@@ -64,10 +62,7 @@ def test_wrapper_is_syntactically_valid_for_single_and_multi_line():
     """
     bash = Bash()
     assert bash._wrap_command_for_null_stdin("echo hi") == "{ echo hi; } < /dev/null"
-    assert (
-        bash._wrap_command_for_null_stdin("echo one\necho two\n")
-        == "{ echo one\necho two\n} < /dev/null"
-    )
+    assert bash._wrap_command_for_null_stdin("echo one\necho two\n") == "{ echo one\necho two\n} < /dev/null"
 
 
 def _run_bash(code, timeout=15):
@@ -113,14 +108,14 @@ def _run_bash(code, timeout=15):
 @pytest.mark.parametrize(
     "code",
     [
-        'echo hello',
-        'echo abcdef | grep -o cd',          # pipe supplies its own stdin
-        "awk 'BEGIN { print 1 }'",           # braces in a quoted program
-        'find /etc -maxdepth 0 -name hostname',
-        'echo one\necho two',                # multi-line
-        'echo $(echo nested)',              # command substitution
-        'X=5; echo "X=$X"',                 # semicolon-joined
-        'echo "{"',                         # unbalanced brace, quoted
+        "echo hello",
+        "echo abcdef | grep -o cd",  # pipe supplies its own stdin
+        "awk 'BEGIN { print 1 }'",  # braces in a quoted program
+        "find /etc -maxdepth 0 -name hostname",
+        "echo one\necho two",  # multi-line
+        "echo $(echo nested)",  # command substitution
+        'X=5; echo "X=$X"',  # semicolon-joined
+        'echo "{"',  # unbalanced brace, quoted
     ],
 )
 def test_real_commands_still_work_wrapped(code):
@@ -142,8 +137,8 @@ def test_command_channel_survives_the_redirect():
     than applied to the subprocess stdin, which is how commands are delivered.
     Redirecting at Popen would end the session after one command.
     """
-    assert _run_bash('cat') is not None       # would block without the redirect
-    assert "CHANNEL_ALIVE" in _run_bash('echo CHANNEL_ALIVE')
+    assert _run_bash("cat") is not None  # would block without the redirect
+    assert "CHANNEL_ALIVE" in _run_bash("echo CHANNEL_ALIVE")
 
 
 @needs_bash
@@ -167,12 +162,12 @@ def test_interactive_command_returns_instead_of_hanging():
         ('x = input("a: ")', "input"),
         ("y = raw_input()", "raw_input"),
         ("z = builtins.input()", "builtins.input"),
-        ("def g():\n    return input('x')", "input"),   # nested still counts
-        ("input = 5\nprint(input)", None),             # a variable, not a call
+        ("def g():\n    return input('x')", "input"),  # nested still counts
+        ("input = 5\nprint(input)", None),  # a variable, not a call
         ("# do not use input() here\nprint(1)", None),  # a comment
-        ("f = obj.input(1)", None),                    # some other object's
+        ("f = obj.input(1)", None),  # some other object's
         ('print("fine")', None),
-        ("def f(:", None),                              # unparseable: pass through
+        ("def f(:", None),  # unparseable: pass through
     ],
 )
 def test_detector_distinguishes_calls_from_lookalikes(source, expected):
@@ -225,6 +220,7 @@ def test_null_device_path_matches_the_platform():
     bash = Bash()
     assert os.path.exists(bash.null_device_path), bash.null_device_path
 
+
 @needs_bash
 def test_run_rejects_input_before_the_kernel_is_touched():
     """The guard must be wired into run(), not merely present as a helper.
@@ -247,7 +243,8 @@ def test_run_rejects_input_before_the_kernel_is_touched():
     def _go():
         try:
             for chunk in interpreter.terminal.run(
-                "python", 'name = input("project name: ")\nprint(name)',
+                "python",
+                'name = input("project name: ")\nprint(name)',
                 display=False,
             ):
                 collected.append(str(chunk.get("content", "")))
@@ -287,9 +284,7 @@ def test_kernel_still_usable_after_a_rejected_cell():
 
         def _go():
             try:
-                for chunk in interpreter.terminal.run(
-                    "python", code, display=False
-                ):
+                for chunk in interpreter.terminal.run("python", code, display=False):
                     out.append(str(chunk.get("content", "")))
             finally:
                 finished.set()

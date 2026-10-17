@@ -55,7 +55,9 @@ def answer(monkeypatch):
         return state.response
 
     monkeypatch.setattr(approval, "prompt_choice", _prompt_choice)
-    monkeypatch.setattr(approval, "_prompt_or_skip", lambda prompt, choices, skipped="n": _prompt_choice(prompt, choices))
+    monkeypatch.setattr(
+        approval, "_prompt_or_skip", lambda prompt, choices, skipped="n": _prompt_choice(prompt, choices)
+    )
     return state
 
 
@@ -134,7 +136,7 @@ def test_a_stripped_boilerplate_notice_is_shown_in_both_paths(interpreter, answe
 
 
 def test_yes_builds_a_block_carrying_the_code(interpreter, answer):
-    """"y" hands back a CodeBlock primed with the language and the code.
+    """ "y" hands back a CodeBlock primed with the language and the code.
 
     respond() renders into whatever block comes back. A block without the
     code shows an empty panel while the code runs underneath it.
@@ -160,7 +162,7 @@ def test_highlighting_off_leaves_the_block_empty(interpreter, answer):
 
 
 def test_no_ends_the_turn_and_tells_the_model_why(interpreter, answer):
-    """"n" stops the turn and leaves a note the model can read.
+    """ "n" stops the turn and leaves a note the model can read.
 
     Without the note the model sees its code produce no output and retries the
     identical block. The note is marked source="terminal" so %undo does not
@@ -216,7 +218,7 @@ def test_allowlist_mode_offers_the_extra_add_option(interpreter, answer):
 
 
 def test_add_to_allowlist_persists_an_exact_rule_and_runs_the_code(interpreter, answer, capsys):
-    """"a" writes a rule and then runs this invocation too.
+    """ "a" writes a rule and then runs this invocation too.
 
     Saying "always allow this" and then still declining it would be absurd,
     and the rule must be exact-match: a pattern rule from a single keystroke
@@ -275,7 +277,7 @@ def test_safe_mode_off_never_scans(interpreter, answer, monkeypatch):
 
 
 def test_editing_replaces_the_code_and_tells_the_model_what_changed(interpreter, answer, monkeypatch, tmp_path):
-    """"e" opens an editor, runs what comes back, and records the original.
+    """ "e" opens an editor, runs what comes back, and records the original.
 
     The message history must end up holding the edited code (that is what
     ran) plus a terminal-sourced note containing the original, or the model's
@@ -372,7 +374,7 @@ def test_declining_an_edit_ends_the_turn_with_its_own_notice(interpreter, answer
 
 
 def test_accepting_an_edit_returns_a_block_labelled_with_the_target(interpreter, answer):
-    """"y" builds a block carrying the edit's language and target path.
+    """ "y" builds a block carrying the edit's language and target path.
 
     The target is what tells the user which file is about to change; a block
     without it shows an anonymous diff.

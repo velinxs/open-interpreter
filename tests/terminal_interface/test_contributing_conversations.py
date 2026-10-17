@@ -286,7 +286,7 @@ def test_upload_failures_are_swallowed(monkeypatch, _no_network):
 
 
 def test_opting_in_for_the_future_writes_the_profile_not_just_the_cache(monkeypatch):
-    """"Contribute future conversations" is persisted to the profile, not the cache.
+    """ "Contribute future conversations" is persisted to the profile, not the cache.
 
     The cache only remembers that the question was asked. If the answer were
     stored there too, the setting would be lost the moment the cache file was

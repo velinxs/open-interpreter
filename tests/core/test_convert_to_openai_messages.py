@@ -205,6 +205,8 @@ def test_user_message_boundary_resets_pending_reasoning():
     function_calls = [m for m in out if "function_call" in m]
     assert len(function_calls) == 1
     assert "reasoning_content" not in function_calls[0]
+
+
 def test_a_tool_call_record_is_rebuilt_as_a_real_assistant_tool_call():
     """The recorded call goes out as assistant+tool_calls, still showing what was sent.
 

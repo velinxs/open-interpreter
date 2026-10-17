@@ -88,11 +88,7 @@ def _looks_like_unified_diff(output):
     lines changed.
     """
     lines = output.splitlines()
-    return (
-        len(lines) >= 2
-        and lines[0].startswith("--- ")
-        and any(line.startswith("@@ ") for line in lines)
-    )
+    return len(lines) >= 2 and lines[0].startswith("--- ") and any(line.startswith("@@ ") for line in lines)
 
 
 def _display_edit_dry_run(output, *, interpreter, target, edit_language, ok=True):
@@ -102,11 +98,7 @@ def _display_edit_dry_run(output, *, interpreter, target, edit_language, ok=True
     if ok and _looks_like_unified_diff(output):
         fence_lang = "diff"
     else:
-        fence_lang = (
-            syntax_lang_for_dry_run(target, edit_language)
-            if ok
-            else "text"
-        )
+        fence_lang = syntax_lang_for_dry_run(target, edit_language) if ok else "text"
     fence = "````" if "```" in output else "```"
     block = f"{fence}{fence_lang}\n{output}\n{fence}"
     if interpreter.plain_text_display:

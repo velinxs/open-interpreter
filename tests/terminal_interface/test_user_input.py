@@ -123,7 +123,7 @@ def test_declining_the_upload_sends_the_text_only(monkeypatch, _no_magic, image)
 
 
 def test_accepting_the_upload_splits_the_text_from_the_image(monkeypatch, _no_magic, image):
-    """"y" queues the typed text as a message and hands the image to chat() separately.
+    """ "y" queues the typed text as a message and hands the image to chat() separately.
 
     chat() only processes the object it is given, so the text has to be pushed
     into history first or the question that came with the picture is lost.
@@ -192,7 +192,7 @@ def test_a_large_image_is_offered_full_or_resized(monkeypatch, _no_magic, tmp_pa
 
 
 def test_full_resolution_is_uploaded_without_the_shrink_flag(monkeypatch, _no_magic, tmp_path):
-    """"f" uploads the large image untouched.
+    """ "f" uploads the large image untouched.
 
     Resizing an image the user explicitly asked to send at full resolution
     would destroy the detail they wanted the model to look at.

@@ -151,7 +151,5 @@ def test_block_survives_a_path_containing_template_braces():
     interpreter._launch_cwd = "/tmp/{{not_a_template}}/dir"
     message = assemble_system_message(interpreter)
 
-    assert interpreter._launch_cwd in message, (
-        "the launch path must round-trip verbatim, braces included"
-    )
+    assert interpreter._launch_cwd in message, "the launch path must round-trip verbatim, braces included"
     assert "------------------" not in message

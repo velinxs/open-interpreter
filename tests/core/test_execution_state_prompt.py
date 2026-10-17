@@ -15,27 +15,21 @@ from interpreter.core.terminal.languages.python import Python
 class TestExecutionStatePrompt(unittest.TestCase):
     def test_tool_schema_requires_incremental_persistent_calls(self):
         """Verify the current execute schema tells models to continue live sessions rather than restart them."""
-        code_description = tool_schema["function"]["parameters"]["properties"]["code"][
-            "description"
-        ]
+        code_description = tool_schema["function"]["parameters"]["properties"]["code"]["description"]
         self.assertIn("next missing operation", code_description)
         self.assertIn("Jupyter/IPython kernel", code_description)
         self.assertIn("stateless/display-only", code_description)
 
     def test_legacy_function_schema_matches_tool_schema_contract(self):
         """Verify older function-calling models receive the same persistent-session contract."""
-        code_description = function_schema["parameters"]["properties"]["code"][
-            "description"
-        ]
+        code_description = function_schema["parameters"]["properties"]["code"]["description"]
         self.assertIn("next missing operation", code_description)
         self.assertIn("Jupyter/IPython kernel", code_description)
         self.assertIn("stateless/display-only", code_description)
 
     def test_language_description_covers_all_execution_modes(self):
         """Verify the dynamic language list distinguishes persistent, stateless, and display-only execution."""
-        description = format_execute_language_description(
-            [Python, Bash, Java, HTML]
-        )
+        description = format_execute_language_description([Python, Bash, Java, HTML])
         self.assertIn("persistent REPL", description)
         self.assertIn("next missing operation", description)
         self.assertIn("Jupyter/IPython kernel", description)

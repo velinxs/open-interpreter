@@ -67,9 +67,7 @@ def _derive(llm):
     plus filtered stored history). A new list object every call, same message
     objects — mirroring production."""
     stored = _stored(llm)
-    return [{"role": "system", "type": "message", "content": SYSTEM}] + [
-        m for m in stored if m.get("role") != "system"
-    ]
+    return [{"role": "system", "type": "message", "content": SYSTEM}] + [m for m in stored if m.get("role") != "system"]
 
 
 def _full_rebuild(llm, limit=LIMIT):
@@ -81,9 +79,7 @@ def _full_rebuild(llm, limit=LIMIT):
         shrink_images=llm.interpreter.shrink_images,
         interpreter=llm.interpreter,
     )
-    return cache_aware_trim(
-        converted, SYSTEM, limit, retention_ratio=0.8, model=llm.model
-    )
+    return cache_aware_trim(converted, SYSTEM, limit, retention_ratio=0.8, model=llm.model)
 
 
 def _user(content, ts):
@@ -98,15 +94,9 @@ def _user(content, ts):
 def _turn(llm, prompt, ts, code="print(1)", output="1", lang="python"):
     """Append one complete user/code/output turn to stored history."""
     _stored(llm).append(_user(prompt, ts))
-    _stored(llm).append(
-        {"role": "assistant", "type": "message", "content": "on it"}
-    )
-    _stored(llm).append(
-        {"role": "assistant", "type": "code", "format": lang, "content": code}
-    )
-    _stored(llm).append(
-        {"role": "computer", "type": "console", "format": "output", "content": output}
-    )
+    _stored(llm).append({"role": "assistant", "type": "message", "content": "on it"})
+    _stored(llm).append({"role": "assistant", "type": "code", "format": lang, "content": code})
+    _stored(llm).append({"role": "computer", "type": "console", "format": "output", "content": output})
 
 
 def _convert_calls(monkeypatch):
@@ -298,15 +288,11 @@ def test_pairing_boundary_falls_back():
     so the call must fully rebuild (output still equals rebuild)."""
     llm = _FakeLlm()
     _stored(llm).append(_user("run it", 1750000000))
-    _stored(llm).append(
-        {"role": "assistant", "type": "code", "format": "python", "content": "print(1)"}
-    )
+    _stored(llm).append({"role": "assistant", "type": "code", "format": "python", "content": "print(1)"})
     out1 = cached_convert_and_trim(llm, _derive(llm), LIMIT, MODEL)
     assert out1 == _full_rebuild(llm)
     assert llm._conversion_cache.covered_len == 2
-    _stored(llm).append(
-        {"role": "computer", "type": "console", "format": "output", "content": "1"}
-    )
+    _stored(llm).append({"role": "computer", "type": "console", "format": "output", "content": "1"})
     out2 = cached_convert_and_trim(llm, _derive(llm), LIMIT, MODEL)
     assert out2 == _full_rebuild(llm)
     # The previously-unpaired code is now a real tool call.
@@ -320,12 +306,8 @@ def test_reasoning_boundary_falls_back():
     _stored(llm).append(_user("run it", 1750000000))
     _stored(llm).append({"role": "assistant", "type": "message", "content": "ok"})
     cached_convert_and_trim(llm, _derive(llm), LIMIT, MODEL)
-    _stored(llm).append(
-        {"role": "assistant", "type": "message", "format": "reasoning", "content": "hmm"}
-    )
-    _stored(llm).append(
-        {"role": "assistant", "type": "message", "content": "actually this"}
-    )
+    _stored(llm).append({"role": "assistant", "type": "message", "format": "reasoning", "content": "hmm"})
+    _stored(llm).append({"role": "assistant", "type": "message", "content": "actually this"})
     out = cached_convert_and_trim(llm, _derive(llm), LIMIT, MODEL)
     assert out == _full_rebuild(llm)
 
@@ -339,12 +321,8 @@ def test_reasoning_after_user_boundary_reuses_cache(monkeypatch):
     calls = _convert_calls(monkeypatch)
     cached_convert_and_trim(llm, _derive(llm), LIMIT, MODEL)
     assert calls == [2]
-    _stored(llm).append(
-        {"role": "assistant", "type": "message", "format": "reasoning", "content": "hmm"}
-    )
-    _stored(llm).append(
-        {"role": "assistant", "type": "message", "content": "actually this"}
-    )
+    _stored(llm).append({"role": "assistant", "type": "message", "format": "reasoning", "content": "hmm"})
+    _stored(llm).append({"role": "assistant", "type": "message", "content": "actually this"})
     out = cached_convert_and_trim(llm, _derive(llm), LIMIT, MODEL)
     assert out == _full_rebuild(llm)
     assert calls == [2, 2]
@@ -355,9 +333,7 @@ def test_bare_last_user_falls_back_and_never_stashes():
     prefix, which differs across calls and can never be reused: must rebuild
     every time and must not poison the stash."""
     llm = _FakeLlm()
-    _stored(llm).append(
-        {"role": "user", "type": "message", "content": "no timestamp here"}
-    )
+    _stored(llm).append({"role": "user", "type": "message", "content": "no timestamp here"})
     out1 = cached_convert_and_trim(llm, _derive(llm), LIMIT, MODEL)
     assert out1 == _full_rebuild(llm)
     assert llm._conversion_cache.covered_len == 0
@@ -379,9 +355,7 @@ def test_auxiliary_requests_never_touch_the_cache():
         {"role": "system", "type": "message", "content": "label things"},
         {"role": "user", "type": "message", "content": "some transcript"},
     ]
-    out = cached_convert_and_trim(
-        llm, title_derived, LIMIT, MODEL, use_cache=False
-    )
+    out = cached_convert_and_trim(llm, title_derived, LIMIT, MODEL, use_cache=False)
     assert out[0] == {"role": "system", "content": "label things"}
     assert llm._conversion_cache.covered_len == 4
 
@@ -423,9 +397,7 @@ def test_loop_tail_extra_falls_back():
     _turn(llm, "first", 1750000000)
     cached_convert_and_trim(llm, _derive(llm), LIMIT, MODEL)
     derived = _derive(llm)
-    derived.append(
-        {"role": "user", "type": "message", "content": "Proceed."}
-    )
+    derived.append({"role": "user", "type": "message", "content": "Proceed."})
     out = cached_convert_and_trim(llm, derived, LIMIT, MODEL)
     # The loop message has no sent_at, so as the last user it gets a
     # current-minute timestamp prefix — exactly like a full rebuild would.
@@ -479,9 +451,7 @@ def test_llm_run_sends_system_message_after_cache_aware_trim(monkeypatch):
     llm.retention_ratio = 0.8
     llm.sanitize_secrets = False
 
-    derived = [
-        {"role": "system", "type": "message", "content": "SYSTEM PROMPT"}
-    ] + list(stored)
+    derived = [{"role": "system", "type": "message", "content": "SYSTEM PROMPT"}] + list(stored)
     list(llm.run(derived))
 
     sent = captured["params"]["messages"]
@@ -504,13 +474,9 @@ def test_stashed_costs_match_fresh_recount():
         shrink_images=True,
         interpreter=llm.interpreter,
     )
-    plain = cache_aware_trim(
-        converted, SYSTEM, 3000, retention_ratio=0.8, model=MODEL
-    )
+    plain = cache_aware_trim(converted, SYSTEM, 3000, retention_ratio=0.8, model=MODEL)
     costs = [_count_message_tokens([m], MODEL) for m in converted]
-    with_costs = cache_aware_trim(
-        converted, SYSTEM, 3000, retention_ratio=0.8, model=MODEL, message_costs=costs
-    )
+    with_costs = cache_aware_trim(converted, SYSTEM, 3000, retention_ratio=0.8, model=MODEL, message_costs=costs)
     assert plain == with_costs
 
 
@@ -568,9 +534,7 @@ def _run_harness():
 
 def _run_derived(interp, system=SYSTEM):
     stored = interp.messages
-    return [{"role": "system", "type": "message", "content": system}] + [
-        m for m in stored if m.get("role") != "system"
-    ]
+    return [{"role": "system", "type": "message", "content": system}] + [m for m in stored if m.get("role") != "system"]
 
 
 def test_run_surfaces_conversion_error_instead_of_sending_raw():
@@ -605,7 +569,4 @@ def test_run_sends_converted_messages_on_cache_path():
         list(llm.run(_run_derived(interp)))
     assert "messages" in sent
     assert not any("type" in m for m in sent["messages"]), "raw LMC reached the wire"
-    assert all(
-        m.get("role") in ("system", "user", "assistant", "tool", "developer")
-        for m in sent["messages"]
-    )
+    assert all(m.get("role") in ("system", "user", "assistant", "tool", "developer") for m in sent["messages"])

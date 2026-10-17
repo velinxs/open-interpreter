@@ -46,9 +46,7 @@ class TestRequiredEditBinariesResolve(unittest.TestCase):
 
     def test_every_required_language_has_a_resolver(self):
         """A new required binary cannot be added without a resolver to check."""
-        self.assertEqual(
-            set(RESOLVERS), set(REQUIRED), "keep REQUIRED and RESOLVERS in step"
-        )
+        self.assertEqual(set(RESOLVERS), set(REQUIRED), "keep REQUIRED and RESOLVERS in step")
 
     def _resolve_all(self):
         """Required binaries this machine can actually resolve.
@@ -69,9 +67,7 @@ class TestRequiredEditBinariesResolve(unittest.TestCase):
     def test_resolver_returns_a_path_that_exists(self):
         """Where a required binary resolves, the path it returns is real."""
         found = self._resolve_all()
-        self.assertTrue(
-            found, f"none of {REQUIRED} could be resolved on this machine"
-        )
+        self.assertTrue(found, f"none of {REQUIRED} could be resolved on this machine")
         for name, resolved in found.items():
             with self.subTest(binary=name):
                 self.assertTrue(

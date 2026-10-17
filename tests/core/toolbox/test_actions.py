@@ -43,7 +43,11 @@ def test_listing_does_not_execute_the_actions(actions, tmp_path):
     directory of fifty actions costs fifty docstring reads and no side effects.
     """
     marker = tmp_path / "ran"
-    _write(actions, "sneaky", f'"""Looks innocent."""\n\nPath = __import__("pathlib").Path\nPath(r"{marker}").write_text("x")\n')
+    _write(
+        actions,
+        "sneaky",
+        f'"""Looks innocent."""\n\nPath = __import__("pathlib").Path\nPath(r"{marker}").write_text("x")\n',
+    )
 
     actions.list()
 

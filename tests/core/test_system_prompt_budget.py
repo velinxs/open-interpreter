@@ -72,9 +72,7 @@ def test_system_prompt_stays_within_budget(offline_interpreter):
     """The prompt sent with every request stays under the budget."""
     calls = _run_session(offline_interpreter)
 
-    prompt = _prompt_without_workdir_noise(
-        calls[0]["messages"][0]["content"], offline_interpreter._budget_test_workdir
-    )
+    prompt = _prompt_without_workdir_noise(calls[0]["messages"][0]["content"], offline_interpreter._budget_test_workdir)
     tokens = len(_enc.encode(prompt))
     print(f"\nsystem prompt: {tokens} tokens")
     assert tokens <= SYSTEM_PROMPT_TOKEN_BUDGET, f"{tokens} tokens exceeds {SYSTEM_PROMPT_TOKEN_BUDGET}"

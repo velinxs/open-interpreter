@@ -267,6 +267,8 @@ def test_unknown_roles_and_types_are_ignored_rather_than_crashing(render):
         ]
     )
     assert "> still here" in out
+
+
 def _code_output_messages(output):
     return [
         {

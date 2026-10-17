@@ -152,7 +152,7 @@ _SENT_TEXT_LIMIT = 500
 
 
 def _sent_text(raw):
-    """"You sent: ..." for an error message, capped so one bad call cannot flood the turn.
+    """ "You sent: ..." for an error message, capped so one bad call cannot flood the turn.
 
     The model's malformed text no longer goes into its own assistant slot —
     convert_to_openai_messages records "{}" there, because whatever sits in that
@@ -341,8 +341,7 @@ def dispatch_function_call(llm, accumulated_deltas, request_params, tool_call_id
                         else:
                             # Empty code - yield error as tool response
                             error_msg = (
-                                "Invalid execute call: code is empty. "
-                                "execute requires a non-empty 'code' string."
+                                "Invalid execute call: code is empty. execute requires a non-empty 'code' string."
                             )
                             yield from _malformed_call(tool_call_id_for_error, function_call, error_msg)
                             if verbose:
@@ -426,9 +425,7 @@ def dispatch_function_call(llm, accumulated_deltas, request_params, tool_call_id
                     "view_image: path must be absolute (e.g. C:\\Users\\... on Windows, /home/... on Linux/Mac).",
                 )
             elif not os.path.exists(path):
-                yield from _malformed_call(
-                    tool_call_id_for_error, function_call, f"view_image: file not found: {path}"
-                )
+                yield from _malformed_call(tool_call_id_for_error, function_call, f"view_image: file not found: {path}")
             else:
                 ext = os.path.splitext(path)[1].lstrip(".").lower()
                 if ext not in VIEW_IMAGE_ALLOWED_EXTENSIONS:

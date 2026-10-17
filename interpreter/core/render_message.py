@@ -6,7 +6,6 @@ def render_message(interpreter, message):
     Renders a dynamic message into a string.
     """
 
-
     # Split the message into parts by {{ and }}, including multi-line strings
     parts = re.split(r"({{.*?}})", message, flags=re.DOTALL)
 
@@ -35,6 +34,5 @@ def render_message(interpreter, message):
         print("\n\n\nSYSTEM MESSAGE\n\n\n")
         print(rendered_message)
         print("\n\n\n")
-
 
     return rendered_message

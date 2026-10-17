@@ -178,7 +178,9 @@ def test_default_and_develop_profiles_are_never_renamed(interpreter, _isolate_pr
     assert interpreter.max_output == 555
 
 
-def test_a_missing_develop_profile_is_installed_and_loads_without_prompting(interpreter, _isolate_profile_dir, monkeypatch):
+def test_a_missing_develop_profile_is_installed_and_loads_without_prompting(
+    interpreter, _isolate_profile_dir, monkeypatch
+):
     """A fresh install copies the bundled develop.yaml in and applies it straight away.
 
     develop.yaml is this fork's default profile, so a fresh checkout has no

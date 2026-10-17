@@ -168,7 +168,7 @@ def test_undo_on_an_empty_conversation_does_nothing():
 
 
 def test_terminal_injected_messages_are_not_undo_boundaries():
-    """"[User declined to run this code.]" is not a user turn.
+    """ "[User declined to run this code.]" is not a user turn.
 
     Those entries have role=user so the model reads them, but they were
     written by the terminal. Treating one as a boundary would make %undo
@@ -267,7 +267,15 @@ def test_help_documents_auto_run_and_the_modes_it_takes():
 
 @pytest.mark.parametrize(
     "argument,expected",
-    [("", "all"), ("true", "all"), ("all", "all"), ("false", "prompt"), ("prompt", "prompt"), ("allowlist", "allowlist"), ("denylist", "denylist")],
+    [
+        ("", "all"),
+        ("true", "all"),
+        ("all", "all"),
+        ("false", "prompt"),
+        ("prompt", "prompt"),
+        ("allowlist", "allowlist"),
+        ("denylist", "denylist"),
+    ],
 )
 def test_auto_run_accepts_every_documented_spelling(argument, expected):
     """%auto_run maps each accepted word to a mode.

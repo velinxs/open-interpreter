@@ -85,9 +85,7 @@ def startup_banner(interpreter):
         ("Open Interpreter", "bold"),
         (f" {version}" if version else "", "bright_black"),
     )
-    Console().print(
-        Padding(Panel(body, title=title, title_align="left", box=ROUNDED, padding=(0, 2)), PADDING_PANEL)
-    )
+    Console().print(Padding(Panel(body, title=title, title_align="left", box=ROUNDED, padding=(0, 2)), PADDING_PANEL))
 
 
 def print_startup_banner(interpreter):

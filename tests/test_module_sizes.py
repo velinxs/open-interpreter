@@ -37,10 +37,10 @@ ROOT = Path(__file__).resolve().parents[1]
 # at the merge, so a later edit that adds to one of these fails here instead of
 # hiding behind the exemption.
 _BACKLOG_CEILING = {
-    "interpreter/core/respond.py": 710,
-    "interpreter/core/llm/llm.py": 625,
-    "interpreter/core/terminal/languages/jupyter_language.py": 630,
-    "interpreter/terminal_interface/terminal_interface.py": 660,
+    "interpreter/core/respond.py": 700,
+    "interpreter/core/llm/llm.py": 605,
+    "interpreter/core/terminal/languages/jupyter_language.py": 615,
+    "interpreter/terminal_interface/terminal_interface.py": 640,
 }
 
 

@@ -36,6 +36,8 @@ class TestEditLanguagesRegistry(unittest.TestCase):
         self.assertIn("patch", EDIT_LANGUAGES)
         self.assertNotIn("perl", EDIT_LANGUAGES)
         self.assertNotIn("ed", EDIT_LANGUAGES)
+
+
 class TestValidateTarget(unittest.TestCase):
     def test_requires_absolute_path(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -102,12 +104,8 @@ class TestNewlineStyle(unittest.TestCase):
 
     def test_normalize_to_style_does_not_double_crlf(self):
         """Normalizing via LF first avoids turning CRLF into CRCRLF."""
-        self.assertEqual(
-            _normalize_to_style(b"a\r\nb\n", b"\r\n"), b"a\r\nb\r\n"
-        )
-        self.assertEqual(
-            _normalize_to_style(b"a\r\nb\r\n", b"\n"), b"a\nb\n"
-        )
+        self.assertEqual(_normalize_to_style(b"a\r\nb\n", b"\r\n"), b"a\r\nb\r\n")
+        self.assertEqual(_normalize_to_style(b"a\r\nb\r\n", b"\n"), b"a\nb\n")
 
     def test_normalize_leaves_lone_cr_alone(self):
         """A lone CR is data, not a line break, on either style.
@@ -127,9 +125,7 @@ class TestCrlfPreservation(unittest.TestCase):
             target = os.path.join(tmp, "script.bat")
             Path(target).write_bytes(b"@echo off\r\necho hi\r\n")
             run_write(target, "@echo off\necho bye\n")
-            self.assertEqual(
-                Path(target).read_bytes(), b"@echo off\r\necho bye\r\n"
-            )
+            self.assertEqual(Path(target).read_bytes(), b"@echo off\r\necho bye\r\n")
 
     def test_write_new_file_keeps_given_endings(self):
         """New files have no style to preserve, so they are written as given."""
@@ -233,14 +229,10 @@ class TestRunSed(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             target = os.path.join(tmp, "demo.txt")
             run_write(target, "foo\n")
-            with mock.patch(
-                "interpreter.core.tools.file_edit.subprocess.run"
-            ) as run_mock:
+            with mock.patch("interpreter.core.tools.file_edit.subprocess.run") as run_mock:
                 completed = mock.Mock(returncode=0, stdout=b"bar\n", stderr=b"")
                 run_mock.return_value = completed
-                with mock.patch(
-                    "interpreter.core.tools.file_edit._atomic_replace_from_stdout"
-                ) as replace_mock:
+                with mock.patch("interpreter.core.tools.file_edit._atomic_replace_from_stdout") as replace_mock:
                     run_sed(target, "s/foo/bar/")
             args = run_mock.call_args[0][0]
             self.assertNotIn("-i", args)
@@ -311,15 +303,9 @@ class TestRunJq(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             target = os.path.join(tmp, "data.json")
             run_write(target, '{"a":1}\n')
-            with mock.patch(
-                "interpreter.core.tools.file_edit.subprocess.run"
-            ) as run_mock:
-                run_mock.return_value = mock.Mock(
-                    returncode=0, stdout=b'{"a":2}\n', stderr=b""
-                )
-                with mock.patch(
-                    "interpreter.core.tools.file_edit._atomic_replace_from_stdout"
-                ) as replace_mock:
+            with mock.patch("interpreter.core.tools.file_edit.subprocess.run") as run_mock:
+                run_mock.return_value = mock.Mock(returncode=0, stdout=b'{"a":2}\n', stderr=b"")
+                with mock.patch("interpreter.core.tools.file_edit._atomic_replace_from_stdout") as replace_mock:
                     run_jq(target, ".a = 2")
             replace_mock.assert_called_once_with(target, b'{"a":2}\n')
 
@@ -337,9 +323,7 @@ class TestRunGawk(unittest.TestCase):
             target = os.path.join(tmp, "data.txt")
             Path(target).write_bytes(b"alpha\r\nbravo\r\n")
             run_gawk(target, '{ print "[" $1 "]" }')
-            self.assertEqual(
-                Path(target).read_bytes(), b"[alpha\r]\r\n[bravo\r]\r\n"
-            )
+            self.assertEqual(Path(target).read_bytes(), b"[alpha\r]\r\n[bravo\r]\r\n")
 
     def test_run_gawk_multiline_program(self):
         """A per-line gawk program must rewrite the file with its stdout."""
@@ -348,7 +332,7 @@ class TestRunGawk(unittest.TestCase):
             run_write(target, "hello world\n")
             run_gawk(
                 target,
-                "{\n  gsub(/world/, \"earth\")\n  print\n}\n",
+                '{\n  gsub(/world/, "earth")\n  print\n}\n',
             )
             self.assertEqual(open(target, encoding="utf-8").read(), "hello earth\n")
 
@@ -357,15 +341,9 @@ class TestRunGawk(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             target = os.path.join(tmp, "lines.txt")
             run_write(target, "hello\n")
-            with mock.patch(
-                "interpreter.core.tools.file_edit.subprocess.run"
-            ) as run_mock:
-                run_mock.return_value = mock.Mock(
-                    returncode=0, stdout=b"hello\n", stderr=b""
-                )
-                with mock.patch(
-                    "interpreter.core.tools.file_edit._atomic_replace_from_stdout"
-                ):
+            with mock.patch("interpreter.core.tools.file_edit.subprocess.run") as run_mock:
+                run_mock.return_value = mock.Mock(returncode=0, stdout=b"hello\n", stderr=b"")
+                with mock.patch("interpreter.core.tools.file_edit._atomic_replace_from_stdout"):
                     run_gawk(target, "{ print }")
             args = run_mock.call_args[0][0]
             self.assertNotIn("-i", args)
@@ -378,7 +356,7 @@ class TestRunGawk(unittest.TestCase):
             target = os.path.join(tmp, "lines.txt")
             run_write(target, "a\nb\nc\n")
             with self.assertRaises(RuntimeError) as ctx:
-                run_gawk(target, "END { print \"\" }")
+                run_gawk(target, 'END { print "" }')
             self.assertIn("no output", str(ctx.exception))
             self.assertEqual(open(target, encoding="utf-8").read(), "a\nb\nc\n")
 
@@ -459,15 +437,9 @@ class TestRunYq(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             target = os.path.join(tmp, "config.yaml")
             run_write(target, "port: 8080\n")
-            with mock.patch(
-                "interpreter.core.tools.file_edit._run_yq_eval"
-            ) as eval_mock:
-                eval_mock.return_value = mock.Mock(
-                    returncode=0, stdout=b"port: 9090\n", stderr=b""
-                )
-                with mock.patch(
-                    "interpreter.core.tools.file_edit._atomic_replace_from_stdout"
-                ) as replace_mock:
+            with mock.patch("interpreter.core.tools.file_edit._run_yq_eval") as eval_mock:
+                eval_mock.return_value = mock.Mock(returncode=0, stdout=b"port: 9090\n", stderr=b"")
+                with mock.patch("interpreter.core.tools.file_edit._atomic_replace_from_stdout") as replace_mock:
                     run_yq(target, ".port = 9090")
             replace_mock.assert_called_once_with(target, b"port: 9090\n")
 
@@ -479,12 +451,7 @@ class TestRunPatch(unittest.TestCase):
             target = os.path.join(tmp, "demo.txt")
             run_write(target, "foo\nbar\n")
             diff = (
-                f"--- {os.path.basename(target)}\n"
-                f"+++ {os.path.basename(target)}\n"
-                "@@ -1,2 +1,2 @@\n"
-                "-foo\n"
-                "+baz\n"
-                " bar\n"
+                f"--- {os.path.basename(target)}\n+++ {os.path.basename(target)}\n@@ -1,2 +1,2 @@\n-foo\n+baz\n bar\n"
             )
             run_patch(target, diff)
             self.assertEqual(open(target, encoding="utf-8").read(), "baz\nbar\n")
@@ -493,19 +460,13 @@ class TestRunPatch(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             target = os.path.join(tmp, "demo.txt")
             run_write(target, "foo\n")
-            with mock.patch(
-                "interpreter.core.tools.file_edit.subprocess.run"
-            ) as run_mock:
-                run_mock.return_value = mock.Mock(
-                    returncode=0, stdout=b"", stderr=b""
-                )
+            with mock.patch("interpreter.core.tools.file_edit.subprocess.run") as run_mock:
+                run_mock.return_value = mock.Mock(returncode=0, stdout=b"", stderr=b"")
                 run_patch(
                     target,
                     f"--- {Path(target).name}\n+++ {Path(target).name}\n",
                 )
-            self.assertEqual(
-                run_mock.call_args.kwargs["cwd"], str(Path(target).parent)
-            )
+            self.assertEqual(run_mock.call_args.kwargs["cwd"], str(Path(target).parent))
 
 
 @unittest.skipUnless(shutil.which("patch"), "patch not installed")
@@ -628,12 +589,9 @@ class TestPatchFailureDiagnostics(unittest.TestCase):
                 run_patch(target, diff)
             message = str(caught.exception)
             self.assertNotIn("saving rejects to file", message)
-            self.assertFalse(
-                (Path(tmp) / (os.path.basename(target) + ".rej")).exists()
-            )
+            self.assertFalse((Path(tmp) / (os.path.basename(target) + ".rej")).exists())
             # The reject's content is preserved in the message instead.
             self.assertIn("totally wrong line", message)
-
 
     def test_same_hunk_with_two_trailing_context_lines_applies(self):
         """Adding two trailing context lines makes the identical hunk apply.
@@ -860,9 +818,7 @@ class TestDryRunPreviewIsADiff(unittest.TestCase):
             _looks_like_unified_diff,
         )
 
-        self.assertTrue(
-            _looks_like_unified_diff("--- a.py\n+++ a.py\n@@ -1 +1 @@\n-x\n+y\n")
-        )
+        self.assertTrue(_looks_like_unified_diff("--- a.py\n+++ a.py\n@@ -1 +1 @@\n-x\n+y\n"))
         # A plain file body must not be mistaken for a diff.
         self.assertFalse(_looks_like_unified_diff("x = 1\ny = 2\n"))
         # An error message must not be mistaken for a diff either.
@@ -876,9 +832,7 @@ class TestRunAppend(unittest.TestCase):
             target = os.path.join(tmp, "notes.md")
             run_write(target, "# Title\n")
             run_append(target, "body line\n")
-            self.assertEqual(
-                open(target, encoding="utf-8").read(), "# Title\nbody line\n"
-            )
+            self.assertEqual(open(target, encoding="utf-8").read(), "# Title\nbody line\n")
 
     def test_append_requires_leading_newline_for_spacing(self):
         """Spacing (e.g. before a markdown header) needs an explicit leading newline."""
@@ -886,9 +840,7 @@ class TestRunAppend(unittest.TestCase):
             target = os.path.join(tmp, "notes.md")
             run_write(target, "# Title\n")
             run_append(target, "\n## Section\n")
-            self.assertEqual(
-                open(target, encoding="utf-8").read(), "# Title\n\n## Section\n"
-            )
+            self.assertEqual(open(target, encoding="utf-8").read(), "# Title\n\n## Section\n")
 
     def test_append_converts_lf_to_crlf(self):
         """Appending LF text to a CRLF file keeps the file CRLF-only."""
@@ -972,9 +924,7 @@ class TestEolConversionNotes(unittest.TestCase):
             Path(crlf_target).write_bytes(b"echo hi\r\n")
             out = run_sed(crlf_target, r"s/hi/bye\nsecond/")
             self.assertIn("note:", out)
-            self.assertEqual(
-                Path(crlf_target).read_bytes(), b"echo bye\r\nsecond\r\n"
-            )
+            self.assertEqual(Path(crlf_target).read_bytes(), b"echo bye\r\nsecond\r\n")
             lf_target = os.path.join(tmp, "g.txt")
             Path(lf_target).write_bytes(b"echo hi\n")
             self.assertNotIn("note:", run_sed(lf_target, "s/hi/bye/"))
@@ -1010,13 +960,7 @@ class TestEolConversionNotes(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             target = os.path.join(tmp, "f.bat")
             Path(target).write_bytes(b"a\r\nb\r\n")
-            diff = (
-                "--- f.bat\n+++ f.bat\n"
-                "@@ -1,2 +1,2 @@\n"
-                " a\n"
-                "-b\n"
-                "+B\n"
-            )
+            diff = "--- f.bat\n+++ f.bat\n@@ -1,2 +1,2 @@\n a\n-b\n+B\n"
             self.assertIn("note:", run_patch(target, diff))
             self.assertEqual(Path(target).read_bytes(), b"a\r\nB\r\n")
 

@@ -26,9 +26,7 @@ class TestConversationSurvivesAnAbandonedStream(unittest.TestCase):
     def _interpreter(self, tmp):
         # disable_telemetry is what anonymous_telemetry derives from; setting the
         # property directly is not possible (it is read-only).
-        interpreter = OpenInterpreter(
-            conversation_history_path=tmp, disable_telemetry=True
-        )
+        interpreter = OpenInterpreter(conversation_history_path=tmp, disable_telemetry=True)
         interpreter.conversation_history = True
         return interpreter
 
@@ -39,6 +37,7 @@ class TestConversationSurvivesAnAbandonedStream(unittest.TestCase):
         keeps this test about persistence rather than about the LLM, the
         terminal, or chunk ordering.
         """
+
         def _fake():
             for chunk in chunks:
                 # The real _respond_and_store appends to interpreter.messages as
@@ -73,14 +72,10 @@ class TestConversationSurvivesAnAbandonedStream(unittest.TestCase):
             stream.close()
 
             files = self._conversation_files(tmp)
-            self.assertEqual(
-                len(files), 1, f"expected exactly one saved conversation, got {files}"
-            )
+            self.assertEqual(len(files), 1, f"expected exactly one saved conversation, got {files}")
             with open(os.path.join(tmp, files[0]), encoding="utf-8") as f:
                 saved = json.load(f)
-            self.assertGreaterEqual(
-                len(saved), 1, "the conversation file must not be empty"
-            )
+            self.assertGreaterEqual(len(saved), 1, "the conversation file must not be empty")
 
     def test_save_happens_even_if_the_respond_loop_raises(self):
         """An exception mid-turn still persists what was said so far.
@@ -110,15 +105,11 @@ class TestConversationSurvivesAnAbandonedStream(unittest.TestCase):
             interpreter._respond_and_store = _boom
 
             with self.assertRaises(RuntimeError):
-                for _ in interpreter._streaming_chat(
-                    message="hello", display=False
-                ):
+                for _ in interpreter._streaming_chat(message="hello", display=False):
                     pass
 
             files = self._conversation_files(tmp)
-            self.assertEqual(
-                len(files), 1, f"a mid-turn error must still save, got {files}"
-            )
+            self.assertEqual(len(files), 1, f"a mid-turn error must still save, got {files}")
 
     def test_no_partial_file_is_left_behind(self):
         """The temp file used for the atomic write does not survive.
@@ -139,9 +130,7 @@ class TestConversationSurvivesAnAbandonedStream(unittest.TestCase):
                 pass
 
             leftovers = [f for f in os.listdir(tmp) if f.startswith(".")]
-            self.assertEqual(
-                leftovers, [], f"temp files left behind: {leftovers}"
-            )
+            self.assertEqual(leftovers, [], f"temp files left behind: {leftovers}")
 
     def test_saved_file_is_valid_json_containing_the_messages(self):
         """What lands on disk parses and holds the conversation, not a stub."""
@@ -176,9 +165,7 @@ class TestConversationSurvivesAnAbandonedStream(unittest.TestCase):
         who turned it off.
         """
         with tempfile.TemporaryDirectory() as tmp:
-            interpreter = OpenInterpreter(
-                conversation_history_path=tmp, disable_telemetry=True
-            )
+            interpreter = OpenInterpreter(conversation_history_path=tmp, disable_telemetry=True)
             interpreter.conversation_history = False
             self._stubbed_stream(
                 interpreter,
@@ -213,21 +200,16 @@ class TestConversationSurvivesAnAbandonedStream(unittest.TestCase):
                 return real_replace(src, dst)
 
             with mock.patch("interpreter.core.core.os.replace", _record):
-                for _ in interpreter._streaming_chat(
-                    message="hello", display=False
-                ):
+                for _ in interpreter._streaming_chat(message="hello", display=False):
                     pass
 
-            self.assertEqual(
-                len(calls), 1, f"expected one atomic rename, got {calls}"
-            )
+            self.assertEqual(len(calls), 1, f"expected one atomic rename, got {calls}")
             src, dst = calls[0]
             self.assertNotEqual(src, dst, "the write must not target the destination")
             self.assertEqual(
                 os.path.dirname(os.path.abspath(src)),
                 os.path.abspath(tmp),
-                "the temp file must be on the same filesystem as the destination, "
-                "or the rename is not atomic",
+                "the temp file must be on the same filesystem as the destination, or the rename is not atomic",
             )
             self.assertEqual(
                 os.path.basename(dst),
@@ -259,15 +241,11 @@ class TestConversationSurvivesAnAbandonedStream(unittest.TestCase):
                 ],
             )
             with self.assertRaises(TypeError):
-                for _ in interpreter._streaming_chat(
-                    message="hello", display=False
-                ):
+                for _ in interpreter._streaming_chat(message="hello", display=False):
                     pass
 
             leftovers = [f for f in os.listdir(tmp) if f.startswith(".")]
-            self.assertEqual(
-                leftovers, [], f"temp files left after a failed dump: {leftovers}"
-            )
+            self.assertEqual(leftovers, [], f"temp files left after a failed dump: {leftovers}")
 
 
 if __name__ == "__main__":

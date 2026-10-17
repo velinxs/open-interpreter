@@ -456,10 +456,7 @@ class SubprocessLanguage(BaseLanguage):
                     active_line = self.detect_active_line(line)
                     # Sometimes there's a little extra on the same line, so be sure to send that out
                     line = _ACTIVE_LINE_MARKER_RE.sub("", line)
-                    active_line_enabled = (
-                        os.environ.get("INTERPRETER_ACTIVE_LINE_DETECTION", "True").lower()
-                        == "true"
-                    )
+                    active_line_enabled = os.environ.get("INTERPRETER_ACTIVE_LINE_DETECTION", "True").lower() == "true"
                     if active_line_enabled:
                         self.output_queue.put(
                             {
@@ -541,10 +538,7 @@ class SubprocessLanguage(BaseLanguage):
             {
                 "type": "console",
                 "format": "output",
-                "content": (
-                    f"\n[output stream stopped unexpectedly: "
-                    f"{type(error).__name__}: {error}]"
-                ),
+                "content": (f"\n[output stream stopped unexpectedly: {type(error).__name__}: {error}]"),
             }
         )
         # Ends the consumer loop. Set last, so the diagnostic above is already

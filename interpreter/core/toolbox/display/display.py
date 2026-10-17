@@ -1,4 +1,3 @@
-
 from IPython.display import display
 from PIL import Image
 
@@ -282,11 +281,7 @@ class Display:
             # similarity 1: the model was asked for this exact string, so a hit
             # is exact as far as the caller is concerned. mouse.move only uses
             # this to decide whether to show the user a disambiguation image.
-            return (
-                [{"coordinates": coordinates, "text": text, "similarity": 1}]
-                if coordinates
-                else []
-            )
+            return [{"coordinates": coordinates, "text": text, "similarity": 1}] if coordinates else []
 
         # Local OCR. Needs pytesseract and the Tesseract binary; raises with
         # install instructions if they are missing.

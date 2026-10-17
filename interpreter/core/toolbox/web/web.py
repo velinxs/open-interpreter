@@ -113,17 +113,14 @@ def _reject_bad_country_code(country):
         # not: a digit slipped into a code ("U5" for "UA") is the commonest
         # typo and the closest match is the most useful thing to say about it.
         suggestion = _closest_country_code(candidate)
-        detail = (
-            f" (did you mean {suggestion!r}?)" if suggestion else ""
-        )
+        detail = f" (did you mean {suggestion!r}?)" if suggestion else ""
         if candidate.isalpha():
             extra = " Do not pass a name or a language code here."
         else:
             extra = " Country codes are two letters, not digits."
         raise WebToolboxError(
             f"country_code {country!r} is not a valid ISO 3166-1 alpha-2 country "
-            f"code. Use a two-letter code such as 'US', 'GB' or 'FR'{detail}."
-            + extra
+            f"code. Use a two-letter code such as 'US', 'GB' or 'FR'{detail}." + extra
         )
     raise WebToolboxError(
         f"country_code {country!r} is not a valid ISO 3166-1 alpha-2 country code. "
@@ -173,9 +170,7 @@ def _reject_empty_query(query, method="search"):
     if query is None:
         raise WebToolboxError(f"{method}: query is required")
     if not str(query).strip():
-        raise WebToolboxError(
-            f"{method}: query is empty. Provide a non-empty search query."
-        )
+        raise WebToolboxError(f"{method}: query is empty. Provide a non-empty search query.")
 
 
 class Web(

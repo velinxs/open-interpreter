@@ -439,10 +439,7 @@ def test_temporary_retries_stop_at_the_cap(capsys, panels):
     interpreter = _FakeInterpreter(llm)
     list(respond(interpreter))
 
-    assert llm.calls == cap + 1, (
-        f"expected {cap} automatic retries then a surfaced error, "
-        f"got {llm.calls} attempts"
-    )
+    assert llm.calls == cap + 1, f"expected {cap} automatic retries then a surfaced error, got {llm.calls} attempts"
     output = capsys.readouterr().out + "".join(panels)
     assert "429" in output, "the user must be told the provider kept failing"
 
@@ -463,7 +460,7 @@ def test_temporary_error_recovers_before_the_cap(capsys, panels):
 
 
 class TestRetryPromptOffersExitOnlyWhenExitingHelps:
-    """"Stop retrying" and "exit OI" must not be the same key.
+    """ "Stop retrying" and "exit OI" must not be the same key.
 
     The prompt used to offer (y, a, n) with n meaning "stop", and n set
     _stopped_retrying -- which the interface treats as exit, ending the session.
@@ -503,13 +500,9 @@ class TestRetryPromptOffersExitOnlyWhenExitingHelps:
         """A recoverable failure: n stops retrying and does not exit."""
         interpreter, (text, options) = self._run_prompt(_rate_limit_error(), "n", panels)
 
-        assert "e" not in options, (
-            "a throttle is fixed by refilling; quitting OI must not be on offer"
-        )
+        assert "e" not in options, "a throttle is fixed by refilling; quitting OI must not be on offer"
         assert "return to the prompt" in text
-        assert interpreter._stopped_retrying is False, (
-            "n must not end the session; the user has to be able to carry on"
-        )
+        assert interpreter._stopped_retrying is False, "n must not end the session; the user has to be able to carry on"
 
     def test_permanent_error_offers_exit(self, panels):
         """An unrecoverable failure: e is available for leaving."""
@@ -522,9 +515,7 @@ class TestRetryPromptOffersExitOnlyWhenExitingHelps:
         """e keeps the old behaviour, so the permanent case is unchanged."""
         interpreter, _ = self._run_prompt(_auth_error(), "e", panels)
 
-        assert interpreter._stopped_retrying is True, (
-            "e must still ask the interface to exit"
-        )
+        assert interpreter._stopped_retrying is True, "e must still ask the interface to exit"
 
     def test_permanent_error_stays_in_conversation_on_n(self, panels):
         """n is uniformly non-fatal, including for a permanent fault.

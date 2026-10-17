@@ -188,15 +188,9 @@ class TestShellStateIsReportedToTheModel:
                 chunks = list(bash.run(f"cd {tmp} && echo marker-ok"))
             finally:
                 bash.terminate()
-            joined = "\n".join(
-                str(c.get("content", ""))
-                for c in chunks
-                if c.get("type") == "console"
-            )
+            joined = "\n".join(str(c.get("content", "")) for c in chunks if c.get("type") == "console")
             assert "Shell State" in joined, f"no state line in {joined!r}"
-            assert (
-                tmp in joined
-            ), "the reported cwd must be the directory we cd'd into"
+            assert tmp in joined, "the reported cwd must be the directory we cd'd into"
 
     def test_state_line_does_not_reintroduce_the_marker(self):
         """The report carries the path, never the ##oi_cwd## marker.

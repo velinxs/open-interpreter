@@ -62,7 +62,6 @@ def test_runtimes_are_terminated_at_interpreter_exit(tmp_path):
     assert not survivors, f"processes survived interpreter exit: {survivors}"
 
 
-
 def test_a_spawned_shell_resolves_python_to_the_one_open_interpreter_runs_under(monkeypatch):
     """`python3` in a command must be our Python, even from a stripped PATH.
 
@@ -234,4 +233,3 @@ def test_a_silent_python_block_reports_that_it_is_still_running(monkeypatch):
     assert any("interrupt at 8s" in c.get("content", "") for c in notices), (
         "the notice must say when the block will be cut off"
     )
-

@@ -206,11 +206,7 @@ def test_two_calls_stamped_with_the_same_index_do_not_concatenate():
     )
     merge_deltas(
         message,
-        {
-            "tool_calls": [
-                {"index": 0, "id": "b", "function": {"name": "execute", "arguments": '{"language": "bash"}'}}
-            ]
-        },
+        {"tool_calls": [{"index": 0, "id": "b", "function": {"name": "execute", "arguments": '{"language": "bash"}'}}]},
     )
 
     assert len(message["tool_calls"]) == 2, message["tool_calls"]

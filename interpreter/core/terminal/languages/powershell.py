@@ -9,7 +9,9 @@ from .subprocess_language import SubprocessLanguage
 class PowerShell(CwdTrackingMixin, SubprocessLanguage):
     file_extension = "ps1"
     name = "powershell"
-    execute_tool_hint = "PowerShell — $var = value; cmdlet syntax. Requires pwsh on Linux/Mac. One command per line for readability."
+    execute_tool_hint = (
+        "PowerShell — $var = value; cmdlet syntax. Requires pwsh on Linux/Mac. One command per line for readability."
+    )
     cd_commands = ("cd", "Set-Location", "sl")
     cd_ignore_case = True
     # PowerShell has no `nul` device; redirecting to `nul` creates a literal file.
