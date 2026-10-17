@@ -30,6 +30,19 @@ _TOOL_CALLING_INSTRUCTIONS = (
     'Those are Python APIs: use them inside the "code" string you pass to execute.'
 )
 
+# Appended to the system message in tool-calling mode. Tool names, parameters, languages,
+# and execution modes live only in request.tools JSON — not duplicated here.
+_TOOL_CALLING_INSTRUCTIONS = (
+    "Use only the tools in this request (`execute`, `edit`, and `view_image` when present). "
+    "Read each tool's JSON schema for parameters and languages.\n\n"
+    "(What appears in the conversation log as {\"role\": \"assistant\", \"type\": \"code\", ...} "
+    "or {\"type\": \"edit\", ...} is our internal storage derived from your tool call; "
+    "you do not output that structure.) "
+    "Code in message content is only shown and is not run. "
+    "Do not call any other name as a tool (e.g. toolbox.web.answer). "
+    "Those are Python APIs: use them inside the \"code\" string you pass to execute."
+)
+
 # from .run_function_calling_llm import run_function_calling_llm
 from .completions import _litellm, fixed_litellm_completions  # noqa: E402
 from .errors import AccessDeniedError, FunctionCallingNotSupportedError, ModelNotFoundError  # noqa: E402
@@ -102,6 +115,16 @@ class Llm:
         self.api_base = None
         self.api_key = None
         self.api_version = None
+        # Extra HTTP headers merged into every litellm request (e.g. a gateway's
+        # session or tenant header). OI could not send custom headers at all before
+        # this; a few providers reject requests that omit one.
+        self.extra_headers = None
+        # Set when the opencode_go/ prefix is in use; adds the gateway's required
+        # x-opencode-session header per request.
+        self._is_opencode_go = False
+        # Set when the hosted `i` model is selected; distinguishes it from an
+        # arbitrary model string that happens to route to api.openinterpreter.com.
+        self._is_hosted_i_model = False
         self._is_loaded = False
 
         # Sanitize secrets (API keys, passwords) from messages before sending to API LLMs.
@@ -141,6 +164,10 @@ class Llm:
         # there inherits the session without its author knowing any of this.
         # Applied last so it wins, and a no-op outside a session.
         apply_to(self)
+        # Incremental conversion cache (see conversion_cache.py): stashes the
+        # full converted history + token costs between calls so unchanged
+        # prefixes are not reconverted or recounted. In-memory only.
+        self._conversion_cache = None
 
     def run(self, messages, *, auxiliary_title_request=False):
         """
@@ -182,22 +209,44 @@ class Llm:
         # Setup our model endpoint
         if model == "i":
             model = "openai/i"
-            if not hasattr(self.interpreter, "conversation_id"):  # Only do this once
+            self._is_hosted_i_model = True
+            # Set defaults without clobbering explicit user/profile values. This
+            # used to be guarded by `if not hasattr(self.interpreter,
+            # "conversation_id")`, which conflated "haven't configured this yet"
+            # with "no conversation id" -- now that the id always exists, that
+            # guard would silently skip the whole block.
+            if self.context_window is None:
                 self.context_window = 7000
+            if self.api_key is None:
                 self.api_key = "x"
+            if self.max_tokens is None:
                 self.max_tokens = 1000
+            if self.api_base is None:
                 self.api_base = "https://api.openinterpreter.com/v0"
-                self.interpreter.conversation_id = str(uuid.uuid4())
 
         # Detect function support
         if self.supports_functions == None:
-            try:
-                if litellm.supports_function_calling(model):
-                    self.supports_functions = True
-                else:
+            # Every Go model is a coding model served over /chat/completions, and
+            # the gateway's whole purpose is agent traffic, so all of them take
+            # tools. Asking litellm.supports_function_calling instead returns
+            # False for all of them -- it has no entry for these ids under any
+            # spelling -- and that is not a harmless miss: a False here does not
+            # merely disable a feature, it selects run_text_llm() instead of the
+            # tool-calling runner, so no tool schema is ever sent and the model
+            # has to hand back fenced code blocks instead of tool calls. That is
+            # the worst version of this bug class, because it looks like the
+            # model is just being awkward with tools rather than like a
+            # misconfiguration.
+            if self._is_opencode_go:
+                self.supports_functions = True
+            else:
+                try:
+                    if litellm.supports_function_calling(model):
+                        self.supports_functions = True
+                    else:
+                        self.supports_functions = False
+                except:
                     self.supports_functions = False
-            except:
-                self.supports_functions = False
 
         # Detect vision support
         if self.supports_vision == None:
@@ -213,25 +262,15 @@ class Llm:
             except:
                 self.supports_vision = False
 
-        # Trim image messages if they're there
+        # Render images to descriptions for non-vision models up front. This
+        # mutates stored image dicts in place, but idempotently: already
+        # rendered images are skipped, so later calls are a no-op scan. It
+        # runs on every call (including cache-aware fast paths) so the
+        # incremental conversion cache always sees settled content.
+        # (Middle-image culling lives in conversion_cache's full path and is
+        # skipped on fast paths, where the culled set provably cannot change.)
         image_messages = [msg for msg in messages if msg["type"] == "image"]
-        if self.supports_vision:
-            if self.interpreter.os:
-                # Keep only the last two images if the interpreter is running in OS mode
-                if len(image_messages) > 1:
-                    for img_msg in image_messages[:-2]:
-                        messages.remove(img_msg)
-                        if self.interpreter.verbose:
-                            print("Removing image message!")
-            else:
-                # Delete all the middle ones (leave only the first and last 2 images) from messages_for_llm
-                if len(image_messages) > 3:
-                    for img_msg in image_messages[1:-2]:
-                        messages.remove(img_msg)
-                        if self.interpreter.verbose:
-                            print("Removing image message!")
-                # Idea: we could set detail: low for the middle messages, instead of deleting them
-        elif self.supports_vision == False and self.vision_renderer:
+        if self.supports_vision == False and self.vision_renderer:
             for img_msg in image_messages:
                 if img_msg["format"] != "description":
                     self.interpreter.display_message("\n  *Viewing image...*\n")
@@ -275,19 +314,36 @@ class Llm:
                             img_msg["format"] = "description"
                             img_msg["content"] = ""
 
-        # Convert to OpenAI messages format
-        messages = convert_to_openai_messages(
-            messages,
-            function_calling=self.supports_functions,
-            vision=self.supports_vision,
-            shrink_images=self.interpreter.shrink_images,
-            interpreter=self.interpreter,
+        # Cache-aware branch converts (incrementally) inside the trim step
+        # below; every other branch converts here exactly as before.
+        cache_aware = (
+            bool(self.retention_ratio and self.context_window)
+            and not auxiliary_title_request
         )
+        if not cache_aware:
+            # Convert to OpenAI messages format
+            messages = convert_to_openai_messages(
+                messages,
+                function_calling=self.supports_functions,
+                vision=self.supports_vision,
+                shrink_images=self.interpreter.shrink_images,
+                interpreter=self.interpreter,
+            )
 
-        system_message = messages[0]["content"]
-        messages = messages[1:]
+            system_message = messages[0]["content"]
+            messages = messages[1:]
+        else:
+            # The helper below converts (incrementally) and trims. Seed
+            # system_message from the derived head; the except fallback below
+            # replaces it from converted output (or raises the real conversion
+            # error), so this seed only matters if messages is empty.
+            raw_head = messages[0]["content"]
+            system_message = (
+                raw_head.strip() if isinstance(raw_head, str) else raw_head
+            )
 
         # Trim messages
+        pre_trim_messages = messages
         try:
             if self.retention_ratio and self.context_window:
                 # Cache-aware truncation: when the prompt outgrows the window,
@@ -350,6 +406,25 @@ Continuing...
             # If we're trimming from a model we don't know, this won't work.
             # Better not to fail until `messages` is too big, just for frustrations sake, I suppose.
 
+            if cache_aware:
+                # Conversion runs inside cached_convert_and_trim, so on failure
+                # `messages` is still the raw derived list -- reuniting it with
+                # a system message below would send unconverted roles to the
+                # provider (a misleading 400 that hides the real error). Run
+                # the legacy full conversion instead: a genuinely
+                # unconvertible chunk raises its real error here, and anything
+                # else proceeds converted but untrimmed, like this fallback
+                # does for trim failures on the other branches.
+                converted = convert_to_openai_messages(
+                    pre_trim_messages,
+                    function_calling=self.supports_functions,
+                    vision=self.supports_vision,
+                    shrink_images=self.interpreter.shrink_images,
+                    interpreter=self.interpreter,
+                )
+                system_message = converted[0]["content"]
+                messages = converted[1:]
+
             # Reunite system message with messages
             messages = [{"role": "system", "content": system_message}] + messages
 
@@ -391,6 +466,15 @@ Continuing...
             params["api_base"] = self.api_base
         if self.api_version:
             params["api_version"] = self.api_version
+        if self.extra_headers or self._is_opencode_go:
+            # Copied per request so the session header tracks conversation_id
+            # across a %reset, and so the caller's own dict is never mutated.
+            headers = dict(self.extra_headers or {})
+            if self._is_opencode_go:
+                headers.setdefault(
+                    "x-opencode-session", self.interpreter.conversation_id
+                )
+            params["extra_headers"] = headers
         if self.max_tokens:
             params["max_tokens"] = self.max_tokens
         if self.temperature:
@@ -403,7 +487,14 @@ Continuing...
         # what the server actually allocated. Send both so they agree.
         if self.context_window and re.match(r"^ollama(_chat)?/", model or ""):
             params.setdefault("num_ctx", self.context_window)
-        if hasattr(self.interpreter, "conversation_id"):
+        # `conversation_id` is a body field only the hosted `i` API understands
+        # (see fixed_litellm_completions, which stops drop_params discarding it).
+        # Every other provider gets the id as a header instead, if it wants one
+        # at all, so putting it in the body here would send an unknown field to
+        # a stranger's endpoint. The attribute itself always exists now --
+        # OpenInterpreter mints it in __init__ -- so presence is not the test;
+        # the model is.
+        if self._is_hosted_i_model and hasattr(self.interpreter, "conversation_id"):
             params["conversation_id"] = self.interpreter.conversation_id
 
         if auxiliary_title_request:

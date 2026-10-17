@@ -26,7 +26,20 @@ tool_schema = {
                 },
                 "code": {
                     "type": "string",
-                    "description": "The code to execute (required)",
+                    # Kept word-for-word identical to function_schema's code
+                    # description in run_function_calling_llm.py. Both schemas
+                    # describe the same `execute` tool, so a model on either
+                    # path has to be told the same thing about session state;
+                    # this one carried only "The code to execute (required)",
+                    # which left the *active* tool-calling path with no
+                    # guidance at all while the legacy path had all of it.
+                    "description": (
+                        "The code to execute (required). For persistent-session languages, append only "
+                        "the next missing operation to the live session; reuse live imports, variables, "
+                        "functions, directories, or environment state already established. Python is the "
+                        "next cell in the same Jupyter/IPython kernel. For stateless/display-only "
+                        "languages, send a complete block."
+                    ),
                 },
             },
             "required": ["language", "code"],
@@ -74,8 +87,9 @@ edit_tool_schema = {
             "  yq    — yq (mikefarah) expression (multi-line OK). Supports YAML, JSON, TOML, XML, CSV, "
             "properties files.\n"
             "  poke  — GNU poke statements for binary files; do not use .file (auto-opened).\n"
-            "  comby — structural match/replace: match template, then --- line, then rewrite "
-            "(or match on line 1, rewrite on following lines).\n"
+            "  append — code is appended verbatim to the end of the file (file must exist). "
+            "No separator newline is added: when the file does not end with a blank line, "
+            "start code with \\n (e.g. '\\n## Header\\n...') or the text runs onto the last line.\n"
             "  patch — unified diff body to apply to the existing target file.\n"
             "Rules: target must be absolute. Never wrap these in bash."
         ),
@@ -85,7 +99,7 @@ edit_tool_schema = {
                 "language": {
                     "type": "string",
                     "enum": EDIT_LANGUAGES_ENUM,
-                    "description": "write | sed | gawk | jq | yq | poke | comby | patch",
+                    "description": "write | sed | gawk | jq | yq | poke | append | patch",
                 },
                 "code": {
                     "type": "string",

@@ -1,0 +1,649 @@
+"""Tests for the opencode_go/ model prefix.
+
+OpenCode Go is an OpenAI-compatible gateway that (a) requires an API key of its
+own, (b) rejects requests with no `x-opencode-session` header, and (c) serves its
+catalog over three different wire formats, only some of which OI speaks. These
+tests pin each of those behaviours, especially the two ways it can go wrong
+quietly: sending the wrong credential, and silently getting a different model.
+"""
+
+import pytest
+
+from interpreter.core.core import OpenInterpreter
+
+
+def _configure(model, monkeypatch, **env):
+    """Build an interpreter aimed at opencode_go/<model> and return it, unloaded."""
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+    interpreter = OpenInterpreter()
+    interpreter.llm.model = model
+    return interpreter
+
+
+def _request_params(interpreter):
+    """Drive one Llm.run() and return the request params it produced."""
+    captured = {}
+
+    def fake_completions(**params):
+        captured.update(params)
+        return iter(())
+
+    interpreter.llm.completions = fake_completions
+    list(
+        interpreter.llm.run(
+            [
+                {"role": "system", "type": "message", "content": "s"},
+                {"role": "user", "type": "message", "content": "h"},
+            ]
+        )
+    )
+    return captured
+
+
+def test_model_name_keeps_the_go_prefix(monkeypatch):
+    """self.model must stay truthful; the wire name is a separate concern.
+
+    It used to be rewritten to openai/<model> here, which overloaded one field
+    with two jobs -- LiteLLM's routing key and OI's record of what the user
+    asked for -- so every provider gate downstream read a lie and an
+    opencode_go/ model was indistinguishable from an OpenAI one. The rewrite now
+    happens per request, in the params, where it belongs.
+    """
+    interpreter = _configure("opencode_go/deepseek-v4-flash", monkeypatch, OPENCODE_GO_API_KEY="k")
+    interpreter.llm.load()
+    assert interpreter.llm.model == "opencode_go/deepseek-v4-flash"
+    assert interpreter.llm.api_base == "https://opencode.ai/zen/go/v1"
+
+
+def test_request_carries_the_bare_name_and_explicit_provider(monkeypatch):
+    """LiteLLM gets the bare model name plus the protocol to speak with.
+
+    Both facts are needed: it infers the request format from the provider, and it
+    has no opencode_go provider, so an unknown prefix is an error. Sending the
+    bare name with custom_llm_provider produces the same wire request as the old
+    rewritten form, verified against the gateway.
+    """
+    interpreter = _configure("opencode_go/space-bunny-free", monkeypatch, OPENCODE_GO_API_KEY="k")
+    interpreter.llm.load()
+    params = _request_params(interpreter)
+
+    assert params["model"] == "space-bunny-free"
+    assert params["custom_llm_provider"] == "openai"
+    assert params["api_base"] == "https://opencode.ai/zen/go/v1"
+
+
+def test_api_base_is_overridable(monkeypatch):
+    """An explicit api_base (here from OPENCODE_GO_API_BASE) wins over the default."""
+    interpreter = _configure(
+        "opencode_go/glm-5.1",
+        monkeypatch,
+        OPENCODE_GO_API_KEY="k",
+        OPENCODE_GO_API_BASE="https://proxy.local/v1",
+    )
+    interpreter.llm.load()
+    assert interpreter.llm.api_base == "https://proxy.local/v1"
+
+
+def test_stale_api_base_from_another_provider_is_replaced(monkeypatch):
+    """A leftover api_base must not capture the Go key.
+
+    Regression test for a real failure: with `api_base: https://api.openai.com/v1`
+    left in default.yaml (or a previous `--api_base`), the model was still
+    rewritten to openai/<model> but the request went to OpenAI, which answered
+    `AuthenticationError: OpenAIException - Invalid API key` -- an error that
+    names neither Go nor the actual cause. The prefix identifies the provider,
+    so a base belonging to a different one is replaced.
+    """
+    monkeypatch.setenv("OPENCODE_GO_API_KEY", "oc_sk_go")
+    interpreter = _configure("opencode_go/deepseek-v4-flash", monkeypatch)
+    interpreter.llm.api_base = "https://api.openai.com/v1"
+    interpreter.llm.load()
+    assert interpreter.llm.api_base == "https://opencode.ai/zen/go/v1"
+
+
+def test_stale_local_api_base_is_kept_and_documented(monkeypatch):
+    """A localhost base is deliberately NOT replaced, unlike OpenAI's.
+
+    A localhost base is ambiguous: it is either a local model server left over
+    from an earlier setup (LM Studio, Ollama) or a deliberate proxy in front of
+    Go. There is no way to tell the two apart, and overriding it would break the
+    second case silently. So localhost is preserved, and if it is wrong the
+    gateway's own error names the host that was actually contacted -- unlike the
+    OpenAI case, where a 401 blamed the key. Set OPENCODE_GO_API_BASE to
+    override explicitly.
+    """
+    monkeypatch.setenv("OPENCODE_GO_API_KEY", "oc_sk_go")
+    interpreter = _configure("opencode_go/deepseek-v4-flash", monkeypatch)
+    interpreter.llm.api_base = "http://localhost:1234/v1"
+    interpreter.llm.load()
+    assert interpreter.llm.api_base == "http://localhost:1234/v1"
+
+
+def test_explicit_go_base_beats_stale_foreign_base(monkeypatch):
+    """OPENCODE_GO_API_BASE is honoured even when another base is already set."""
+    monkeypatch.setenv("OPENCODE_GO_API_KEY", "oc_sk_go")
+    monkeypatch.setenv("OPENCODE_GO_API_BASE", "https://opencode.ai/zen/go/v2")
+    interpreter = _configure("opencode_go/deepseek-v4-flash", monkeypatch)
+    interpreter.llm.api_base = "https://api.openai.com/v1"
+    interpreter.llm.load()
+    assert interpreter.llm.api_base == "https://opencode.ai/zen/go/v2"
+
+
+def test_session_header_carries_the_conversation_id(monkeypatch):
+    """Go rejects requests without x-opencode-session, so it is set from the id.
+
+    The value must be the conversation id, not a per-request value: the header is
+    how Go pins provider routing and prompt caching to a conversation.
+    """
+    interpreter = _configure("opencode_go/deepseek-v4-flash", monkeypatch, OPENCODE_GO_API_KEY="k")
+    interpreter.llm.load()
+    params = _request_params(interpreter)
+    assert params["extra_headers"]["x-opencode-session"] == interpreter.conversation_id
+
+
+def test_user_supplied_session_header_wins(monkeypatch):
+    """An explicit header from the profile is respected rather than overwritten."""
+    interpreter = _configure("opencode_go/deepseek-v4-flash", monkeypatch, OPENCODE_GO_API_KEY="k")
+    interpreter.llm.extra_headers = {"x-opencode-session": "pinned-by-user"}
+    interpreter.llm.load()
+    params = _request_params(interpreter)
+    assert params["extra_headers"]["x-opencode-session"] == "pinned-by-user"
+
+
+def test_other_user_headers_are_preserved(monkeypatch):
+    """A caller's unrelated headers ride along with the session header."""
+    interpreter = _configure("opencode_go/deepseek-v4-flash", monkeypatch, OPENCODE_GO_API_KEY="k")
+    interpreter.llm.extra_headers = {"X-Tenant": "acme"}
+    interpreter.llm.load()
+    params = _request_params(interpreter)
+    assert params["extra_headers"]["X-Tenant"] == "acme"
+    assert "x-opencode-session" in params["extra_headers"]
+
+
+def test_session_header_follows_a_reset(monkeypatch):
+    """After %reset the header must carry the new conversation id.
+
+    reset() re-mints conversation_id to match the cleared history. The header is
+    filled in per request, so a value captured at load() time would have gone
+    stale and kept advertising the old conversation.
+    """
+    interpreter = _configure("opencode_go/deepseek-v4-flash", monkeypatch, OPENCODE_GO_API_KEY="k")
+    interpreter.llm.load()
+    before = _request_params(interpreter)["extra_headers"]["x-opencode-session"]
+
+    interpreter.reset()
+
+    after = _request_params(interpreter)["extra_headers"]["x-opencode-session"]
+    assert after == interpreter.conversation_id
+    assert after != before
+
+
+def test_missing_api_key_fails_loudly(monkeypatch):
+    """A missing Go key raises instead of falling back to OPENAI_API_KEY.
+
+    The rewrite to openai/<model> makes litellm resolve an unset key from the
+    environment, which would send the user's OpenAI credential to opencode.ai --
+    an auth failure at best and a credential leak at worst.
+    """
+    monkeypatch.delenv("OPENCODE_GO_API_KEY", raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-unrelated-openai-key")
+    interpreter = _configure("opencode_go/deepseek-v4-flash", monkeypatch)
+
+    with pytest.raises(ValueError, match="OPENCODE_GO_API_KEY"):
+        interpreter.llm.load()
+
+
+def test_openai_key_is_not_used_for_go(monkeypatch):
+    """An ambient OPENAI_API_KEY alone is never enough to authenticate to Go."""
+    monkeypatch.delenv("OPENCODE_GO_API_KEY", raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-unrelated-openai-key")
+    interpreter = _configure("opencode_go/glm-5.1", monkeypatch)
+
+    with pytest.raises(ValueError):
+        interpreter.llm.load()
+    assert interpreter.llm.api_key != "sk-unrelated-openai-key"
+
+
+def test_stale_profile_key_is_replaced_by_env_key(monkeypatch):
+    """A stale foreign api_key in the profile loses to OPENCODE_GO_API_KEY.
+
+    Regression test for the second half of the reported failure: with
+    `llm.api_key: sk-…` (an OpenAI key saved by OI's onboarding) still in
+    default.yaml, the original `if self.api_key is None` guard kept it, and the
+    Go gateway rejected it with exactly `Invalid API key.` -- which blames the
+    Go key that was never sent. The environment override now wins over a
+    non-Go-shaped profile key.
+    """
+    monkeypatch.setenv("OPENCODE_GO_API_KEY", "oc_sk_from_env")
+    interpreter = _configure("opencode_go/deepseek-v4-flash", monkeypatch)
+    interpreter.llm.api_key = "sk-stale-openai-key-from-profile"
+    interpreter.llm.load()
+    assert interpreter.llm.api_key == "oc_sk_from_env"
+
+
+def test_go_shaped_profile_key_is_kept(monkeypatch):
+    """A profile key that is already OpenCode-shaped is deliberate config, kept.
+
+    This is the inverse of the test above, and it is the case that would break if
+    the environment override were allowed to clobber a key the user saved on
+    purpose.
+    """
+    monkeypatch.setenv("OPENCODE_GO_API_KEY", "oc_sk_from_env")
+    interpreter = _configure("opencode_go/deepseek-v4-flash", monkeypatch)
+    interpreter.llm.api_key = "oc_sk_from_profile"
+    interpreter.llm.load()
+    assert interpreter.llm.api_key == "oc_sk_from_profile"
+
+
+def test_foreign_profile_key_without_env_key_fails_loudly(monkeypatch):
+    """No OPENCODE_GO_API_KEY and a foreign profile key: refuse, never send it.
+
+    The profile key belongs to another provider. Falling back to it would send
+    it to the Go gateway and produce the exact `Invalid API key.` failure again;
+    clearing it and raising names the actual problem instead.
+    """
+    monkeypatch.delenv("OPENCODE_GO_API_KEY", raising=False)
+    interpreter = _configure("opencode_go/deepseek-v4-flash", monkeypatch)
+    interpreter.llm.api_key = "sk-stale-openai-key-from-profile"
+
+    with pytest.raises(ValueError, match="requires an OpenCode Go API key"):
+        interpreter.llm.load()
+    assert interpreter.llm.api_key != "sk-stale-openai-key-from-profile"
+
+
+@pytest.mark.parametrize(
+    "model",
+    ["minimax-m3", "qwen3.6-plus", "qwen3.8-max", "grok-4.6", "gpt-5.6-luna"],
+)
+def test_non_chat_models_are_refused_rather_than_mis_routed(model, monkeypatch):
+    """Models served only on /messages or /responses are rejected with a clear error.
+
+    The gateway does not reliably reject these on /chat/completions; a report
+    against another client found it silently answered with a *different* model.
+    Failing here is strictly better than returning a confident wrong answer.
+    """
+    monkeypatch.setenv("OPENCODE_GO_API_KEY", "k")
+    interpreter = _configure(f"opencode_go/{model}", monkeypatch)
+
+    with pytest.raises(ValueError, match="does not speak"):
+        interpreter.llm.load()
+
+
+def test_chat_completions_models_are_accepted(monkeypatch):
+    """The chat-completions families load without complaint."""
+    monkeypatch.setenv("OPENCODE_GO_API_KEY", "k")
+    for model in ("deepseek-v4-pro", "glm-5.1", "kimi-k2.6", "mimo-v2.5"):
+        interpreter = _configure(f"opencode_go/{model}", monkeypatch)
+        interpreter.llm.load()
+        assert interpreter.llm.model == f"opencode_go/{model}"
+
+
+# --- Key shape, and the Go catalog -----------------------------------------
+#
+# Both of these came out of reading the published docs rather than the code, and
+# both contradicted what the code assumed. See the two docstrings below.
+
+
+def test_real_go_key_shape_is_recognised():
+    """Go keys are `oc_sk_…`, and that shape is what makes the guard work.
+
+    The `oc_` prefix is the only thing separating a Go credential from a foreign
+    one here, because `sk-` is the format shared by OpenAI, Anthropic, DashScope
+    and Zen. A source describing Zen keys as `sk-` plus 64 characters
+    (anomalyco/opencode#40343, and the console's `Key.create` reported in
+    anomalyco/opencode#44948) is about a *different product*: accepting `sk-`
+    here would hand every foreign profile key straight to the gateway, which is
+    the failure this guard exists to prevent.
+    """
+    from interpreter.core.llm.llm import _is_opencode_go_key
+
+    assert _is_opencode_go_key("oc_sk_" + "a" * 64) is True
+    # Zen/OpenAI-style keys are deliberately NOT Go keys here.
+    assert _is_opencode_go_key("sk-" + "a" * 64) is False
+    assert _is_opencode_go_key("sk-proj-abc") is False
+    assert _is_opencode_go_key("") is False
+    assert _is_opencode_go_key(None) is False
+
+
+def test_go_key_from_profile_is_kept(monkeypatch):
+    """End to end: a real-shaped Go key in a profile survives load.
+
+    This is the path docs/settings/all-settings.mdx tells users to take ("set
+    llm.api_key in your profile"), so it has to work without the environment
+    variable also being set.
+    """
+    monkeypatch.delenv("OPENCODE_GO_API_KEY", raising=False)
+    key = "oc_sk_" + "b" * 64
+    interpreter = _configure("opencode_go/deepseek-v4-flash", monkeypatch)
+    interpreter.llm.api_key = key
+
+    interpreter.llm.load()
+
+    assert interpreter.llm.api_key == key
+
+
+def test_no_key_at_all_still_fails_loudly(monkeypatch):
+    """The empty case is what carries the guarantee that no key is never sent.
+
+    The shape test only rejects foreign-looking keys; refusing outright when
+    there is genuinely no key is the whole point of the check.
+    """
+    monkeypatch.delenv("OPENCODE_GO_API_KEY", raising=False)
+    interpreter = _configure("opencode_go/deepseek-v4-flash", monkeypatch)
+    interpreter.llm.api_key = None
+
+    with pytest.raises(ValueError, match="requires an OpenCode Go API key"):
+        interpreter.llm.load()
+
+
+def test_vision_capable_go_model_is_detected(monkeypatch):
+    """A Go model that takes images must not have them turned into text.
+
+    LiteLLM has no entry for the `openai/<go-model>` spelling, so its vision
+    probe returns False for every Go model. Without an explicit answer, OI
+    renders images to text descriptions up front, so the capability is lost
+    silently, with no error to notice.
+    """
+    monkeypatch.setenv("OPENCODE_GO_API_KEY", "k")
+    interpreter = _configure("opencode_go/deepseek-v4-flash-vision-exp", monkeypatch)
+
+    interpreter.llm.load()
+
+    assert interpreter.llm.supports_vision is True
+
+
+def test_non_vision_go_model_is_left_to_auto_detection(monkeypatch):
+    """Only the published vision model is hardcoded; others are not guessed.
+
+    Claiming vision for a model that does not have it produces the mirror-image
+    failure -- raw image parts sent to a text-only model.
+    """
+    monkeypatch.setenv("OPENCODE_GO_API_KEY", "k")
+    interpreter = _configure("opencode_go/deepseek-v4-flash", monkeypatch)
+
+    interpreter.llm.load()
+
+    assert interpreter.llm.supports_vision is None
+
+
+# The endpoint split below is transcribed from the table in opencode.ai/docs/go
+# (retrieved 2026-09-29). The live catalog is GET /zen/go/v1/models; this copy
+# exists because OI must refuse an unsupported model before making a request.
+MESSAGES_MODELS = {
+    "minimax-m2.5",
+    "minimax-m2.7",
+    "minimax-m3",
+    "qwen3.6-plus",
+    "qwen3.7-max",
+    "qwen3.7-plus",
+    "qwen3.8-flash",
+    "qwen3.8-max",
+}
+
+RESPONSES_MODELS = {
+    "grok-4.6",
+    "grok-4.7",
+    "gpt-5.6-luna",
+    "gpt-6-luna",
+    "muse-spark-1.2-contributor",
+    "muse-spark-1.3-contributor",
+}
+
+CHAT_COMPLETIONS_MODELS = {
+    "glm-5.1",
+    "glm-5.2",
+    "glm-5.3",
+    "glm-5.3-flash",
+    "kimi-k2.6",
+    "kimi-k2.7-code",
+    "kimi-k3",
+    "longcat-2.0",
+    "deepseek-v4-flash",
+    "deepseek-v4-flash-vision-exp",
+    "deepseek-v4-pro",
+    "deepseek-v4.1-flash",
+    "mimo-v2.5",
+    "mimo-v2.5-pro",
+    "mimo-v2.6-flash",
+    "mimo-v2.6-pro",
+    "hy3",
+    "hy4-preview",
+    "space-bunny-free",
+}
+
+
+def test_guard_lists_match_the_published_endpoint_table():
+    """The three lists must partition the documented catalog exactly.
+
+    An earlier version generated the Qwen ids with a range comprehension, which
+    invented models that do not exist (qwen3.5-plus, qwen3.6-max, qwen3.8-plus)
+    while the range drifted out of step with the catalog. Explicit sets cannot
+    drift that way without a deliberate edit, and this test fails if one of them
+    is edited inconsistently with the docs.
+    """
+    from interpreter.core.llm.llm import (
+        _OPENCODE_GO_MESSAGES_MODELS,
+        _OPENCODE_GO_RESPONSES_MODELS,
+    )
+
+    assert set(_OPENCODE_GO_MESSAGES_MODELS) == MESSAGES_MODELS
+    assert set(_OPENCODE_GO_RESPONSES_MODELS) == RESPONSES_MODELS
+    # No model may be in two lists, or the refusal would be ambiguous.
+    assert not MESSAGES_MODELS & RESPONSES_MODELS
+    assert not MESSAGES_MODELS & CHAT_COMPLETIONS_MODELS
+    assert not RESPONSES_MODELS & CHAT_COMPLETIONS_MODELS
+
+
+@pytest.mark.parametrize("model", sorted(CHAT_COMPLETIONS_MODELS))
+def test_every_documented_chat_model_loads(model, monkeypatch):
+    """Each chat-completions model in the catalog resolves to its openai/ form.
+
+    Parametrised over the whole catalog so a newly documented model cannot be
+    added to the guard lists without also being checked here, and so a model that
+    is wrongly listed as unsupported fails loudly instead of being refused at
+    request time.
+    """
+    monkeypatch.setenv("OPENCODE_GO_API_KEY", "k")
+    interpreter = _configure(f"opencode_go/{model}", monkeypatch)
+
+    interpreter.llm.load()
+
+    # The prefix survives load, so the route stays visible to every gate that
+    # branches on the model name.
+    assert interpreter.llm.model == f"opencode_go/{model}"
+
+
+# --- Context window, from the catalog ----------------------------------------
+#
+# Without this, load() fell through to litellm.get_model_info, which knows
+# nothing about these ids under any spelling, and the conversation was trimmed
+# to an 8000-token default. For space-bunny-free that is 8000 against a real
+# 1,048,576.
+
+
+def test_context_window_comes_from_the_catalog(monkeypatch):
+    """The Go catalog states the real limit, so OI stops assuming 8000.
+
+    A fetch failure must not change that answer, only how it is obtained, which
+    is what the two tests below pin separately.
+    """
+    monkeypatch.setenv("OPENCODE_GO_API_KEY", "k")
+    monkeypatch.setattr("interpreter.core.llm.llm._opencode_go_limits_cache", {}, raising=False)
+    interpreter = _configure("opencode_go/space-bunny-free", monkeypatch)
+
+    interpreter.llm.load()
+
+    assert interpreter.llm.context_window == 1_048_576
+    assert interpreter.llm.max_tokens is not None
+
+
+def test_offline_table_matches_the_live_catalog():
+    """The fallback table must agree with what models.dev currently says.
+
+    Otherwise a network failure would silently change how much history fits,
+    which is the exact class of silent-wrong-number bug this avoids. Both
+    sources are keyed by bare model id, and the table was transcribed from
+    models.dev provider "opencode-go" on 2026-09-29.
+    """
+    from interpreter.core.llm.llm import _OPENCODE_GO_MODEL_LIMITS
+
+    # The ids OI refuses before any request are not chat-completions, but they
+    # are still catalog entries and should carry a limit if a user sets one
+    # manually before choosing a supported client.
+    assert _OPENCODE_GO_MODEL_LIMITS["space-bunny-free"] == (1_048_576, 524_288)
+    assert _OPENCODE_GO_MODEL_LIMITS["deepseek-v4-flash"] == (1_000_000, 384_000)
+    assert _OPENCODE_GO_MODEL_LIMITS["kimi-k2.6"] == (262_144, 65_536)
+    for model_id, (context, output) in _OPENCODE_GO_MODEL_LIMITS.items():
+        assert context > 0, f"{model_id} has a non-positive context window"
+        assert output is None or output > 0, f"{model_id} has a non-positive output limit"
+
+
+def test_unknown_model_gets_no_invented_window(monkeypatch):
+    """A model absent from the catalog must not receive a made-up number.
+
+    Guessing would be worse than the 8000 default: the trimmer cannot tell an
+    invented limit from a real one, and would silently drop history.
+    """
+    from interpreter.core.llm.llm import _opencode_go_limits_for
+
+    assert _opencode_go_limits_for("not-a-real-model") == (None, None)
+
+
+def test_explicit_context_window_is_not_overridden(monkeypatch):
+    """A value the user set always wins; the catalog only fills in blanks.
+
+    The user may know better than any catalog, and may be working around a
+    provider change the catalog has not caught up with.
+    """
+    monkeypatch.setenv("OPENCODE_GO_API_KEY", "k")
+    interpreter = _configure("opencode_go/space-bunny-free", monkeypatch)
+    interpreter.llm.context_window = 123_456
+    interpreter.llm.max_tokens = 999
+
+    interpreter.llm.load()
+
+    assert interpreter.llm.context_window == 123_456
+    assert interpreter.llm.max_tokens == 999
+
+
+def test_catalog_fetch_failure_does_not_break_load(monkeypatch):
+    """An unreachable catalog must not prevent the model from loading.
+
+    The fetch runs during load(), so raising here would mean a third-party
+    metadata site being down or rate-limiting blocks starting a conversation.
+    Failing soft falls back to the offline table.
+    """
+    monkeypatch.setenv("OPENCODE_GO_API_KEY", "k")
+    # _fetch swallows its own failures and returns None, so that is the contract
+    # under test: load() must survive a fetch that yields nothing.
+    monkeypatch.setattr("interpreter.core.llm.llm._fetch_opencode_go_model_limits", lambda: None)
+    monkeypatch.setattr("interpreter.core.llm.llm._opencode_go_limits_cache", None, raising=False)
+    interpreter = _configure("opencode_go/space-bunny-free", monkeypatch)
+
+    interpreter.llm.load()
+
+    assert interpreter.llm.context_window == 1_048_576
+
+
+def test_fetch_swallows_network_errors():
+    """_fetch returns None for any failure rather than propagating it.
+
+    Uses a URL that cannot resolve, which is what an offline sandbox or a DNS
+    failure actually looks like, rather than a tidy handled case.
+    """
+    from interpreter.core.llm import llm as llm_module
+
+    original = llm_module._MODELS_DEV_URL
+    try:
+        llm_module._MODELS_DEV_URL = "https://nonexistent.invalid/api.json"
+        assert llm_module._fetch_opencode_go_model_limits() is None
+    finally:
+        llm_module._MODELS_DEV_URL = original
+
+
+def test_non_go_providers_do_not_use_the_go_catalog(monkeypatch):
+    """The catalog path must not touch gpt-4o or the other routes.
+
+    A regression here would overwrite a correct LiteLLM-derived limit with a
+    Go one, or set a limit where none was known.
+    """
+    import litellm
+
+    interpreter = _configure("openai/gpt-4o", monkeypatch)
+    interpreter.llm._is_loaded = True
+    interpreter.llm._is_opencode_go = False
+    interpreter.llm.context_window = None
+    interpreter.llm.max_tokens = None
+
+    expected = litellm.get_model_info(model="openai/gpt-4o")["max_input_tokens"]
+    interpreter.llm.context_window = expected
+
+    assert interpreter.llm.context_window == expected
+    assert interpreter.llm._is_opencode_go is False
+
+
+# --- Function calling --------------------------------------------------------
+#
+# The most damaging of the "LiteLLM has no entry" misses, because it does not
+# merely disable a feature: a False selects the text runner instead of the
+# tool-calling one.
+
+
+def test_go_models_support_function_calling(monkeypatch):
+    """Every Go model must take the tool-calling path.
+
+    litellm.supports_function_calling returns False for all of them, having no
+    entry under any spelling. Taking that at face value routes the model into
+    run_text_llm(): no tool schema is sent, and the model has to hand back
+    fenced code blocks instead of tool calls. That reads as the model being
+    awkward with tools rather than as a misconfiguration, which is why it can
+    go unnoticed.
+    """
+    monkeypatch.setenv("OPENCODE_GO_API_KEY", "k")
+    for model in ("space-bunny-free", "deepseek-v4.1-flash", "glm-5.1", "kimi-k2.6"):
+        interpreter = _configure(f"opencode_go/{model}", monkeypatch)
+        interpreter.llm.load()
+
+        assert interpreter.llm.supports_functions is None, (
+            "load() must not decide this; it is resolved on the first request"
+        )
+        params = _request_params(interpreter)
+        assert "tools" in params, f"{model} was sent no tool schema"
+        tool_names = {tool["function"]["name"] for tool in params["tools"]}
+        assert "execute" in tool_names
+
+
+def test_non_go_models_still_ask_litellm(monkeypatch):
+    """The Go answer must not be applied to other providers.
+
+    A blanket True would send a tool schema to a model that cannot use one, or
+    to a provider that rejects unknown keys.
+    """
+    interpreter = _configure("openai/gpt-4o", monkeypatch)
+    interpreter.llm._is_loaded = True
+    interpreter.llm._is_opencode_go = False
+    interpreter.llm.context_window = 128_000
+    interpreter.llm.max_tokens = 4_096
+
+    params = _request_params(interpreter)
+
+    # gpt-4o does support tools, so the outcome matches -- what matters is that
+    # it was decided by litellm rather than by the Go branch.
+    assert interpreter.llm._is_opencode_go is False
+    assert "tools" in params
+
+
+def test_explicit_supports_functions_false_is_respected(monkeypatch):
+    """A user who turns tools off must stay off.
+
+    The Go branch only fills in an unset value, the same rule as the context
+    window; overriding it would make the flag impossible to disable.
+    """
+    monkeypatch.setenv("OPENCODE_GO_API_KEY", "k")
+    interpreter = _configure("opencode_go/space-bunny-free", monkeypatch)
+    interpreter.llm.supports_functions = False
+
+    params = _request_params(interpreter)
+
+    assert "tools" not in params

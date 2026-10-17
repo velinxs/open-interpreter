@@ -3,7 +3,7 @@ This is the template Open Interpreter profile.
 
 A starting point for creating a new profile.
 
-Learn about all the available settings - https://docs.openinterpreter.com/settings/all-settings
+Learn about all the available settings - https://github.com/endolith/open-interpreter/blob/main/docs/settings/all-settings.mdx
 
 """
 
@@ -31,7 +31,7 @@ interpreter.offline = False
 interpreter.loop = True
 interpreter.auto_run = False
 
-# Toggle OS Mode - https://docs.openinterpreter.com/guides/os-mode
+# Toggle OS Mode - https://github.com/endolith/open-interpreter/blob/main/docs/guides/os-mode.mdx
 interpreter.os = False
 
 # Import Toolbox API - https://docs.openinterpreter.com/code-execution/toolbox-api

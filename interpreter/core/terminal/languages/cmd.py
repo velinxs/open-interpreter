@@ -8,10 +8,12 @@ from .subprocess_language import SubprocessLanguage
 class Cmd(CwdTrackingMixin, SubprocessLanguage):
     file_extension = "bat"
     name = "cmd"
-    execute_tool_hint = "Windows cmd.exe — set VAR=value, use %VAR%; not bash/PowerShell syntax"
+    execute_tool_hint = "Windows cmd.exe — set VAR=value, use %VAR%; not bash/PowerShell syntax. One command per line for readability."
     # `cd /d X` is cmd's change-drive form; `;` is not a cmd separator.
     cd_option_prefixes = ("/d",)
     cd_chain_operators = ("&&", "&")
+    # `nul` is cmd's actual null device, so there is nothing to normalize.
+    null_device = None
 
     def __init__(self):
         CwdTrackingMixin.__init__(self)
@@ -23,6 +25,7 @@ class Cmd(CwdTrackingMixin, SubprocessLanguage):
         self.start_cmd = ["cmd.exe", "/K", "chcp 65001 >nul"]
 
     def preprocess_code(self, code):
+        code, _ = self._normalize_null_redirects(code)
         code = self._strip_redundant_cd(code)
         code = preprocess_shell(code)
         end_marker = '\necho "##end_of_execution##"'
@@ -30,12 +33,7 @@ class Cmd(CwdTrackingMixin, SubprocessLanguage):
 
     def _cwd_marker_echo(self):
         # `@` suppresses cmd echoing this command back; `%CD%` is the current dir.
-        return "\n@echo ##oi_pwd##%CD%"
-
-    def detect_active_line(self, line):
-        if "##active_line" in line:
-            return int(line.split("##active_line")[1].split("##")[0])
-        return None
+        return "\n@echo ##oi_cwd##%CD%"
 
     def detect_end_of_execution(self, line):
         return "##end_of_execution##" in line

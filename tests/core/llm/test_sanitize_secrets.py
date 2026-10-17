@@ -7,7 +7,7 @@ a detector matched a benign phrase. The selection rule below is therefore the
 whole feature — a message it misses is a secret that leaves the machine.
 """
 
-from interpreter.core.llm.utils.sanitize_secrets import sanitize_messages
+from interpreter.core.llm.utils.sanitize_secrets import _redact_secrets, sanitize_messages
 
 
 def _scanner(text):
@@ -74,3 +74,26 @@ def test_everything_is_scanned_when_the_narrow_filter_is_switched_off():
     messages = [{"role": "user", "content": "hunter2"}]
     sanitize_messages(messages, scanner=_scanner, only_code_output=False)
     assert messages[0]["content"] == "[REDACTED]"
+
+
+# The tests above pin *which* messages are scanned. These two pin one piece of
+# detection: the fine-grained GitHub PAT shape, which detect-secrets' own
+# GitHubTokenDetector does not know and the excluded high-entropy plugins
+# would not have caught either.
+def test_redacts_bare_fine_grained_github_token():
+    """Bare fine-grained GitHub PATs are redacted without a secret-like variable name."""
+    token = f"github_pat_{'A' * 22}_{'b' * 59}"
+    text = f"observed {token} in command output"
+
+    redacted = _redact_secrets(text)
+
+    assert token not in redacted
+    assert redacted.endswith("observed [REDACTED] in command output")
+
+
+def test_does_not_redact_invalid_fine_grained_github_token_shape():
+    """A malformed fine-grained GitHub token is preserved instead of over-redacted."""
+    token = f"github_pat_{'A' * 21}_{'b' * 59}"
+    text = f"observed {token} in command output"
+
+    assert _redact_secrets(text) == text

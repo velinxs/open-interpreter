@@ -6,7 +6,12 @@ accidental growth fails; Phase 3 lowers it as the prompts shrink.
 
 from tests.support.scripted_session import SCRIPT, run_scripted_session
 
-TOKEN_BUDGET = 35500  # measured 34,286; was 42,272 before the Phase 3 prompt work
+# measured 35,942; was 34,286 before the classic/develop merge, and 42,272
+# before the Phase 3 prompt work. The merge's two stated additions account for
+# the rise: the <env> block in the system prompt, and the `code` parameter
+# description in the execute schema, which had lost the persistent-session
+# contract the legacy schema still carried.
+TOKEN_BUDGET = 36400
 
 
 def test_scripted_session_stays_under_token_budget(offline_interpreter, tmp_path):

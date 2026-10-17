@@ -9,9 +9,12 @@ from .subprocess_language import SubprocessLanguage
 class PowerShell(CwdTrackingMixin, SubprocessLanguage):
     file_extension = "ps1"
     name = "powershell"
-    execute_tool_hint = "PowerShell — $var = value; cmdlet syntax. Requires pwsh on Linux/Mac."
+    execute_tool_hint = "PowerShell — $var = value; cmdlet syntax. Requires pwsh on Linux/Mac. One command per line for readability."
     cd_commands = ("cd", "Set-Location", "sl")
     cd_ignore_case = True
+    # PowerShell has no `nul` device; redirecting to `nul` creates a literal file.
+    null_device = "$null"
+    shell_quote_style = "powershell"
 
     def __init__(self):
         CwdTrackingMixin.__init__(self)
@@ -21,13 +24,14 @@ class PowerShell(CwdTrackingMixin, SubprocessLanguage):
         self.start_cmd = [resolve_powershell_executable(), *powershell_startup_args()]
 
     def preprocess_code(self, code):
+        code, _ = self._normalize_null_redirects(code)
         code = self._strip_redundant_cd(code)
         code = preprocess_powershell(code)
         end_marker = '\nWrite-Output "##end_of_execution##"'
         return self._insert_cwd_marker(code, end_marker)
 
     def _cwd_marker_echo(self):
-        return '\nWrite-Output "##oi_pwd##$($PWD.Path)"'
+        return '\nWrite-Output "##oi_cwd##$($PWD.Path)"'
 
     def _postprocess_line(self, line):
         # Strip PS prompt lines: "(base) PS C:\Users\...>" or "PS C:\...>"
@@ -42,11 +46,6 @@ class PowerShell(CwdTrackingMixin, SubprocessLanguage):
         if stripped == ">>" or stripped.startswith(">> "):
             return None
         return line
-
-    def detect_active_line(self, line):
-        if "##active_line" in line:
-            return int(line.split("##active_line")[1].split("##")[0])
-        return None
 
     def detect_end_of_execution(self, line):
         return "##end_of_execution##" in line

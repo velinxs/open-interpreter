@@ -20,7 +20,13 @@ from tests.support.scripted_session import SCRIPT
 # every later request; without the model line the model invents an answer when
 # asked what it runs on). Raise it only for a stated addition, never to make a
 # red test green.
-SYSTEM_PROMPT_TOKEN_BUDGET = 1650
+#
+# The stated addition behind the move from 1650: the <env> block reporting where
+# and when the session started, merged from classic/develop. Measured 1689. It
+# is fixed for the life of the process, so it sits in the cached prefix and is
+# paid once rather than per request, and it answers a question the live `$PWD`
+# line cannot — a conversation resumed days later in another directory.
+SYSTEM_PROMPT_TOKEN_BUDGET = 1720
 _enc = tiktoken.get_encoding("cl100k_base")
 
 

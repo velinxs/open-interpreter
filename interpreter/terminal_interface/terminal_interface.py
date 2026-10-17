@@ -41,6 +41,7 @@ from ..core.utils.execution_allowlist import (
     should_require_execution_confirmation,
 )
 from ..core.utils.prompt_choice import NoInteractiveInput, prompt_choice
+from ..core.utils.sanitize_terminal_input import sanitize_terminal_input
 from ..core.utils.scan_code import scan_code
 from ..core.utils.system_debug_info import system_info
 from ..core.utils.truncate_output import truncate_output
@@ -74,6 +75,46 @@ try:
 except:
     # If they don't have readline, that's fine
     pass
+
+
+def _looks_like_unified_diff(output):
+    """True if the preview body is a unified diff rather than a file's contents.
+
+    Most edit languages are dry-run *without* their in-place flag, so what the
+    tool prints is the whole rewritten file. Those previews are rendered as a
+    diff instead, which means the fence language has to follow the content
+    rather than the edit language: highlighting a diff as Python or YAML paints
+    every +/- line as ordinary code and throws away the one cue that says which
+    lines changed.
+    """
+    lines = output.splitlines()
+    return (
+        len(lines) >= 2
+        and lines[0].startswith("--- ")
+        and any(line.startswith("@@ ") for line in lines)
+    )
+
+
+def _display_edit_dry_run(output, *, interpreter, target, edit_language, ok=True):
+    if not output:
+        return
+    # File-format highlighting only for successful previews; errors are plain text.
+    if ok and _looks_like_unified_diff(output):
+        fence_lang = "diff"
+    else:
+        fence_lang = (
+            syntax_lang_for_dry_run(target, edit_language)
+            if ok
+            else "text"
+        )
+    fence = "````" if "```" in output else "```"
+    block = f"{fence}{fence_lang}\n{output}\n{fence}"
+    if interpreter.plain_text_display:
+        print("  Dry run:", flush=True)
+        print(block, flush=True)
+        print("", flush=True)
+    else:
+        display_markdown_message(f"**Dry run:**\n\n{block}\n")
 
 
 def terminal_interface(interpreter, message):
@@ -110,7 +151,13 @@ def terminal_interface(interpreter, message):
             else:
                 ### This is the primary input for Open Interpreter.
                 try:
-                    message = cli_input("> ").strip() if interpreter.multi_line else input("> ").strip()
+                    message = (
+                        cli_input("> ").strip()
+                        if interpreter.multi_line
+                        # Non-multiline path bypasses cli_input: sanitize here
+                        # too (a poisoned log can arm tracking on replay).
+                        else sanitize_terminal_input(input("> ")).strip()
+                    )
                 except (KeyboardInterrupt, EOFError):
                     # Ctrl-C or Ctrl-D at the prompt means leave. Raise SystemExit,
                     # not KeyboardInterrupt: the loop's KeyboardInterrupt handler
@@ -124,8 +171,11 @@ def terminal_interface(interpreter, message):
                     raise SystemExit(0)
 
             try:
-                # This lets users hit the up arrow key for past messages
-                readline.add_history(message)
+                # This lets users hit the up arrow key for past messages.
+                # Skip blank strings (e.g. a prompt that held only leaked
+                # report bytes) so they never pollute readline history.
+                if not (isinstance(message, str) and not message.strip()):
+                    readline.add_history(message)
             except:
                 # If the user doesn't have readline (may be the case on windows), that's fine
                 pass

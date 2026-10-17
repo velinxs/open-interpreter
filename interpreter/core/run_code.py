@@ -134,8 +134,14 @@ def run_pending_code(interpreter, state):
         # exactly what will run. The short notice travels with the
         # confirmation chunk and is shown beside the run prompt, not in
         # the command's terminal output.
+        # Called unconditionally: strip_boilerplate also rewrites a bare `nul`
+        # redirect target to the shell's real null sink, and that is a
+        # correctness fix rather than a cosmetic strip -- on bash, `2>nul`
+        # silently creates a file called `nul` in the working directory. The
+        # `strip_redundant_code` gate is applied inside the cd-stripping itself,
+        # so turning the rewriting off still leaves the redirect corrected.
         lang = interpreter.terminal.get_language_instance(language)
-        if lang is not None and getattr(interpreter, "strip_redundant_code", True):
+        if lang is not None:
             try:
                 stripped, strip_notice = lang.strip_boilerplate(code)
                 # Always adopt the stripped version when something was

@@ -29,7 +29,81 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
+      - name: Install the external tools the edit-tool tests gate on
+        run: |
+          # These tests skip when the binary is absent, so relying on the runner
+          # image to happen to provide them turns coverage off with no signal --
+          # the edit suite went untested for `patch` until someone noticed the
+          # skips. Installed explicitly rather than assumed.
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends patch gawk jq
+          # Required: a miss here is a real coverage hole, so fail the build.
+          for bin in sed gawk patch jq; do
+            if ! command -v "$bin" >/dev/null; then
+              echo "::error::required test binary missing, edit-tool coverage would silently skip: $bin"
+              exit 1
+            fi
+          done
+          # Optional: each needs a release download or an extra repo. Report
+          # rather than fail, so the skipped count in the log is explainable.
+          for bin in perl yq poke; do
+            if command -v "$bin" >/dev/null; then
+              echo "present: $bin"
+            else
+              echo "absent, tests will skip: $bin"
+            fi
+          done
+
       - name: Install
         run: uv sync --group dev --extra server --python ${{ matrix.python-version }}
+
       - name: Test
-        run: uv run pytest -m "not integration" -q
+        run: |
+          # Coverage is collected on one version only; the other runs plain so a
+          # matrix failure is unambiguous about which half broke.
+          if [ "${{ matrix.python-version }}" = "3.14" ]; then
+            uv run pytest -m "not integration" \
+              --cov=interpreter \
+              --cov-branch \
+              --cov-report=xml \
+              --cov-report=term-missing
+          else
+            uv run pytest -m "not integration" -q
+          fi
+
+      - name: Upload coverage report
+        if: matrix.python-version == '3.14'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.xml
+
+  codecov:
+    name: Upload to Codecov
+    needs: test
+    if: ${{ !cancelled() && needs.test.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: coverage-report
+
+      - name: Require Codecov token
+        if: github.event_name == 'push' || github.event.pull_request.head.repo.fork == false
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+        run: |
+          if [ -z "${CODECOV_TOKEN}" ]; then
+            echo "::error::CODECOV_TOKEN repository secret is required for Codecov uploads from main and same-repository pull requests."
+            exit 1
+          fi
+
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v6
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage.xml
+          fail_ci_if_error: true
+          verbose: true

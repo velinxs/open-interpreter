@@ -17,6 +17,14 @@ from queue import (
 
 from ..base_language import BaseLanguage
 
+_ACTIVE_LINE_MARKER_RE = re.compile(r"##active_line(\d+)##")
+# Block-terminating markers. Both are stripped from the line that carries them so
+# neither reaches the user as literal text.
+# `\d*` also consumes the exit status, which Bash appends to this marker; without
+# it the digits survive the strip and are shown to the user as stray output.
+_END_OF_EXECUTION_RE = re.compile(r"##end_of_execution##\d*")
+_EXECUTION_ERROR_RE = re.compile(r"##execution_error##")
+
 
 def _env_seconds(name, default):
     """Read a timeout (in seconds) from the environment. 0 / negative disables it."""
@@ -122,9 +130,21 @@ class SubprocessLanguage(BaseLanguage):
         self.verbose = False
         self.output_queue = queue.Queue()
         self.done = threading.Event()
+        # Set by _abort_stream when the reader fails unexpectedly, so the
+        # failure can be inspected after the turn rather than only being logged.
+        self._stream_error = None
 
     def detect_active_line(self, line):
-        return None
+        """
+        Return the line number from a complete numeric ##active_lineN## marker.
+
+        Command output can legitimately contain placeholder text such as
+        ##active_lineN##, so only complete numeric markers are control markers.
+        """
+        match = _ACTIVE_LINE_MARKER_RE.search(line)
+        if match is None:
+            return None
+        return int(match.group(1))
 
     def detect_exit_code(self, line):
         """Exit status encoded in the end-of-execution marker, or None.
@@ -149,8 +169,35 @@ class SubprocessLanguage(BaseLanguage):
         """
         return code
 
+    # POSIX shells can run a command with its own stdin pointed at the null
+    # device -- `{ cat; } < /dev/null` -- so the command sees EOF immediately
+    # instead of blocking forever on a read that nothing will satisfy. Kept off
+    # by default because it needs shell syntax: cmd.exe cannot parse braces, and
+    # each shell needs its own form.
+    #
+    # Why not redirect the subprocess's stdin at Popen instead: that pipe is how
+    # commands reach a persistent shell, so closing it ends the session. The
+    # redirect is scoped to the command body, leaving the shell's own stdin --
+    # the command channel -- intact. Verified: the next command still runs.
+    #
+    # Cost is that a bare `read` now returns 1 at EOF, so `read x && cmd` skips
+    # cmd. That is visible in the output, which is the failure mode we want;
+    # hanging is not.
+    command_stdin_from_null_device = False
+    null_device_path = "/dev/null"
+
+    def _wrap_command_for_null_stdin(self, code):
+        # The terminator differs by whether `code` already ends in a newline. A
+        # newline followed by `;` is a bash syntax error ("near unexpected token
+        # `;'"), and multi-line blocks do end in one. Single-line blocks need the
+        # `;` added explicitly, since `{ cmd }` alone is a syntax error.
+        terminator = "} " if code.endswith("\n") else "; } "
+        return "{ " + code + terminator + "< " + self.null_device_path
+
     def write_block_to_stdin(self, code):
         """Send a processed code block to the language subprocess."""
+        if self.command_stdin_from_null_device:
+            code = self._wrap_command_for_null_stdin(code)
         payload = code if code.endswith("\n") else code + "\n"
         if self.binary_stdio:
             self.process.stdin.write(payload.encode("utf-8"))
@@ -379,6 +426,15 @@ class SubprocessLanguage(BaseLanguage):
                     self.process = None
                     break
 
+        # Persistent shells report where they are after every command, the way
+        # JupyterLanguage reports CWD/variables for Python. Opt-in via the
+        # method existing, so languages without tracked state are unaffected.
+        state_line = getattr(self, "_state_line", None)
+        if callable(state_line):
+            line = state_line()
+            if line:
+                yield {"type": "console", "format": "output", "content": line}
+
     def handle_stream_output(self, stream, is_error_stream):
         try:
             eof = b"" if self.binary_stdio else ""
@@ -399,8 +455,11 @@ class SubprocessLanguage(BaseLanguage):
                 if self.detect_active_line(line):
                     active_line = self.detect_active_line(line)
                     # Sometimes there's a little extra on the same line, so be sure to send that out
-                    line = re.sub(r"##active_line\d+##", "", line)
-                    active_line_enabled = os.environ.get("INTERPRETER_ACTIVE_LINE_DETECTION", "True").lower() == "true"
+                    line = _ACTIVE_LINE_MARKER_RE.sub("", line)
+                    active_line_enabled = (
+                        os.environ.get("INTERPRETER_ACTIVE_LINE_DETECTION", "True").lower()
+                        == "true"
+                    )
                     if active_line_enabled:
                         self.output_queue.put(
                             {
@@ -409,13 +468,21 @@ class SubprocessLanguage(BaseLanguage):
                                 "content": active_line,
                             }
                         )
-                    if line:
+                    # The marker is usually printed on a line of its own, so what
+                    # is left after removing it is just the newline that
+                    # terminated it. A whitespace-only remainder carries no
+                    # output and would show up as a stray blank line.
+                    if line.strip():
                         self.output_queue.put({"type": "console", "format": "output", "content": line})
                 elif self.detect_end_of_execution(line):
+                    # Read the status before stripping: the marker is what carries it.
                     exit_code = self.detect_exit_code(line)
-                    # Sometimes there's a little extra on the same line, so be sure to send that out.
-                    # \d* also consumes the exit status when the marker carries one.
-                    line = re.sub(r"##end_of_execution##\d*", "", line).strip()
+                    # Both markers end the block, so both must be stripped. An
+                    # error marker that reaches the user verbatim reads as
+                    # protocol noise rather than the error itself. Sometimes
+                    # there is a little real output on the same line; send that.
+                    line = _END_OF_EXECUTION_RE.sub("", line)
+                    line = _EXECUTION_ERROR_RE.sub("", line).strip()
                     if line:
                         self.output_queue.put({"type": "console", "format": "output", "content": line})
                     # Only report failures: a successful command stays silent and
@@ -446,4 +513,40 @@ class SubprocessLanguage(BaseLanguage):
                 if self.verbose:
                     print("Stream closed while reading.")
             else:
-                raise e
+                self._abort_stream(e)
+        except Exception as e:
+            self._abort_stream(e)
+
+    def _abort_stream(self, error):
+        """End the turn after an unexpected reader failure, and report it.
+
+        Without this the reader thread just dies. `done` is then never set --
+        it is only set by the end-of-execution marker or the KeyboardInterrupt
+        branch, both of which live in this method -- so run()'s consumer loop
+        spins on `while True` forever, the turn never ends, and whatever the
+        command had already printed stays unread in the pipe.
+
+        The visible symptom is output that vanished, plus a terminal that stops
+        responding to Ctrl-C, because the Rich Live display stays up for the
+        whole hang. That was reported as "the previous attempt's output got
+        swallowed" and mistaken for the model losing interest.
+
+        The failure is surfaced rather than swallowed: a reader that dies quietly
+        looks identical to a command that produced no output. Whatever was
+        already queued has been yielded by this point, so only the abort itself
+        needs reporting.
+        """
+        self._stream_error = error
+        self.output_queue.put(
+            {
+                "type": "console",
+                "format": "output",
+                "content": (
+                    f"\n[output stream stopped unexpectedly: "
+                    f"{type(error).__name__}: {error}]"
+                ),
+            }
+        )
+        # Ends the consumer loop. Set last, so the diagnostic above is already
+        # queued and gets drained rather than lost to the teardown.
+        self.done.set()

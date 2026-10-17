@@ -1,13 +1,15 @@
 """
 Sanitize message contents before sending to API LLMs: redact secrets (API keys,
 passwords, etc.) that may appear in code output (e.g. from printing env vars).
-Uses bc-detect-secrets (Bridgecrew). Not applied when using local models by default.
+Uses bc-detect-secrets and token-format matching. Not applied when using local models by default.
 
 We use only a subset of detect_secrets plugins so that paths, UUIDs, and other
 benign high-entropy strings in code output are not redacted (see PLUGINS_EXCLUDED_FOR_SANITIZE).
 EnvSecretDetector (env_secret_detector.py) is called directly (not via library file-loading)
 to reliably redact env-style NAME=VALUE lines whose names end in _KEY, _SECRET, _TOKEN, etc.
 """
+
+import re
 
 # The library's full default set includes:
 #
@@ -32,6 +34,10 @@ PLUGINS_EXCLUDED_FOR_SANITIZE = frozenset(
         "IPPublicDetector",
     }
 )
+# GitHubTokenDetector only knows the classic `ghp_`/`gho_`/`ghs_` shapes, so a
+# fine-grained token prints verbatim into the request. It is also outside the
+# high-entropy plugins we exclude above, which means nothing else would catch it.
+_FINE_GRAINED_GITHUB_TOKEN_RE = re.compile(r"github_pat_[A-Za-z0-9]{22}_[A-Za-z0-9]{59}")
 
 
 def _get_sanitize_plugins_config():
@@ -63,7 +69,7 @@ def _is_local_model(model: str) -> bool:
 
 def _redact_secrets(text: str) -> str:
     """
-    Use bc-detect-secrets to find and redact secrets in text.
+    Use bc-detect-secrets and token-format patterns to find and redact secrets in text.
     Scans line-by-line and replaces each detected secret value with [REDACTED].
     Uses only credential/API-key detectors (not high-entropy or keyword) so paths
     and benign strings in code output are left visible.
@@ -81,7 +87,7 @@ def _redact_secrets(text: str) -> str:
     _env_detector = EnvSecretDetector()
 
     config = {"plugins_used": _get_sanitize_plugins_config()}
-    secrets_found = set()
+    secrets_found = set(_FINE_GRAINED_GITHUB_TOKEN_RE.findall(text))
     with transient_settings(config):
         from detect_secrets.core.plugins import util as _plugins_util
 

@@ -1,6 +1,17 @@
 import os
 import re
 
+from ...utils.shell_chain import replace_null_redirect_target
+
+# Marker the language echoes to report the working directory back to OI.
+#
+# Named for what it carries. It used to be "##oi_pwd##", which reads as "Open
+# Interpreter password" -- and because it uses the same ##tag## shape that
+# credential masking uses, a leak of it was indistinguishable from a leaked
+# password, and cost a debugging session chasing a credential that was never
+# exposed. It is a path probe; say so.
+_CWD_MARKER = "##oi_cwd##"
+
 
 class CwdTrackingMixin:
     """Tracks a persistent shell's working directory and strips redundant ``cd`` prefixes.
@@ -12,7 +23,7 @@ class CwdTrackingMixin:
     removes those prefixes when they wouldn't change the shell's location.
 
     The real location is learned two ways: from kept ``cd`` commands, and
-    authoritatively from a ``##oi_pwd##<path>`` line the language echoes just
+    authoritatively from a ``##oi_cwd##<path>`` line the language echoes just
     before its end-of-execution marker (see ``_insert_cwd_marker``), which
     self-corrects tracking if it ever desyncs.
 
@@ -23,6 +34,12 @@ class CwdTrackingMixin:
       ``cd_option_prefixes``   leading option tokens to skip (cmd's ``/d``)
       ``cd_chain_operators``   chaining separators kept after a stripped cd
                                (cmd has no ``;``; default ``("&&", ";", "&")``)
+      ``null_device``          shell-specific null sink used when rewriting a
+                               bare ``nul`` redirect target (``None`` leaves
+                               cmd's real NUL device alone)
+      ``shell_quote_style``    ``"posix"`` for shells whose backslash escapes
+                               the next character, ``"powershell"`` for
+                               PowerShell's backtick/quote-doubling rules
     """
 
     cd_commands = ("cd",)
@@ -34,6 +51,10 @@ class CwdTrackingMixin:
     # bash does this; cmd/PowerShell use backslash as a path separator and
     # quote spaces instead, so they must keep the backslashes.
     cd_unescape_backslashes = False
+    # `nul` is a real device only in cmd. Bash and PowerShell ordinarily
+    # create a file literally named `nul`; rewrite that redirect target.
+    null_device = None
+    shell_quote_style = "posix"
 
     def __init__(self):
         self.cwd = os.getcwd()
@@ -53,54 +74,124 @@ class CwdTrackingMixin:
         return re.compile(rf"^({pattern})(.*)$")
 
     # First shell word is the target, where a backslash escapes the next char
-    # (`\ ` keeps an escaped space inside the word, so `My\ Documents` is one
-    # path, not two tokens). A chain operator (`&&`, `||`, `;`, `&`) may
-    # directly follow it (`cd X; cmd`) or come after whitespace; the operator
-    # is a word terminator, so `cd X;ls` splits as target `X`, chain `;ls`.
-    # `||` is split out too so the line can be recognized as a chain and
-    # deliberately kept whole (a failed cd would have run the fallback). Any
-    # other trailing content (`cd X | wc`, `cd X > f`) leaves the line
-    # unparseable and it is left untouched (and never advances the tracked cwd).
-    _CD_TARGET_RE = re.compile(r"^((?:\\.|[^\s\\;|&])+)(?:\s*((?:&&|\|\||;|&).*))?$")
+    # (`\ ` keeps an escaped space inside the word, so `My\ Documents` is
+    # one path, not two tokens). A chain operator (`&&`, `||`, `;`, `&`) may
+    # directly follow it (`cd X; cmd`) or after whitespace; the operator is a
+    # word terminator, so `cd X;ls` splits as target `X`, chain `;ls`. `||` is
+    # split out too so the line can be recognized as a chain and deliberately
+    # kept whole (a failed cd would have run the fallback). Any other trailing
+    # content (`cd X | wc`, `cd X > f`) leaves the line unparseable and it is
+    # left untouched (and never advances the tracked cwd).
+    _CD_TARGET_RE = re.compile(
+        r"^((?:\\.|[^\s\\;|&])+)(?:\s*((?:&&|\|\||;|&).*))?$"
+    )
 
     def _cwd_marker_echo(self):
         raise NotImplementedError
 
+    def _state_line(self):
+        """One-line report of the shell's working directory, for the model.
+
+        Python gets the equivalent treatment from JupyterLanguage (CWD, imported
+        modules, variables, functions) and it is the only reason the model can
+        tell that a previous cell did something. Shells were getting nothing: the
+        cwd was tracked here and then thrown away -- the ``##oi_cwd##`` marker is
+        consumed by ``_filter_pwd_marker`` precisely so the path never reaches the
+        model's context -- leaving it to guess after every ``cd``.
+
+        Deliberately cwd only. Shell variables and functions are rarely
+        accumulated across turns, and reading them costs a round-trip per
+        command. The cwd is already known here, so this is free.
+
+        Not put in the system message: the cwd changes constantly, so a
+        stable-looking value there would both churn the prompt cache and go
+        stale when a conversation is resumed in a different directory.
+        """
+        return f"[Shell State: CWD: {self.cwd}]"
+
     def _insert_cwd_marker(self, code, end_marker):
-        """Insert the ``##oi_pwd##`` echo just before the end-of-execution marker."""
+        """Insert the ``##oi_cwd##`` echo just before the end-of-execution marker."""
         if code.endswith(end_marker):
             return code[: -len(end_marker)] + self._cwd_marker_echo() + end_marker
         return code
 
     def _filter_pwd_marker(self, line):
-        """If ``line`` is the cwd marker, update ``self.cwd`` and return True.
+        """If ``line`` carries the cwd marker, update ``self.cwd``.
 
-        Returns False for any other line so subclass postprocessors can handle it.
+        Returns the line with the marker and everything after it removed, or None
+        when the whole line was marker (i.e. there is nothing left to display).
+        Any other line is returned unchanged so subclass postprocessors still see
+        it.
+
+        The marker is *not* anchored to the start of the line. A command whose
+        output does not end in a newline -- ``printf 'x'``, ``cat`` of a file
+        with no trailing newline, ``command-that-outputs-without-newline`` --
+        leaves the shell mid-line when the marker echo runs, so the marker
+        arrives glued to the end of that output as::
+
+            no trailing newline##oi_cwd##/home/user/project
+
+        Anchoring at ``^`` then misses it, and both the marker and the absolute
+        path leak into the model's context and the user's display. Matching
+        anywhere and keeping the text *before* the marker loses nothing: the
+        output the command produced is still shown, the path is still consumed,
+        and tracking still updates from the same line.
         """
-        m = re.match(r"^##oi_pwd##(.*)$", line.rstrip("\r\n"))
-        if not m:
-            return False
-        self.cwd = m.group(1).strip()
-        return True
+        if _CWD_MARKER not in line:
+            return line
+        before, _, after = line.partition(_CWD_MARKER)
+        self.cwd = after.strip().rstrip("\r\n").strip()
+        before = before.rstrip("\r\n")
+        return before or None
 
     def line_postprocessor(self, line):
-        if self._filter_pwd_marker(line):
+        stripped = self._filter_pwd_marker(line)
+        if stripped is None:
             return None  # discard the marker from visible output
-        return self._postprocess_line(line)
+        return self._postprocess_line(stripped)
 
     def strip_boilerplate(self, code):
-        """Return (stripped_code, notice) after removing redundant cd prefixes.
+        """Return (stripped_code, notice) after safe shell-code normalization.
 
-        Non-mutating: it does NOT update the tracked cwd for kept ``cd``
-        commands. Called by respond() as a "peek" before the code runs — if it
-        advanced ``self.cwd`` here, the actual run (preprocess_code) would
-        re-strip the same code and consider those ``cd``s redundant, stripping
-        commands that genuinely change directories. Only the real run tracks
-        the cwd.
+        Rewrites a bare ``nul`` redirect target to the configured null sink and
+        removes redundant cd prefixes. Non-mutating: it does NOT update the
+        tracked cwd for kept ``cd`` commands. Called by respond() as a "peek"
+        before the code runs — if it advanced ``self.cwd`` here, the actual run
+        (preprocess_code) would re-strip the same code and consider those
+        ``cd``s redundant, stripping commands that genuinely change
+        directories. Only the real run tracks the cwd.
         """
         self._pending_notice = None
-        stripped = self._strip_redundant_cd(code, track=False)
+        normalized, null_rewritten = self._normalize_null_redirects(code)
+        stripped = self._strip_redundant_cd(normalized, track=False)
+        notices = []
+        if null_rewritten:
+            notices.append(self._null_rewrite_notice())
+        if self._pending_notice:
+            notices.append(self._pending_notice)
+        self._pending_notice = "; ".join(notices) if notices else None
         return stripped, self._pending_notice
+
+    def _normalize_null_redirects(self, code):
+        """Replace an unsafe bare `nul` redirect target.
+
+        Unlike redundant-code stripping, this safety rewrite is never gated:
+        it prevents a harmful file from being created even when
+        `strip_redundant_code` is false.
+        """
+        if self.null_device is None:
+            return code, False
+        return replace_null_redirect_target(
+            code,
+            self.null_device,
+            powershell=self.shell_quote_style == "powershell",
+        )
+
+    def _null_rewrite_notice(self):
+        return (
+            f"Replaced `nul` with `{self.null_device}` "
+            "(a bare `nul` redirect would create a file here)."
+        )
 
     def _postprocess_line(self, line):
         return line
@@ -117,13 +208,10 @@ class CwdTrackingMixin:
         ``track`` gates the side effect of advancing ``self.cwd`` for kept
         ``cd`` commands: pass False when peeking (respond), True during the
         actual run (preprocess_code) so the tracked cwd follows the shell.
-
-        ``interpreter.strip_redundant_code = False`` turns this off entirely,
-        along with every other boilerplate rewrite. The interpreter is a
-        back-reference handed over by Terminal (shell languages are built
-        without one), so it may be absent in isolation — default to stripping.
         """
-        if not getattr(getattr(self, "interpreter", None), "strip_redundant_code", True):
+        if not getattr(
+            getattr(self, "interpreter", None), "strip_redundant_code", True
+        ):
             return code
         removed = []
         self._pending_notice = None
@@ -159,7 +247,9 @@ class CwdTrackingMixin:
                 kept_lines.append(line)
         if removed:
             distinct = list(dict.fromkeys(removed))[:4]
-            self._pending_notice = f"Removed redundant cd {', '.join(distinct)} (already in that directory)."
+            self._pending_notice = (
+                f"Removed redundant cd {', '.join(distinct)} (already in that directory)."
+            )
         return "\n".join(kept_lines)
 
     def _parse_cd(self, line):
@@ -184,11 +274,13 @@ class CwdTrackingMixin:
             m2 = self._CD_TARGET_RE.match(rest)
             if not m2:
                 return None, "", False
-            target = m2.group(1)
+            raw_target = m2.group(1)
             if self.cd_unescape_backslashes:
                 # Unescape `\ ` -> space and `\\` -> `\` so the target compares
                 # against the tracked cwd (which has no shell escapes).
-                target = re.sub(r"\\(.)", r"\1", target)
+                target = re.sub(r"\\(.)", r"\1", raw_target)
+            else:
+                target = raw_target
             after = (m2.group(2) or "").strip()
         return target, after, True
 

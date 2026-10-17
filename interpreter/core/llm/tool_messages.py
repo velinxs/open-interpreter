@@ -191,6 +191,97 @@ def merge_consecutive_user_messages(messages):
     return merged
 
 
+def _pending_tool_call_id(processed_messages):
+    """Id of a tool_call from the current turn that has no response yet.
+
+    Every tool_call must be answered by exactly one tool message, and in order.
+    When a result arrives whose call is the immediately preceding assistant entry
+    but has not been answered, that call is the one it belongs to -- the request
+    is merely ordered unusually, not missing anything. Returning that id lets
+    callers pair the result with the real call instead of inventing a second
+    one.
+
+    Only the current turn is considered. Models routinely reuse the same id on
+    every turn (typically "toolu_1"), so a response from an earlier turn would
+    otherwise make the current call look already-answered and cause a spurious
+    synthetic call. The turn starts at the last user message, which is also
+    where the provider's own ordering rules begin.
+    """
+    turn_start = 0
+    for i in range(len(processed_messages) - 1, -1, -1):
+        if processed_messages[i].get("role") == "user":
+            turn_start = i
+            break
+    turn = processed_messages[turn_start:]
+
+    answered = {m.get("tool_call_id") for m in turn if m.get("role") == "tool"}
+    for entry in reversed(turn):
+        calls = entry.get("tool_calls") or []
+        if calls:
+            for call in calls:
+                if call.get("id") not in answered:
+                    return call.get("id")
+            return None
+        if entry.get("role") == "assistant":
+            return None
+    return None
+
+
+def answer_dangling_tool_calls(messages):
+    """Give every unanswered ``tool_calls`` entry a ``tool`` response.
+
+    process_messages repairs a tool *response* with no matching call. This
+    handles the opposite: a call with no response. That state is what a turn
+    interrupted mid-execution leaves in the history -- the model emitted a call,
+    the user stopped it before the result was stored, and a later turn (notably
+    the first one after ``--conversations`` resumes a session) replays that
+    assistant message. Every OpenAI-compatible validator requires each
+    ``tool_calls`` entry to be followed by a ``tool`` message with the same
+    ``tool_call_id``, so the replayed request is rejected as invalid (a 400)
+    before the model sees any of it. Nothing about the conversation is wrong;
+    the history is simply unfinished.
+
+    The inserted response says the call was interrupted. It must not read as a
+    successful result, or the model will reason from an outcome that never
+    happened.
+    """
+    answered = {
+        m.get("tool_call_id") for m in messages if m.get("role") == "tool" and m.get("tool_call_id")
+    }
+    repaired = []
+    index = 0
+    while index < len(messages):
+        message = messages[index]
+        repaired.append(message)
+        index += 1
+        if not message.get("tool_calls"):
+            continue
+        # Responses to this call sit in the tool messages that immediately
+        # follow it; carry them through first so synthetic ones land after the
+        # real results rather than in front of them.
+        real = []
+        while index < len(messages) and messages[index].get("role") == "tool":
+            real.append(messages[index])
+            index += 1
+        repaired.extend(real)
+        for call in message["tool_calls"]:
+            call_id = call.get("id")
+            if not call_id or call_id in answered:
+                continue
+            answered.add(call_id)
+            repaired.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": call_id,
+                    "content": (
+                        "Interrupted: this tool call was never executed. Its result "
+                        "does not exist. Re-issue the call if you still need it."
+                    ),
+                }
+            )
+    return repaired
+
+
 def process_messages(messages, model=None):
     processed_messages = []
     existing_ids = _existing_tool_ids(messages)
@@ -237,7 +328,29 @@ def process_messages(messages, model=None):
                 processed_messages.append({"role": "tool", "tool_call_id": tool_id, "content": ""})
 
         elif message.get("role") == "function":
-            # This handles orphaned function responses
+            # This handles orphaned function responses: a result whose originating
+            # call is missing from the request, so some providers reject it
+            # ("tool" messages must follow an assistant with tool_calls).
+            #
+            # First, check whether the call actually IS present but out of order --
+            # a trailing result whose assistant entry is the previous message. The
+            # common case, and fabricating a call for it would double-count: the
+            # request would carry two tool_calls and one tool response, which every
+            # OpenAI-compatible endpoint rejects. Pairing it with the real call is
+            # both correct and what the provider expects.
+            pending_id = _pending_tool_call_id(processed_messages)
+            if pending_id is not None:
+                # Copy rather than mutate: callers reuse these message dicts for
+                # later requests, and rewriting a stored result in place (a
+                # tool_call_id that belonged to a previous turn) corrupts the
+                # history for every turn after this one.
+                paired = dict(message)
+                paired["role"] = "tool"
+                paired["tool_call_id"] = pending_id
+                processed_messages.append(paired)
+                i += 1
+                continue
+
             tool_id = next_tool_id()
 
             # Add a tool call before this orphaned tool response. Providers like Alibaba require
@@ -308,4 +421,8 @@ def process_messages(messages, model=None):
     # the assistant merge can only ever fold a preamble into the tool_calls
     # message that follows it, never across the role:tool response between them.
     processed_messages = merge_consecutive_assistant_messages(processed_messages)
-    return merge_consecutive_user_messages(processed_messages)
+    processed_messages = merge_consecutive_user_messages(processed_messages)
+    # Last of all: the merges above can leave a tool_calls entry adjacent to a
+    # different message than it started next to, so the dangling-call check has
+    # to see the final ordering.
+    return answer_dangling_tool_calls(processed_messages)

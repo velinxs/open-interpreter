@@ -12,7 +12,7 @@
     <br>
     <b>让语言模型在您的计算机上运行代码。</b><br>
     在本地实现的开源OpenAI的代码解释器。<br>
-    <br><a href="https://openinterpreter.com">登记以提前获取Open Interpreter（开放解释器）桌面应用程序</a>‎ ‎ |‎ ‎ <b><a href="https://docs.openinterpreter.com/">阅读新文档</a></b><br>
+    <br><a href="https://www.openinterpreter.com/">桌面应用</a> | <a href="https://github.com/openinterpreter/openinterpreter">Open Interpreter (Rust)</a> | <b><a href=".">阅读新文档</a></b><br>
 </p>
 
 <br>
@@ -214,7 +214,7 @@ Open Interpreter 为[函数调用语言模型](https://platform.openai.com/docs/
 
 ## 规划图
 
-若要预览 Open Interpreter 的未来，请查看[我们的路线图](https://github.com/OpenInterpreter/open-interpreter/blob/main/docs/ROADMAP.md) 。
+若要预览 Open Interpreter 的未来，请查看[我们的路线图](ROADMAP.md) 。
 
 **请注意**：此软件与 OpenAI 无关。
 

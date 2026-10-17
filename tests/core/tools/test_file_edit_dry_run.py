@@ -236,15 +236,28 @@ def test_write_creates_missing_parent_directories(tmp_path):
     assert "5 bytes" in result
 
 
-def test_write_refuses_to_clobber_an_existing_file(tmp_path):
-    """write only creates; overwriting needs a real edit language.
+def test_write_over_an_existing_file_previews_the_diff_it_would_make(tmp_path):
+    """Overwriting is allowed, but only after showing exactly what it discards.
 
-    This is the guard against a model "rewriting" a file it never read and
-    silently discarding everything that was in it.
+    This asserted that `write` refused an existing file outright. The refusal
+    was the guard against a model "rewriting" a file it never read and silently
+    discarding the contents — but it taught a worse habit than it prevented:
+    write, get blocked, delete the file, write again, with nothing shown to the
+    user at any point.
+
+    The guard is now the preview. `write` over an existing file dry-runs as a
+    unified diff like every other edit language, so the discarded content is on
+    screen before the approval that permits the write. Nothing is lost
+    silently, which is the property the refusal was protecting.
     """
     target = tmp_path / "existing.txt"
-    target.write_text("precious")
-    with pytest.raises(FileExistsError) as excinfo:
-        run_edit("write", "replacement", str(target))
-    assert target.read_text() == "precious"
-    assert "already exists" in str(excinfo.value)
+    target.write_text("precious\n")
+
+    preview = dry_run_edit("write", "replacement\n", str(target))
+
+    assert preview is not None and preview["ok"]
+    # The diff names what goes and what arrives, and the file is untouched by
+    # the dry run itself.
+    assert "-precious" in preview["output"]
+    assert "+replacement" in preview["output"]
+    assert target.read_text() == "precious\n"

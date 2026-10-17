@@ -4,16 +4,16 @@
     <a href="https://discord.gg/6p3fD6rBVm">
         <img alt="Discord" src="https://img.shields.io/discord/1146610656779440188?logo=discord&style=flat&logoColor=white"/></a>
     <a href="README_ES.md"> <img src="https://img.shields.io/badge/Español-white.svg" alt="ES doc"/></a>
-    <a href="docs/README_JA.md"><img src="https://img.shields.io/badge/ドキュメント-日本語-white.svg" alt="JA doc"/></a>
-    <a href="docs/README_ZH.md"><img src="https://img.shields.io/badge/文档-中文版-white.svg" alt="ZH doc"/></a>
+    <a href="README_JA.md"><img src="https://img.shields.io/badge/ドキュメント-日本語-white.svg" alt="JA doc"/></a>
+    <a href="README_ZH.md"><img src="https://img.shields.io/badge/文档-中文版-white.svg" alt="ZH doc"/></a>
     <a href="README_UK.md"><img src="https://img.shields.io/badge/Українська-white.svg" alt="UK doc"/></a>
-    <a href="docs/README_IN.md"><img src="https://img.shields.io/badge/Hindi-white.svg" alt="IN doc"/></a>
+    <a href="README_IN.md"><img src="https://img.shields.io/badge/Hindi-white.svg" alt="IN doc"/></a>
     <a href="../LICENSE"><img src="https://img.shields.io/static/v1?label=license&message=AGPL&color=white&style=flat" alt="License"/></a>
     <br>
     <br>
     <b>chạy mô hình ngôn ngữ trí tuệ nhân tạo trên máy tính của bạn.</b><br>
     Mã nguồn mở và ứng dụng phát triển dựa trên code của OpenAI.<br>
-    <br><a href="https://openinterpreter.com">Quyền truy cập sớm dành cho máy tính cá nhân</a>‎ ‎ |‎ ‎ <b><a href="https://docs.openinterpreter.com/">Tài liệu đọc tham khảo</a></b><br>
+    <br><a href="https://www.openinterpreter.com/">Desktop App</a>‎ ‎ |‎ ‎ <a href="https://github.com/openinterpreter/openinterpreter">Open Interpreter (Rust)</a>‎ ‎ |‎ ‎ <b><a href=".">Tài liệu đọc tham khảo</a></b><br>
 </p>
 
 <br>
@@ -254,12 +254,17 @@ Trong chế độ tương tác, bạn có thể sử dụng những dòng lệnh
 
 **Các lệnh có sẵn:**
 
-- `%verbose [true/false]`: Bật chế độ gỡ lỗi. Có hay không có `true` đều khởi động chế độ gỡ lỗi. Với `false` thì nó tắt chế độ gỡ lỗi.
+- `%% [command]`: Chạy lệnh trong shell hệ thống (bỏ qua LLM).
+- `%verbose [true/false]`: Bật/tắt chế độ chi tiết. Không có tham số hoặc với `true` thì bật chế độ chi tiết. Với `false` thì tắt chế độ chi tiết.
+- `%auto_run [true/false]`: Bật hoặc tắt chạy mã không cần xác nhận. Không có tham số hoặc với `true` thì vào chế độ auto_run. Với `false` thì thoát chế độ auto_run.
 - `%reset`: Khởi động lại toàn bộ phiên trò chuyện hiện tại.
 - `%undo`: Xóa tin nhắn của người dùng trước đó và phản hồi của AI khỏi lịch sử tin nhắn.
-- `%save_message [path]`: Lưu tin nhắn vào một đường dẫn JSON được xác định từ trước. Nếu không có đường dẫn nào được cung cấp, nó sẽ mặc định là `messages.json`.
+- `%save_message [path]`: Lưu tin nhắn vào đường dẫn JSON được chỉ định. Nếu không có đường dẫn nào được cung cấp, nó sẽ mặc định là `messages.json`.
 - `%load_message [path]`: Tải tin nhắn từ một đường dẫn JSON được chỉ định. Nếu không có đường dẫn nào được cung cấp, nó sẽ mặc định là `messages.json`.
 - `%tokens [prompt]`: (_Experimental_) Tính toán các token sẽ được gửi cùng với lời nhắc tiếp theo dưới dạng ngữ cảnh và hao tổn. Tùy chọn tính toán token và hao tổn ước tính của một `prompt` nếu được cung cấp. Dựa vào [hàm `cost_per_token()` của mô hình LiteLLM](https://docs.litellm.ai/docs/completion/token_usage#2-cost_per_token) để tính toán hao tổn.
+- `%jupyter`: Xuất cuộc trò chuyện ra tệp sổ ghi Jupyter.
+- `%markdown [path]`: Xuất cuộc trò chuyện ra đường dẫn Markdown được chỉ định. Nếu không có đường dẫn, tệp sẽ được lưu vào thư mục Downloads với tên cuộc trò chuyện được tạo tự động.
+- `%info`: Hiển thị thông tin hệ thống và trình thông dịch.
 - `%help`: Hiện lên trợ giúp cho cuộc trò chuyện.
 
 ### Cấu hình cài
@@ -368,7 +373,7 @@ Bạn có thể chạy `interpreter -y` hoặc đặt `interpreter.auto_run = Tr
 - Theo dõi Open Interpreter giống như một chiếc ô tô tự lái và sẵn sàng kết thúc quá trình bằng cách đóng terminal của bạn.
 - Cân nhắc việc chạy Open Interpreter trong môi trường bị hạn chế như Google Colab hoặc Replit. Những môi trường này biệt lập hơn, giảm thiểu rủi ro khi chạy code tùy ý.
 
-Đây là hỗ trợ **thử nghiệm** cho [chế độ an toàn](docs/SAFE_MODE.md) giúp giảm thiểu rủi ro.
+Đây là hỗ trợ **thử nghiệm** cho [chế độ an toàn](SAFE_MODE.md) giúp giảm thiểu rủi ro.
 
 ## Nó hoạt động thế nào?
 

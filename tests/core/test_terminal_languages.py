@@ -1,8 +1,10 @@
+import ast
 import os
 import platform
 import shutil
 import tempfile
 import unittest
+from io import StringIO
 from unittest.mock import patch
 
 from interpreter.core.terminal.base_language import format_execute_language_description
@@ -13,6 +15,9 @@ from interpreter.core.terminal.languages.java import preprocess_java
 from interpreter.core.terminal.languages.javascript import preprocess_javascript
 from interpreter.core.terminal.languages.jupyter_language import JupyterLanguage
 from interpreter.core.terminal.languages.powershell import PowerShell, has_multiline_constructs
+
+# The AST rewriting lives in its own module on this branch; jupyter_language
+# imports these rather than defining them.
 from interpreter.core.terminal.languages.python_preprocess import (
     _function_fingerprint,
     strip_redundant_definitions_and_assignments,
@@ -29,8 +34,6 @@ from interpreter.core.terminal.terminal import (
     _default_terminal_languages,
     _sync_active_line_detection_env,
 )
-
-_HAS_PWSH = bool(shutil.which("pwsh") or os.environ.get("INTERPRETER_POWERSHELL"))
 
 
 class _StubCwdShell(CwdTrackingMixin):
@@ -116,19 +119,23 @@ class TestTerminalLanguages(unittest.TestCase):
         self.assertFalse(has_multiline_constructs('$x = "hello"; Write-Host $x'))
         self.assertFalse(has_multiline_constructs("Get-Process"))
 
-    @unittest.skipUnless(_HAS_PWSH, "pwsh not installed")
+    @unittest.skipUnless(
+        shutil.which("pwsh"), "pwsh not installed; PowerShell coverage needs it"
+    )
     def test_powershell_line_postprocessor_filters_prompt_and_continuation(self):
         ps = PowerShell()
         # PS prompt lines are suppressed (with and without conda prefix)
-        self.assertIsNone(ps.line_postprocessor("PS C:\\Users\\Jonathan> "))
-        self.assertIsNone(ps.line_postprocessor("(base) PS C:\\Users\\Jonathan> try {"))
+        self.assertIsNone(ps.line_postprocessor("PS C:\\Users\\user> "))
+        self.assertIsNone(ps.line_postprocessor("(base) PS C:\\Users\\user> try {"))
         self.assertIsNone(ps.line_postprocessor("PS D:\\work> "))
         # Continuation-prompt echo lines are suppressed
         self.assertIsNone(ps.line_postprocessor(">>"))
         self.assertIsNone(ps.line_postprocessor(">>     $ErrorActionPreference = 'Stop'"))
         self.assertIsNone(ps.line_postprocessor(">> Write-Host hello"))
         # Real output is kept
-        self.assertEqual(ps.line_postprocessor("Hello from PowerShell!"), "Hello from PowerShell!")
+        self.assertEqual(
+            ps.line_postprocessor("Hello from PowerShell!"), "Hello from PowerShell!"
+        )
         self.assertEqual(ps.line_postprocessor("True"), "True")
         self.assertEqual(ps.line_postprocessor("42"), "42")
         # "PS C:\" embedded mid-line (not a prompt) is NOT filtered
@@ -137,7 +144,6 @@ class TestTerminalLanguages(unittest.TestCase):
             "Path is PS C:\\Users\\foo",
         )
 
-    @unittest.skipUnless(_HAS_PWSH, "pwsh not installed")
     def test_active_line_injection_disabled_when_env_false(self):
         """All language preprocessors respect INTERPRETER_ACTIVE_LINE_DETECTION=false."""
         with patch.dict("os.environ", {"INTERPRETER_ACTIVE_LINE_DETECTION": "false"}):
@@ -161,15 +167,25 @@ class TestTerminalLanguages(unittest.TestCase):
 
             # AppleScript
             aps = AppleScript()
-            result = aps.add_active_line_indicators('do shell script "echo hi"')
+            result = aps.add_active_line_indicators("do shell script \"echo hi\"")
             self.assertNotIn("##active_line", result)
 
-            # PowerShell
-            ps = PowerShell()
-            pw = ps.preprocess_code("Write-Host 1")
-            self.assertNotIn("##active_line", pw)
+    @unittest.skipUnless(
+        shutil.which("pwsh"), "pwsh not installed; PowerShell coverage needs it"
+    )
+    def test_powershell_active_line_injection_disabled_when_env_false(self):
+        """PowerShell respects INTERPRETER_ACTIVE_LINE_DETECTION=false.
 
-    @unittest.skipUnless(_HAS_PWSH, "pwsh not installed")
+        Split out of the multi-language test above because constructing
+        PowerShell resolves the executable and raises when pwsh is absent. The
+        rest of that test covers languages needing no external binary, so
+        skipping it wholesale would lose their coverage on every machine without
+        PowerShell.
+        """
+        with patch.dict("os.environ", {"INTERPRETER_ACTIVE_LINE_DETECTION": "false"}):
+            ps = PowerShell()
+            self.assertNotIn("##active_line", ps.preprocess_code("Write-Host 1"))
+
     def test_active_line_injection_present_when_env_true(self):
         """All language preprocessors inject markers when INTERPRETER_ACTIVE_LINE_DETECTION=true."""
         with patch.dict("os.environ", {"INTERPRETER_ACTIVE_LINE_DETECTION": "true"}):
@@ -193,13 +209,59 @@ class TestTerminalLanguages(unittest.TestCase):
 
             # AppleScript
             aps = AppleScript()
-            result = aps.add_active_line_indicators('do shell script "echo hi"')
+            result = aps.add_active_line_indicators("do shell script \"echo hi\"")
             self.assertIn("##active_line", result)
 
-            # PowerShell (single-line, no multiline constructs)
+    @unittest.skipUnless(
+        shutil.which("pwsh"), "pwsh not installed; PowerShell coverage needs it"
+    )
+    def test_powershell_active_line_injection_present_when_env_true(self):
+        """PowerShell injects markers for single-line code when detection is on.
+
+        Split out for the same reason as the sibling test above. The code is
+        single-line with no multiline constructs, which is the case where markers
+        are injected; a hash literal or script block deliberately skips them to
+        avoid a parse error.
+        """
+        with patch.dict("os.environ", {"INTERPRETER_ACTIVE_LINE_DETECTION": "true"}):
             ps = PowerShell()
-            pw = ps.preprocess_code("Write-Host 1")
-            self.assertIn("##active_line", pw)
+            self.assertIn("##active_line", ps.preprocess_code("Write-Host 1"))
+
+    def test_active_line_detection_only_accepts_numeric_markers(self):
+        """Numeric markers are detected, while literal placeholders in output are ignored."""
+        bash = Bash()
+
+        self.assertEqual(bash.detect_active_line("prefix ##active_line12## suffix"), 12)
+        self.assertIsNone(bash.detect_active_line("docs: ##active_lineN##"))
+        self.assertIsNone(bash.detect_active_line("##active_line##"))
+
+    def test_stream_reader_survives_literal_active_line_text(self):
+        """A literal ##active_lineN## in command output must not kill the stream reader."""
+        bash = Bash()
+        stream = StringIO(
+            "##active_line1##\n"
+            "documentation: ##active_lineN## is a placeholder\n"
+            "##end_of_execution##\n"
+        )
+
+        with patch.dict("os.environ", {"INTERPRETER_ACTIVE_LINE_DETECTION": "true"}):
+            bash.handle_stream_output(stream, False)
+
+        chunks = []
+        while not bash.output_queue.empty():
+            chunks.append(bash.output_queue.get_nowait())
+        self.assertTrue(bash.done.is_set())
+        self.assertIn(
+            {"type": "console", "format": "active_line", "content": 1}, chunks
+        )
+        self.assertIn(
+            {
+                "type": "console",
+                "format": "output",
+                "content": "documentation: ##active_lineN## is a placeholder\n",
+            },
+            chunks,
+        )
 
     def test_bash_resolve_bash_executable(self):
         path = resolve_bash_executable()
@@ -246,6 +308,11 @@ class TestTerminalLanguages(unittest.TestCase):
         if platform.system() == "Windows":
             self.assertIn("cmd", desc)
             self.assertIn("cmd.exe", desc)
+
+    def test_shell_hints_recommend_one_command_per_line(self):
+        """Shell hints must steer the model to one command per line for readability."""
+        desc = format_execute_language_description(_default_terminal_languages())
+        self.assertIn("One command per line", desc)
 
     def test_strip_redundant_imports_removes_plain_import_when_already_imported(self):
         """A top-level `import os` is dropped when `os` is already bound in the kernel namespace."""
@@ -404,7 +471,9 @@ class TestTerminalLanguages(unittest.TestCase):
         """In a mixed leading block only the truly redundant plain import is dropped."""
         code = "import os\nimport numpy as np\nimport os.path\nprint(1)"
         stripped, removed = strip_redundant_imports(code, {"os"})
-        self.assertEqual(stripped, "import numpy as np\nimport os.path\nprint(1)")
+        self.assertEqual(
+            stripped, "import numpy as np\nimport os.path\nprint(1)"
+        )
         self.assertEqual(removed, ["os"])
 
     def test_strip_redundant_imports_keeps_try_except_import(self):
@@ -421,7 +490,9 @@ class TestTerminalLanguages(unittest.TestCase):
         stripped, notice = jl.strip_boilerplate("import os\nimport sys\nos.getcwd()")
         self.assertNotIn("import os", stripped)
         self.assertNotIn("import sys", stripped)
-        self.assertEqual(notice, "Removed redundant imports os, sys (already imported).")
+        self.assertEqual(
+            notice, "Removed redundant imports os, sys (already imported)."
+        )
         self.assertEqual(jl.imported_modules, {"os", "sys"})
 
     def test_jupyter_strip_boilerplate_does_not_strip_unreported_import(self):
@@ -463,27 +534,60 @@ class TestTerminalLanguages(unittest.TestCase):
         self.assertIsNone(second_notice)
 
     def test_jupyter_strip_boilerplate_respects_gate(self):
-        """strip_redundant_code=false leaves python code exactly as written.
+        """strip_redundant_code=false disables ALL python stripping (imports, defs, scalars)."""
+        import ast
+        import hashlib
 
-        The gate is the one switch a user has to turn the rewriting off; if it
-        did not reach this stripper, a redundant `import os` would still vanish
-        from code the user asked to be left alone.
-        """
-        jl = object.__new__(JupyterLanguage)  # skip kernel startup
+        jl = object.__new__(JupyterLanguage)
         jl.imported_modules = {"os"}
-        jl.interpreter = type("I", (), {"strip_redundant_code": False})()
-        code = "import os\nos.getcwd()"
+        jl.function_fingerprints = {
+            "f": hashlib.sha1(
+                ast.dump(ast.parse("def f(): return 1").body[0]).encode()
+            ).hexdigest()
+        }
+        jl.variable_fingerprints = {"n": hashlib.sha1(repr(5).encode()).hexdigest()}
+        jl.interpreter = type(
+            "I", (), {"strip_redundant_code": False}
+        )()
+        code = "import os\ndef f(): return 1\nn = 5\nos.getcwd()"
         stripped, notice = jl.strip_boilerplate(code)
         self.assertEqual(stripped, code)
         self.assertIsNone(notice)
 
-    def test_bash_cd_strip_respects_gate(self):
-        """strip_redundant_code=false disables the bash redundant-cd strip.
+    def test_jupyter_language_source_has_no_invalid_escapes(self):
+        """Compiling jupyter_language.py must not emit SyntaxWarning (regression: the active_line regex nested in the state_code triple-quoted string used single backslashes, warning on every import)."""
+        import pathlib
+        import warnings
 
-        Both the peek (track=False, from run_code) and the real run
-        (track=True, from preprocess_code) must honor it, and no notice may be
-        left behind claiming something was removed.
-        """
+        import interpreter.core.terminal.languages.jupyter_language as mod
+
+        src = pathlib.Path(mod.__file__).read_text(encoding="utf-8")
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", SyntaxWarning)
+            compile(src, mod.__file__, "exec")
+
+    def test_jupyter_state_code_embeds_working_active_line_regex(self):
+        """The kernel state snippet must carry the single-backslash active_line regex and strip marker lines (guards the double-escaping of the nested string)."""
+        import re
+
+        jl = object.__new__(JupyterLanguage)  # skip kernel startup
+        captured = {}
+
+        def fake_execute(code, message_queue):
+            captured["code"] = code
+
+        jl._execute_code = fake_execute
+        jl._capture_output = lambda message_queue: iter([])
+        list(jl._get_active_state())
+        state_code = captured["code"]
+        self.assertIn(r'''r"^\s*print\('##active_line\d+##'\)\s*$"''', state_code)
+        compile(state_code, "<oi_state>", "exec")
+        marker_regex = re.compile(r"^\s*print\('##active_line\d+##'\)\s*$", flags=re.M)
+        src = "def f():\n    print('##active_line12##')\n    return 1"
+        self.assertEqual(marker_regex.sub("", src), "def f():\n\n    return 1")
+
+    def test_bash_cd_strip_respects_gate(self):
+        """strip_redundant_code=false disables the bash redundant-cd strip, even at run time (preprocess)."""
         bash = Bash()
         bash.cwd = "/home/user/project"
         bash.interpreter = type("I", (), {"strip_redundant_code": False})()
@@ -496,7 +600,9 @@ class TestTerminalLanguages(unittest.TestCase):
         """A standalone `cd` to the tracked working directory is removed."""
         bash = Bash()
         bash.cwd = "/home/user/project"
-        self.assertEqual(bash._strip_redundant_cd("cd /home/user/project\nls"), "ls")
+        self.assertEqual(
+            bash._strip_redundant_cd("cd /home/user/project\nls"), "ls"
+        )
 
     def test_bash_cd_pwd_and_dot_not_stripped(self):
         """`cd .` is a no-op spelling LLMs don't emit — it's left alone; `cd $PWD` is stripped."""
@@ -510,10 +616,16 @@ class TestTerminalLanguages(unittest.TestCase):
         """A redundant `cd X` chained with `&&`, `;` or `&` is stripped, keeping the rest of the line."""
         bash = Bash()
         bash.cwd = "/home/user/project"
-        self.assertEqual(bash._strip_redundant_cd("cd /home/user/project && ls"), "ls")
-        self.assertEqual(bash._strip_redundant_cd("cd /home/user/project; ls -la"), "ls -la")
         self.assertEqual(
-            bash._strip_redundant_cd("cd /home/user/project & do something | something else"),
+            bash._strip_redundant_cd("cd /home/user/project && ls"), "ls"
+        )
+        self.assertEqual(
+            bash._strip_redundant_cd("cd /home/user/project; ls -la"), "ls -la"
+        )
+        self.assertEqual(
+            bash._strip_redundant_cd(
+                "cd /home/user/project & do something | something else"
+            ),
             "do something | something else",
         )
 
@@ -521,7 +633,9 @@ class TestTerminalLanguages(unittest.TestCase):
         """A `cd .` even when chained is left alone — we only strip what LLMs actually emit."""
         bash = Bash()
         bash.cwd = "/home/user/project"
-        self.assertEqual(bash._strip_redundant_cd("cd . && ls"), "cd . && ls")
+        self.assertEqual(
+            bash._strip_redundant_cd("cd . && ls"), "cd . && ls"
+        )
 
     def test_bash_cd_to_other_existing_directory_kept_and_tracked(self):
         """A `cd` to a different existing directory is kept and updates the tracked cwd."""
@@ -563,7 +677,9 @@ class TestTerminalLanguages(unittest.TestCase):
         """A quoted redundant target (`cd "/path" && cmd`) is stripped like an unquoted one."""
         bash = Bash()
         bash.cwd = "/home/user/project"
-        self.assertEqual(bash._strip_redundant_cd('cd "/home/user/project" && ls'), "ls")
+        self.assertEqual(
+            bash._strip_redundant_cd('cd "/home/user/project" && ls'), "ls"
+        )
 
     def test_bash_dangling_chain_stripped_and_noticed(self):
         """`cd X &&` with nothing after (a syntax error) is dropped and still counted in the notice."""
@@ -592,9 +708,15 @@ class TestTerminalLanguages(unittest.TestCase):
         """Chain operators without surrounding spaces (`cd X&&ls`, `cd X;ls`, `cd X&ls`) are handled."""
         bash = Bash()
         bash.cwd = "/home/user/project"
-        self.assertEqual(bash._strip_redundant_cd("cd /home/user/project&&ls"), "ls")
-        self.assertEqual(bash._strip_redundant_cd("cd /home/user/project;ls"), "ls")
-        self.assertEqual(bash._strip_redundant_cd("cd /home/user/project&ls"), "ls")
+        self.assertEqual(
+            bash._strip_redundant_cd("cd /home/user/project&&ls"), "ls"
+        )
+        self.assertEqual(
+            bash._strip_redundant_cd("cd /home/user/project;ls"), "ls"
+        )
+        self.assertEqual(
+            bash._strip_redundant_cd("cd /home/user/project&ls"), "ls"
+        )
 
     def test_bash_bare_cd_kept(self):
         """A bare `cd` (no target) goes to $HOME — kept, since we can't verify it's redundant."""
@@ -619,13 +741,17 @@ class TestTerminalLanguages(unittest.TestCase):
         """An unterminated quoted target can't be parsed — the line is kept untouched."""
         bash = Bash()
         bash.cwd = "/home/user/project"
-        self.assertEqual(bash._strip_redundant_cd("cd '/home/user/project"), "cd '/home/user/project")
+        self.assertEqual(
+            bash._strip_redundant_cd("cd '/home/user/project"), "cd '/home/user/project"
+        )
 
     def test_bash_double_redundant_cd_both_stripped(self):
         """A standalone and a chained redundant cd to the same dir are both removed."""
         bash = Bash()
         bash.cwd = "/home/user/project"
-        result = bash._strip_redundant_cd("cd /home/user/project\ncd /home/user/project && ls")
+        result = bash._strip_redundant_cd(
+            "cd /home/user/project\ncd /home/user/project && ls"
+        )
         self.assertEqual(result, "ls")
 
     def test_bash_redundant_cd_before_real_cd_keeps_real_cd(self):
@@ -643,63 +769,17 @@ class TestTerminalLanguages(unittest.TestCase):
         """A redundant target spelled with a trailing slash still resolves to the cwd and is stripped."""
         bash = Bash()
         bash.cwd = "/home/user/project"
-        self.assertEqual(bash._strip_redundant_cd("cd /home/user/project/ && ls"), "ls")
+        self.assertEqual(
+            bash._strip_redundant_cd("cd /home/user/project/ && ls"), "ls"
+        )
 
     def test_bash_cd_env_var_target_kept(self):
         """An env-var target (`cd $HOME`) is not mistaken for the cwd when it differs."""
         bash = Bash()
         bash.cwd = "/home/user/project"
-        self.assertEqual(bash._strip_redundant_cd("cd $HOME && ls"), "cd $HOME && ls")
-
-    def test_bash_strips_redundant_cd_with_escaped_space(self):
-        """A redundant cd whose path contains a backslash-escaped space is stripped.
-
-        `cd /x/My\\ Documents` is how a shell spells one path with a space in
-        it. The target used to be cut at the backslash, so it never matched
-        the tracked cwd and the round trip was never saved — for exactly the
-        directories where the model is most likely to re-emit the cd.
-        """
-        bash = Bash()
-        bash.cwd = "/home/user/documents/My Documents"
-        stripped = bash._strip_redundant_cd(
-            "cd /home/user/documents/My\\ Documents/\npdftotext report.pdf 2>/dev/null | grep -c PATTERN"
-        )
-        self.assertEqual(stripped, "pdftotext report.pdf 2>/dev/null | grep -c PATTERN")
         self.assertEqual(
-            bash._pending_notice,
-            "Removed redundant cd /home/user/documents/My Documents/ (already in that directory).",
+            bash._strip_redundant_cd("cd $HOME && ls"), "cd $HOME && ls"
         )
-        self.assertEqual(bash.cwd, "/home/user/documents/My Documents")
-
-    def test_bash_keeps_cd_with_escaped_space_to_other_dir(self):
-        """A cd to a DIFFERENT directory with an escaped space is kept, and tracked.
-
-        The unescaping is only for comparison. Rewriting the line would hand
-        the shell a path it can no longer resolve, and failing to track the
-        move would make every later cd in the block look redundant.
-        """
-        with tempfile.TemporaryDirectory() as d:
-            sub = os.path.join(d, "sub dir")
-            os.mkdir(sub)
-            escaped = sub.replace(" ", "\\ ")
-            bash = Bash()
-            bash.cwd = d
-            self.assertEqual(bash._strip_redundant_cd(f"cd {escaped} && ls"), f"cd {escaped} && ls")
-            self.assertEqual(bash.cwd, sub)
-
-    def test_non_posix_shells_keep_backslashes_in_the_cd_target(self):
-        """Unescaping is bash-only: cmd and PowerShell use `\\` as a path separator.
-
-        `cd C:\\Users\\me` must compare as itself. Unescaping it everywhere
-        would turn it into `C:Usersme`, which matches nothing, and the
-        Windows shells would silently lose the stripping they have today.
-        """
-        self.assertFalse(_StubCwdShell().cd_unescape_backslashes)
-        cmd = _StubCwdShell(cd_option_prefixes=("/d",), cd_chain_operators=("&&", "&"))
-        target, after, ok = cmd._parse_cd(r"cd C:\Users\me && dir")
-        self.assertTrue(ok)
-        self.assertEqual(target, r"C:\Users\me")
-        self.assertEqual(after, "&& dir")
 
     def test_powershell_redundant_cd_stripped_with_aliases_and_case_insensitivity(self):
         """PowerShell strips `cd`/`Set-Location`/`sl` to the current dir, case-insensitively, even when chained."""
@@ -713,8 +793,12 @@ class TestTerminalLanguages(unittest.TestCase):
             ps._strip_redundant_cd("Set-Location /home/user/project && dir"),
             "dir",
         )
-        self.assertEqual(ps._strip_redundant_cd("SL /home/user/project & dir"), "dir")
-        self.assertEqual(ps._strip_redundant_cd("CD /home/user/project; dir"), "dir")
+        self.assertEqual(
+            ps._strip_redundant_cd("SL /home/user/project & dir"), "dir"
+        )
+        self.assertEqual(
+            ps._strip_redundant_cd("CD /home/user/project; dir"), "dir"
+        )
 
     def test_powershell_redundant_cd_to_other_dir_kept(self):
         """A PowerShell cd to a different existing directory is kept."""
@@ -728,8 +812,12 @@ class TestTerminalLanguages(unittest.TestCase):
         """cmd strips `cd /d` and plain `cd` to the current dir even when chained with `&`/`&&`."""
         cmd = _StubCwdShell(cd_option_prefixes=("/d",), cd_chain_operators=("&&", "&"))
         cmd.cwd = "/home/user/project"
-        self.assertEqual(cmd._strip_redundant_cd("cd /d /home/user/project & dir"), "dir")
-        self.assertEqual(cmd._strip_redundant_cd("cd /home/user/project && dir"), "dir")
+        self.assertEqual(
+            cmd._strip_redundant_cd("cd /d /home/user/project & dir"), "dir"
+        )
+        self.assertEqual(
+            cmd._strip_redundant_cd("cd /home/user/project && dir"), "dir"
+        )
 
     def test_cmd_cd_percent_cd_and_semicolon_handling(self):
         """cmd treats `%CD%` as the current dir; `;` is not a cmd separator so `cd X; ls` is kept whole."""
@@ -742,14 +830,31 @@ class TestTerminalLanguages(unittest.TestCase):
         )
 
     def test_cwd_marker_filter_works_on_all_shell_configs(self):
-        """The `##oi_pwd##` marker is filtered and updates cwd for any shell config."""
+        """The `##oi_cwd##` marker is filtered and updates cwd for any shell config."""
+        from interpreter.core.terminal.languages.cwd_tracking import _CWD_MARKER
+
         ps = _StubCwdShell(cd_commands=("cd", "Set-Location", "sl"), cd_ignore_case=True)
-        self.assertIsNone(ps.line_postprocessor("##oi_pwd##/new/dir"))
+        self.assertIsNone(ps.line_postprocessor(f"{_CWD_MARKER}/new/dir"))
         self.assertEqual(ps.cwd, "/new/dir")
 
         cmd = _StubCwdShell(cd_option_prefixes=("/d",), cd_chain_operators=("&&", "&"))
-        self.assertIsNone(cmd.line_postprocessor("##oi_pwd##C:\\new\\dir"))
+        self.assertIsNone(cmd.line_postprocessor(f"{_CWD_MARKER}C:\\new\\dir"))
         self.assertEqual(cmd.cwd, "C:\\new\\dir")
+
+    def test_cwd_marker_filter_handles_marker_glued_to_output(self):
+        """A command whose output lacks a trailing newline puts the marker mid-line.
+
+        This is the leak that motivated the marker not being anchored: the shell
+        writes the marker echo starting wherever it happens to be, which is
+        mid-line when the previous output had no newline. The output before the
+        marker must survive, and the marker plus path must not.
+        """
+        from interpreter.core.terminal.languages.cwd_tracking import _CWD_MARKER
+
+        stub = _StubCwdShell()
+        line = f"no trailing newline{_CWD_MARKER}/new/dir\n"
+        self.assertEqual(stub.line_postprocessor(line), "no trailing newline")
+        self.assertEqual(stub.cwd, "/new/dir")
 
     def test_bash_sets_cd_removal_notice(self):
         """Removing a redundant cd sets _pending_notice naming the target directory."""
@@ -804,8 +909,107 @@ class TestTerminalLanguages(unittest.TestCase):
         self.assertEqual(stripped, "ls")
         self.assertIsNone(notice)
 
+    def test_bash_rewrites_bare_nul_redirect_to_dev_null(self):
+        """Bash must send stderr to `/dev/null`, not create a literal `nul` file."""
+        bash = Bash()
+        cases = {
+            "make >nul": "make >/dev/null",
+            "make >>NUL": "make >>/dev/null",
+            "pdftotext report.pdf 2>nul | grep -c x": "pdftotext report.pdf 2>/dev/null | grep -c x",
+            "make 1>nul && make 2>>nul": "make 1>/dev/null && make 2>>/dev/null",
+            "make &>nul": "make &>/dev/null",
+            'make 2>"nul"': "make 2>/dev/null",
+        }
+        for source, expected in cases.items():
+            with self.subTest(source=source):
+                stripped, notice = bash.strip_boilerplate(source)
+                self.assertEqual(stripped, expected)
+                self.assertIn("/dev/null", notice)
+
+    def test_powershell_rewrites_bare_nul_redirect_to_null_variable(self):
+        """PowerShell must send output to `$null`, not create a literal/reserved `nul` file."""
+        with patch(
+            "interpreter.core.terminal.languages.powershell.resolve_powershell_executable",
+            return_value="pwsh",
+        ), patch(
+            "interpreter.core.terminal.languages.powershell.powershell_startup_args",
+            return_value=[],
+        ):
+            ps = PowerShell()
+        cases = {
+            "Get-Item missing 2>nul": "Get-Item missing 2>$null",
+            "Get-Item missing *>NUL": "Get-Item missing *>$null",
+            "Get-Item missing 6>>nul": "Get-Item missing 6>>$null",
+            "Get-Item missing >'nul'": "Get-Item missing >$null",
+        }
+        for source, expected in cases.items():
+            with self.subTest(source=source):
+                stripped, notice = ps.strip_boilerplate(source)
+                self.assertEqual(stripped, expected)
+                self.assertIn("$null", notice)
+
+    def test_cmd_keeps_nul_device_target(self):
+        """cmd already has a real `nul` device, so its redirection target must not be rewritten."""
+        cmd = _StubCwdShell(cd_option_prefixes=("/d",), cd_chain_operators=("&&", "&"))
+        cmd.cwd = "/home/user/project"
+        stripped, notice = cmd.strip_boilerplate("dir 2>nul")
+        self.assertEqual(stripped, "dir 2>nul")
+        self.assertIsNone(notice)
+
+    def test_null_redirect_ignores_quotes_comments_and_paths(self):
+        """The `nul` rewrite applies only to an actual bare redirect target, including comments and quoted text."""
+        bash = Bash()
+        rewritten, notice = bash.strip_boilerplate("make 2>nul # trailing 2>nul")
+        self.assertEqual(rewritten, "make 2>/dev/null # trailing 2>nul")
+        self.assertIn("/dev/null", notice)
+        unchanged = [
+            'echo "redirect 2>nul"',
+            "echo 'redirect 2>nul'",
+            'make 2>"nul"x',
+            "make 2>nul.txt",
+            "make 2>./nul",
+            "make 2>$null",
+            "make 2>/dev/null",
+            "# make 2>nul",
+        ]
+        for source in unchanged:
+            with self.subTest(source=source):
+                stripped, notice = bash.strip_boilerplate(source)
+                self.assertEqual(stripped, source)
+                self.assertIsNone(notice)
+
+    def test_null_redirect_rewrite_ignores_gate(self):
+        """The `nul` safety rewrite is not redundant-code stripping, so it stays on when that switch is off; the gated `cd` removal stays off."""
+        bash = Bash()
+        bash.cwd = os.getcwd()
+        bash.interpreter = type("I", (), {"strip_redundant_code": False})()
+        code = f'cd "{bash.cwd}" && make 2>nul'
+        stripped, notice = bash.strip_boilerplate(code)
+        self.assertEqual(stripped, f'cd "{bash.cwd}" && make 2>/dev/null')
+        self.assertIn("Replaced `nul` with `/dev/null`", notice)
+        self.assertNotIn("already in that directory", notice)
+
+    def test_shell_preprocess_uses_corrected_null_target(self):
+        """The code actually executed must use the corrected null target before shell markers are appended."""
+        bash = Bash()
+        bash_result = bash.preprocess_code("make 2>nul")
+        self.assertIn("make 2>/dev/null", bash_result)
+        # Prefix only: bash's end marker carries the exit status.
+        self.assertIn('echo "##end_of_execution##', bash_result)
+        with patch(
+            "interpreter.core.terminal.languages.powershell.resolve_powershell_executable",
+            return_value="pwsh",
+        ), patch(
+            "interpreter.core.terminal.languages.powershell.powershell_startup_args",
+            return_value=[],
+        ):
+            powershell = PowerShell()
+        powershell_result = powershell.preprocess_code("Get-Item missing 2>nul")
+        self.assertIn("Get-Item missing 2>$null", powershell_result)
+        self.assertIn('Write-Output "##end_of_execution##"', powershell_result)
+
     def test_bash_peek_strip_does_not_advance_cwd_or_strip_real_cd(self):
-        """The respond-path peek must not pre-apply a kept cd (regression: `cd /home/omegatron && pwd` printed the old dir because the peek advanced cwd and the run then stripped it)."""
+        """The respond-path peek must not pre-apply a kept cd (regression: `cd /home/user && pwd` printed the old dir because the peek advanced cwd and the run then stripped it)."""
         with tempfile.TemporaryDirectory() as d:
             sub = os.path.join(d, "sub")
             os.mkdir(sub)
@@ -855,25 +1059,26 @@ class TestTerminalLanguages(unittest.TestCase):
         self.assertFalse(block.sync_stored_code("x = 1"))
         self.assertEqual(block.code, "x = 1")
 
-    def test_bash_line_postprocessor_filters_pwd_marker(self):
-        """The `##oi_pwd##` marker is filtered from output and updates the tracked cwd."""
+    def test_bash_line_postprocessor_filters_cwd_marker(self):
+        """The `##oi_cwd##` marker is filtered from output and updates the tracked cwd."""
+        from interpreter.core.terminal.languages.cwd_tracking import _CWD_MARKER
+
         bash = Bash()
-        self.assertIsNone(bash.line_postprocessor("##oi_pwd##/new/dir"))
+        self.assertIsNone(bash.line_postprocessor(f"{_CWD_MARKER}/new/dir"))
         self.assertEqual(bash.cwd, "/new/dir")
 
-    def test_bash_preprocess_appends_pwd_marker_before_end_marker(self):
-        """preprocess_code appends the `##oi_pwd##$PWD` echo just before the end-of-execution marker."""
+    def test_bash_preprocess_appends_cwd_marker_before_end_marker(self):
+        """preprocess_code appends the `##oi_cwd##$PWD` echo just before the end-of-execution marker.
+
+        Matched on the marker prefix, not the whole literal: bash appends the
+        command's exit status to its end marker, so the full line is
+        `##end_of_execution##$__oi_exit_code`.
+        """
         bash = Bash()
         out = bash.preprocess_code("echo hi")
         self.assertLess(
-            out.index('echo "##oi_pwd##$PWD"'),
+            out.index('echo "##oi_cwd##$PWD"'),
             out.index('echo "##end_of_execution##'),
-        )
-        # $? has to be captured before the pwd echo, which would otherwise be
-        # the command whose status the end marker reports.
-        self.assertLess(
-            out.index("__oi_exit_code=$?"),
-            out.index('echo "##oi_pwd##$PWD"'),
         )
 
 
@@ -906,17 +1111,25 @@ class _FakeTerminal:
 class TestRespondNotices(unittest.TestCase):
     """respond() reports silent code rewrites via the confirmation chunk's `removed` notice."""
 
-    def _confirmation(self, messages, instances=None):
+    def _confirmation(self, messages, instances=None, interpreter_attrs=None):
         from interpreter.core.respond import respond
 
         class FakeInterpreter:
             verbose = False
-            toolbox = type("Toolbox", (), {"import_toolbox_api": True})()
+            toolbox = type(
+                "Toolbox",
+                (),
+                {"import_toolbox_api": True},
+            )()
 
         interp = FakeInterpreter()
+        for key, value in (interpreter_attrs or {}).items():
+            setattr(interp, key, value)
         interp.messages = messages
         interp.terminal = _FakeTerminal(instances)
-        with patch("interpreter.core.respond.assemble_system_message", return_value=""):
+        with patch(
+            "interpreter.core.respond.assemble_system_message", return_value=""
+        ):
             for chunk in respond(interp):
                 if chunk.get("type") == "confirmation":
                     return chunk
@@ -1011,14 +1224,35 @@ class TestRespondNotices(unittest.TestCase):
         )
         self.assertIsNone(chunk["content"]["removed"])
 
-    def test_import_toolbox_stripped_with_notice(self):
-        """`import toolbox` is stripped and reported before the prompt.
+    def test_respond_null_redirect_notice_ignores_gate(self):
+        """Respond shows and runs the `nul` safety rewrite even when redundant-code stripping is disabled, while leaving the gated redundant `cd` in place."""
+        from interpreter.core.terminal.languages.bash import Bash
 
-        toolbox is injected into the kernel as a variable, so the import is
-        always redundant. The old code let it through to a post-approval guard
-        that raised ValueError — the user had already said yes to a block that
-        then never ran (regression).
-        """
+        bash = Bash()
+        bash.cwd = os.getcwd()
+        bash.interpreter = type("I", (), {"strip_redundant_code": False})()
+        chunk = self._confirmation(
+            [
+                {"role": "user", "type": "message", "content": "hi"},
+                {
+                    "role": "assistant",
+                    "type": "code",
+                    "format": "bash",
+                    "content": f'cd "{bash.cwd}" && make 2>nul',
+                },
+            ],
+            instances={"bash": bash},
+            interpreter_attrs={"strip_redundant_code": False},
+        )
+        content = chunk["content"]
+        self.assertEqual(
+            content["content"], f'cd "{bash.cwd}" && make 2>/dev/null'
+        )
+        self.assertIn("Replaced `nul` with `/dev/null`", content["removed"])
+        self.assertNotIn("already in that directory", content["removed"])
+
+    def test_import_toolbox_stripped_with_notice(self):
+        """`import toolbox` is stripped (toolbox is injected into the kernel) and reported — the old guard raised after approval instead (regression)."""
         chunk = self._confirmation(
             [
                 {"role": "user", "type": "message", "content": "hi"},
@@ -1037,12 +1271,7 @@ class TestRespondNotices(unittest.TestCase):
         self.assertIn("import toolbox", content["removed"])
 
     def test_import_toolbox_with_comment_stripped(self):
-        """An `import toolbox  # comment` line is stripped like the plain form.
-
-        The trailing comment is the spelling models reach for most often when
-        they explain themselves; matching only the bare line would leave it to
-        the post-approval guard.
-        """
+        """An `import toolbox  # comment` line is stripped like the plain form."""
         chunk = self._confirmation(
             [
                 {"role": "user", "type": "message", "content": "hi"},
@@ -1059,12 +1288,7 @@ class TestRespondNotices(unittest.TestCase):
         self.assertIn("print(toolbox)", content["content"])
 
     def test_import_toolbox_with_other_names_rewritten(self):
-        """`import toolbox, traceback` keeps `import traceback` and drops toolbox.
-
-        Only the toolbox token is redundant; dropping the whole line would take
-        a real import with it, and keeping the whole line sent the block to the
-        post-approval ValueError (regression).
-        """
+        """`import toolbox, traceback` strips just the toolbox token, keeping `import traceback` — the old code only matched toolbox-alone lines, so this fell through to the post-approval ValueError (regression)."""
         chunk = self._confirmation(
             [
                 {"role": "user", "type": "message", "content": "hi"},
@@ -1082,10 +1306,7 @@ class TestRespondNotices(unittest.TestCase):
         self.assertIn("import toolbox", content["removed"])
 
     def test_import_toolbox_after_other_names_rewritten(self):
-        """Toolbox later in the list (`import os, toolbox`) is dropped too.
-
-        Position in the name list must not decide whether the strip fires.
-        """
+        """Toolbox appearing later in the import list (`import os, toolbox`) is also dropped, keeping `import os`."""
         chunk = self._confirmation(
             [
                 {"role": "user", "type": "message", "content": "hi"},
@@ -1102,11 +1323,7 @@ class TestRespondNotices(unittest.TestCase):
         self.assertNotIn("toolbox", content["content"])
 
     def test_import_toolbox_as_kept_for_guard(self):
-        """Aliased `import toolbox as tb` is left for the post-approval guard.
-
-        Rewriting it would mean deciding what `tb` should now refer to; the
-        guard's error message tells the model to use `toolbox` directly instead.
-        """
+        """Aliased `import toolbox as tb` is NOT stripped by the line filter — the post-confirmation guard still handles it."""
         chunk = self._confirmation(
             [
                 {"role": "user", "type": "message", "content": "hi"},
@@ -1121,16 +1338,16 @@ class TestRespondNotices(unittest.TestCase):
         self.assertIn("import toolbox as tb", chunk["content"]["content"])
 
     def test_import_toolbox_not_stripped_when_api_disabled(self):
-        """With the toolbox API not injected, `import toolbox` is left alone.
-
-        There is no injected variable to shadow, so the import may well be a
-        real module the user installed.
-        """
+        """When the toolbox API isn't injected, `import toolbox` is left alone."""
         from interpreter.core.respond import respond
 
         class FakeInterpreter:
             verbose = False
-            toolbox = type("Toolbox", (), {"import_toolbox_api": False})()
+            toolbox = type(
+                "Toolbox",
+                (),
+                {"import_toolbox_api": False},
+            )()
 
         interp = FakeInterpreter()
         interp.messages = [
@@ -1143,43 +1360,12 @@ class TestRespondNotices(unittest.TestCase):
             },
         ]
         interp.terminal = _FakeTerminal()
-        with patch("interpreter.core.respond.assemble_system_message", return_value=""):
+        with patch(
+            "interpreter.core.respond.assemble_system_message", return_value=""
+        ):
             for chunk in respond(interp):
                 if chunk.get("type") == "confirmation":
                     self.assertIn("import toolbox", chunk["content"]["content"])
-                    return
-        self.fail("respond() never yielded a confirmation chunk")
-
-    def test_import_toolbox_strip_respects_gate(self):
-        """strip_redundant_code=false leaves `import toolbox` in the block.
-
-        The gate covers every rewrite, including this one; the post-approval
-        guard still catches the import, which is what the user asked for by
-        turning the rewriting off.
-        """
-        from interpreter.core.respond import respond
-
-        class FakeInterpreter:
-            verbose = False
-            strip_redundant_code = False
-            toolbox = type("Toolbox", (), {"import_toolbox_api": True})()
-
-        interp = FakeInterpreter()
-        interp.messages = [
-            {"role": "user", "type": "message", "content": "hi"},
-            {
-                "role": "assistant",
-                "type": "code",
-                "format": "python",
-                "content": "import toolbox\nprint(toolbox)",
-            },
-        ]
-        interp.terminal = _FakeTerminal()
-        with patch("interpreter.core.respond.assemble_system_message", return_value=""):
-            for chunk in respond(interp):
-                if chunk.get("type") == "confirmation":
-                    self.assertIn("import toolbox", chunk["content"]["content"])
-                    self.assertIsNone(chunk["content"]["removed"])
                     return
         self.fail("respond() never yielded a confirmation chunk")
 
@@ -1264,17 +1450,267 @@ class TestTerminalInterfaceNotices(unittest.TestCase):
         self.assertEqual(len(out), 2)
 
 
-class TestStripRedundantDefinitions(unittest.TestCase):
-    """Table tests for the redundant-definition stripper, on fake fingerprints.
+class TestCwdParsingFuzz(unittest.TestCase):
+    """Property-based (hypothesis) tests for the cd-target parser and stripper.
 
-    These pin down the stripping rules without a kernel: an identical
-    re-definition goes, a different one stays, and every unsafe case (mutables,
-    non-literals, rebindings, shared lines, classes) is preserved.
+    These fuzz the tokenizer with arbitrary inputs to catch parsing edge
+    cases a hand-written test table would miss — quoting/escaping
+    interactions, chain operators adjacent to the target, and the split of a
+    target word at every possible character. NOTE: hypothesis is a dev-branch
+    experiment; we're not sure we'll keep it as a dependency when these
+    features are merged into main, so don't build other tests on it.
+    """
+
+    # hypothesis's internal constant-collection scans loaded modules for
+    # constants and tries to import `pynput`, which raises on headless Linux
+    # (no X display) — unrelated to our parser. Block it so the fuzzer can run.
+    try:
+        import sys as _sys
+
+        if "pynput" in _sys.modules:
+            del _sys.modules["pynput"]
+    except Exception:
+        pass
+
+    def setUp(self):
+        # Bash is the one config with backslash-unescaping enabled.
+        self.bash = _StubCwdShell(cd_unescape_backslashes=True)
+        self.bash.cwd = "/fuzz/start"
+
+    # A target word: printable chars, no whitespace, and none of the chars
+    # that terminate/split the target (backslash, ; | &, quotes). Escaped
+    # variants (with backslashes) are generated separately below.
+    safe_word = (
+        "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._/-"
+    )
+
+    def test_parse_cd_never_raises(self):
+        """_parse_cd never raises and returns a 3-tuple for arbitrary input (including non-cd lines)."""
+        from hypothesis import given, settings
+        from hypothesis import strategies as st
+
+        @given(st.text(max_size=80))
+        @settings(max_examples=300)
+        def run(line):
+            result = self.bash._parse_cd(line)
+            self.assertIsInstance(result, tuple)
+            self.assertEqual(len(result), 3)
+
+        run()
+
+    def test_parse_cd_simple_word_target_is_exact(self):
+        """A plain target word parses exactly, with no chain suffix."""
+        from hypothesis import given, settings
+        from hypothesis import strategies as st
+
+        @given(st.text(alphabet=self.safe_word, min_size=1, max_size=40))
+        @settings(max_examples=300)
+        def run(word):
+            target, after, ok = self.bash._parse_cd(f"cd {word}")
+            self.assertTrue(ok)
+            self.assertEqual(target, word)
+            self.assertEqual(after, "")
+
+        run()
+
+    def test_parse_cd_word_adjacent_to_chain_operator(self):
+        """A chain operator directly adjacent to the target (`cd X;ls`, `cd X&&ls`) splits it off, not into the target."""
+        from hypothesis import given, settings
+        from hypothesis import strategies as st
+
+        operators = st.sampled_from(["&&", "||", ";", "&"])
+
+        @given(
+            st.text(alphabet=self.safe_word, min_size=1, max_size=20),
+            operators,
+            st.text(alphabet="ls", min_size=1, max_size=10),
+        )
+        @settings(max_examples=300)
+        def run(word, op, cmd):
+            target, after, ok = self.bash._parse_cd(f"cd {word}{op}{cmd}")
+            self.assertTrue(ok)
+            self.assertEqual(target, word)
+            self.assertTrue(after.startswith(op))
+
+        run()
+
+    def test_parse_cd_word_after_whitespace_chain(self):
+        """A chain operator after whitespace (`cd X && ls`) splits with the operator at the head of `after`."""
+        from hypothesis import given, settings
+        from hypothesis import strategies as st
+
+        operators = st.sampled_from(["&&", "||", ";", "&"])
+
+        @given(
+            st.text(alphabet=self.safe_word, min_size=1, max_size=20),
+            operators,
+            st.text(alphabet="ls", min_size=1, max_size=10),
+        )
+        @settings(max_examples=300)
+        def run(word, op, cmd):
+            target, after, ok = self.bash._parse_cd(f"cd {word} {op} {cmd}")
+            self.assertTrue(ok)
+            self.assertEqual(target, word)
+            self.assertTrue(after.startswith(op))
+
+        run()
+
+    def test_parse_cd_single_pipe_or_redirect_unparseable(self):
+        """A bare `|` or redirect after the target makes the line unparseable (a cd piped/redirected isn't a directory change)."""
+        from hypothesis import given, settings
+        from hypothesis import strategies as st
+
+        suffixes = st.sampled_from(["| wc", "> /dev/null", "2>/dev/null"])
+
+        @given(
+            st.text(alphabet=self.safe_word, min_size=1, max_size=20),
+            suffixes,
+        )
+        @settings(max_examples=200)
+        def run(word, suffix):
+            target, after, ok = self.bash._parse_cd(f"cd {word} {suffix}")
+            self.assertFalse(ok)
+
+        run()
+
+    def test_parse_cd_quoted_target_preserves_content(self):
+        """A quoted target parses to exactly the quoted content, preserving spaces and punctuation (an empty `""` is a valid no-op target)."""
+        from hypothesis import given, settings
+        from hypothesis import strategies as st
+
+        # Quotable content with NO embedded double-quote (which the naive
+        # first-quote parser can't represent faithfully). Spaces and shell
+        # punctuation are the interesting cases.
+        quoted_safe = self.safe_word + " " + "~`!@#$%^&*()+-=[]{}<>,?'"
+
+        @given(st.text(alphabet=quoted_safe, min_size=0, max_size=30))
+        @settings(max_examples=300)
+        def run(content):
+            target, after, ok = self.bash._parse_cd(f'cd "{content}"')
+            # Even empty (`cd ""`) parses with an empty target.
+            self.assertTrue(ok)
+            self.assertEqual(target, content)
+            self.assertEqual(after, "")
+
+        run()
+
+    def test_parse_cd_escaped_space_stays_in_target(self):
+        """A backslash-escaped space (`My\\ Documents`) stays inside the target word."""
+        from hypothesis import given, settings
+        from hypothesis import strategies as st
+
+        @given(
+            st.text(alphabet=self.safe_word, min_size=1, max_size=15),
+            st.text(alphabet=self.safe_word, min_size=1, max_size=15),
+        )
+        @settings(max_examples=200)
+        def run(part1, part2):
+            target, after, ok = self.bash._parse_cd(f"cd {part1}\\ {part2}")
+            self.assertTrue(ok)
+            self.assertEqual(target, f"{part1} {part2}")
+            self.assertEqual(after, "")
+
+        run()
+
+    def test_bash_strips_redundant_cd_with_escaped_space(self):
+        """A redundant cd whose path contains a backslash-escaped space is stripped with a notice (the bug that motivated this work)."""
+        b = Bash()
+        b.cwd = "/home/user/documents/My Documents"
+        stripped = b._strip_redundant_cd(
+            "cd /home/user/documents/My\\ Documents/\npdftotext report.pdf 2>/dev/null | grep -c PATTERN"
+        )
+        self.assertEqual(stripped, "pdftotext report.pdf 2>/dev/null | grep -c PATTERN")
+        self.assertEqual(
+            b._pending_notice,
+            "Removed redundant cd /home/user/documents/My Documents/ (already in that directory).",
+        )
+        # The peek must not advance cwd.
+        self.assertEqual(b.cwd, "/home/user/documents/My Documents")
+
+    def test_bash_keeps_cd_with_escaped_space_to_other_dir(self):
+        """A cd to a DIFFERENT dir whose path has an escaped space is kept and tracked correctly."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as d:
+            sub = os.path.join(d, "sub dir")
+            os.mkdir(sub)
+            esc = sub.replace(" ", "\\ ")
+            b = Bash()
+            b.cwd = d
+            result = b._strip_redundant_cd(f"cd {esc} && ls")
+            self.assertEqual(result, f"cd {esc} && ls")
+            self.assertEqual(b.cwd, sub)
+
+    def test_parse_cd_escaped_char_round_trips(self):
+        """Any `\\X` escape unescapes to `X`, so the target compares equal to the literal path."""
+        from hypothesis import HealthCheck, given, settings
+        from hypothesis import strategies as st
+
+        @given(
+            st.lists(
+                st.tuples(st.sampled_from(self.safe_word), st.sampled_from(self.safe_word)),
+                min_size=1,
+                max_size=10,
+            )
+        )
+        @settings(max_examples=200, suppress_health_check=[HealthCheck.function_scoped_fixture])
+        def run(pairs):
+            escaped = "".join(f"\\{a}{b}" for a, b in pairs)
+            target, after, ok = self.bash._parse_cd(f"cd {escaped}")
+            self.assertTrue(ok)
+            self.assertEqual(target, escaped.replace("\\", ""))
+            self.assertEqual(after, "")
+
+        run()
+
+    def test_peek_strip_idempotent_on_arbitrary_code(self):
+        """The respond peek (track=False) is idempotent for any multi-line code."""
+        from hypothesis import given, settings
+        from hypothesis import strategies as st
+
+        line = st.text(alphabet=self.safe_word + " ;&|\\", max_size=40)
+
+        @given(st.lists(line, min_size=0, max_size=10))
+        @settings(max_examples=300)
+        def run(lines):
+            code = "\n".join(lines)
+            first = self.bash._strip_redundant_cd(code, track=False)
+            second = self.bash._strip_redundant_cd(first, track=False)
+            self.assertEqual(second, first)
+            # The peek never mutates cwd.
+            self.assertEqual(self.bash.cwd, "/fuzz/start")
+
+        run()
+
+    def test_strip_never_changes_cwd_when_tracking_disabled(self):
+        """track=False (the respond peek) never advances the tracked cwd, for any code."""
+        from hypothesis import given, settings
+        from hypothesis import strategies as st
+
+        line = st.text(alphabet=self.safe_word + " ;&|\\", max_size=40)
+
+        @given(st.lists(line, min_size=0, max_size=10))
+        @settings(max_examples=200)
+        def run(lines):
+            code = "\n".join(lines)
+            before = self.bash.cwd
+            self.bash._strip_redundant_cd(code, track=False)
+            self.assertEqual(self.bash.cwd, before)
+
+        run()
+
+
+class TestStripRedundantDefinitions(unittest.TestCase):
+    """Table tests for the redundant-function/scalar stripper (kernel-free, fake fingerprints).
+
+    These pin down the stripping rules: an identical re-definition is removed,
+    a different one is kept, and the many unsafe cases (mutables, non-literals,
+    rebindings, shared lines, classes) are always preserved.
     """
 
     @staticmethod
     def _fn(src):
-        """Fingerprint of a function as the kernel computes it, from its source."""
+        """Fingerprint of a function as the kernel would compute it."""
         import ast
         import hashlib
 
@@ -1282,21 +1718,22 @@ class TestStripRedundantDefinitions(unittest.TestCase):
 
     @staticmethod
     def _var(value):
-        """Fingerprint of a scalar as the kernel computes it, from its repr."""
         import hashlib
 
         return hashlib.sha1(repr(value).encode()).hexdigest()
 
     def test_identical_function_stripped(self):
-        """A top-level def identical to one already bound is removed, leaving the rest of the block."""
+        """A top-level def identical to one already bound is removed, leaving the rest of the cell."""
         fps = {"f": self._fn("def f(x):\n    return x * 2")}
-        out, fn, var = strip_redundant_definitions_and_assignments("def f(x):\n    return x * 2\nprint(f(1))", fps, {})
+        out, fn, var = strip_redundant_definitions_and_assignments(
+            "def f(x):\n    return x * 2\nprint(f(1))", fps, {}
+        )
         self.assertEqual(out, "\nprint(f(1))")
         self.assertEqual(fn, ["f"])
         self.assertEqual(var, [])
 
     def test_different_function_kept(self):
-        """A redefinition with different code is never stripped — only identical code is."""
+        """A redefinition with different code is never stripped (only identical code is)."""
         fps = {"f": self._fn("def f(x):\n    return x * 2")}
         code = "def f(x):\n    return x * 100\nprint(f(1))"
         out, fn, var = strip_redundant_definitions_and_assignments(code, fps, {})
@@ -1304,14 +1741,16 @@ class TestStripRedundantDefinitions(unittest.TestCase):
         self.assertEqual(fn, [])
 
     def test_identical_async_function_stripped(self):
-        """An `async def` identical to one already bound is removed too."""
+        """An `async def` identical to one already bound is removed."""
         fps = {"af": self._fn("async def af():\n    return 3")}
-        out, fn, var = strip_redundant_definitions_and_assignments("async def af():\n    return 3\nprint('x')", fps, {})
+        out, fn, var = strip_redundant_definitions_and_assignments(
+            "async def af():\n    return 3\nprint('x')", fps, {}
+        )
         self.assertEqual(out, "\nprint('x')")
         self.assertEqual(fn, ["af"])
 
     def test_decorated_function_stripped(self):
-        """A decorated def goes with its decorator lines, which are part of the definition."""
+        """A decorated def is removed along with its decorator lines when identical."""
         fps = {"cached": self._fn("@deco\ndef cached(x):\n    return x * 2")}
         out, fn, var = strip_redundant_definitions_and_assignments(
             "@deco\ndef cached(x):\n    return x * 2\nprint(cached(1))", fps, {}
@@ -1320,29 +1759,33 @@ class TestStripRedundantDefinitions(unittest.TestCase):
         self.assertEqual(fn, ["cached"])
 
     def test_redefinition_after_different_def_kept(self):
-        """Once the block itself rebinds `f`, a later identical-to-kernel `def f` must stay."""
+        """After a *different* `def f` in the same cell, a later identical-to-kernel `def f` is kept (the name is rebound by the cell)."""
         fps = {"f": self._fn("def f(): return 1")}
         code = "def f(): return 1\ndef f(): return 2\nprint(f())"
         out, fn, var = strip_redundant_definitions_and_assignments(code, fps, {})
-        # The first def matches the kernel and goes; the second differs and stays.
+        # First def matches the kernel -> stripped; second differs -> kept.
         self.assertEqual(out, "\ndef f(): return 2\nprint(f())")
         self.assertEqual(fn, ["f"])
 
     def test_class_never_stripped(self):
-        """A class definition is never stripped: the kernel does not fingerprint classes."""
-        out, fn, var = strip_redundant_definitions_and_assignments("class F:\n    pass\nprint(F)", {"F": "whatever"}, {})
+        """A class definition is never stripped (the kernel can't fingerprint classes)."""
+        out, fn, var = strip_redundant_definitions_and_assignments(
+            "class F:\n    pass\nprint(F)", {"F": "whatever"}, {}
+        )
         self.assertEqual(out, "class F:\n    pass\nprint(F)")
         self.assertEqual(fn, [])
 
     def test_identical_scalar_stripped(self):
-        """A scalar assignment equal to the bound value is a no-op, so it is removed."""
+        """A scalar assignment equal to the bound value is removed."""
         fps = {"n": self._var(5)}
-        out, fn, var = strip_redundant_definitions_and_assignments("n = 5\nprint(n)", {}, fps)
+        out, fn, var = strip_redundant_definitions_and_assignments(
+            "n = 5\nprint(n)", {}, fps
+        )
         self.assertEqual(out, "\nprint(n)")
         self.assertEqual(var, ["n"])
 
     def test_different_scalar_kept(self):
-        """A scalar assignment with a different value changes the namespace, so it stays."""
+        """A scalar assignment with a different value is kept."""
         fps = {"n": self._var(5)}
         code = "n = 6\nprint(n)"
         out, fn, var = strip_redundant_definitions_and_assignments(code, {}, fps)
@@ -1350,7 +1793,7 @@ class TestStripRedundantDefinitions(unittest.TestCase):
         self.assertEqual(var, [])
 
     def test_scalar_type_change_kept(self):
-        """int vs float vs bool are different values: repr fingerprints are type-sensitive."""
+        """A value of a different type (int vs float vs bool) is kept — repr fingerprints are type-sensitive."""
         for kernel_val, new_src in [(5, "n = 5.0\nprint(n)"), (5, "n = True\nprint(n)")]:
             fps = {"n": self._var(kernel_val)}
             out, _, var = strip_redundant_definitions_and_assignments(new_src, {}, fps)
@@ -1358,7 +1801,7 @@ class TestStripRedundantDefinitions(unittest.TestCase):
             self.assertEqual(var, [])
 
     def test_scalar_rebind_earlier_kept(self):
-        """`x = 6` then `x = 5` keeps both — stripping the second would leave x at 6."""
+        """A scalar rebound earlier in the cell (`x = 6` then `x = 5`) keeps both — stripping the second would change the result."""
         fps = {"x": self._var(5)}
         code = "x = 6\nx = 5\nprint(x)"
         out, _, var = strip_redundant_definitions_and_assignments(code, {}, fps)
@@ -1366,7 +1809,7 @@ class TestStripRedundantDefinitions(unittest.TestCase):
         self.assertEqual(var, [])
 
     def test_del_then_scalar_kept(self):
-        """A `del x` before the reassignment makes it necessary again — the name is gone."""
+        """A `del x` before a reassign makes the reassign non-redundant (the name no longer exists)."""
         fps = {"x": self._var(5)}
         code = "del x\nx = 5\nprint(x)"
         out, _, var = strip_redundant_definitions_and_assignments(code, {}, fps)
@@ -1374,7 +1817,7 @@ class TestStripRedundantDefinitions(unittest.TestCase):
         self.assertEqual(var, [])
 
     def test_shared_line_assignment_kept(self):
-        """`x = 5; y = 6` is never touched — removing one target leaves a broken line."""
+        """An assignment sharing a line (`x = 5; y = 6`) is never stripped — removing one target breaks the line."""
         fps = {"x": self._var(5), "y": self._var(6)}
         code = "x = 5; y = 6\nprint(x, y)"
         out, _, var = strip_redundant_definitions_and_assignments(code, {}, fps)
@@ -1382,7 +1825,7 @@ class TestStripRedundantDefinitions(unittest.TestCase):
         self.assertEqual(var, [])
 
     def test_mutable_or_nonliteral_kept(self):
-        """Containers, computed values and tuple/annotated targets are never a no-op reassignment."""
+        """Lists/dicts and non-literal RHS are never stripped (can't be a no-op reassign)."""
         fps = {"x": self._var(5)}
         for code in [
             "x = [1, 2]\nprint(x)",
@@ -1396,7 +1839,7 @@ class TestStripRedundantDefinitions(unittest.TestCase):
             self.assertEqual(var, [])
 
     def test_unparseable_code_untouched(self):
-        """A block that is not valid Python — magics, `!cmd` — is returned exactly as it came."""
+        """A cell that doesn't parse (magics, `!cmd`, incomplete code) is returned unchanged."""
         fps = {"f": self._fn("def f(): return 1")}
         for code in ["%matplotlib inline\ndef f(): return 1", "!ls\ndef f(): return 1"]:
             out, fn, var = strip_redundant_definitions_and_assignments(code, fps, {})
@@ -1404,7 +1847,7 @@ class TestStripRedundantDefinitions(unittest.TestCase):
             self.assertEqual(fn, [])
 
     def test_no_fingerprints_is_noop(self):
-        """Before the kernel has reported anything, nothing can be stripped."""
+        """With empty fingerprint maps nothing can be stripped."""
         code = "def f(): return 1\nx = 5"
         out, fn, var = strip_redundant_definitions_and_assignments(code, {}, {})
         self.assertEqual(out, code)
@@ -1412,8 +1855,11 @@ class TestStripRedundantDefinitions(unittest.TestCase):
         self.assertEqual(var, [])
 
     def test_combination_defs_and_scalars(self):
-        """A block re-sending both an identical function and an identical scalar loses both."""
-        fps = {"f": self._fn("def f(x):\n    return x * 2"), "n": self._var(5)}
+        """A cell re-defining both an identical function and an identical scalar strips both, in one notice."""
+        fps = {
+            "f": self._fn("def f(x):\n    return x * 2"),
+            "n": self._var(5),
+        }
         out, fn, var = strip_redundant_definitions_and_assignments(
             "def f(x):\n    return x * 2\nn = 5\nprint(f(n))", {"f": fps["f"]}, {"n": fps["n"]}
         )
@@ -1423,7 +1869,25 @@ class TestStripRedundantDefinitions(unittest.TestCase):
 
 
 class TestFingerprintNormalization(unittest.TestCase):
-    """The kernel/client fingerprint agreement the whole stripping scheme hinges on."""
+    """The kernel↔client fingerprint agreement the whole stripping scheme hinges on."""
+
+    def test_module_unparse_matches_node_unparse(self):
+        """`ast.unparse(ast.parse(src))` of a function equals `ast.unparse(def_node)` from a multi-statement cell — so the kernel (which fingerprints via getsource) and the client (which fingerprints the cell AST) hash identically."""
+        import ast
+
+        kernel_src = "def f(x):\n    return x * 2\n"
+        cell = "def f(x):\n    return x * 2\nn = 5\nprint(f(n))"
+        kernel_fp = self._fn(kernel_src)
+        client_fp = _function_fingerprint(ast.parse(cell).body[0])
+        self.assertEqual(kernel_fp, client_fp)
+
+    def test_comments_and_formatting_ignored(self):
+        """Fingerprints ignore comments and whitespace, so a cosmetic rewrite is still 'identical'."""
+        import ast
+
+        src = "def f(x):\n    # a comment\n    return x * 2\n"
+        cell = "def f( x ):\n    return x*2"
+        self.assertEqual(_function_fingerprint(ast.parse(src).body[0]), self._fn(cell))
 
     @staticmethod
     def _fn(src):
@@ -1431,6 +1895,72 @@ class TestFingerprintNormalization(unittest.TestCase):
         import hashlib
 
         return hashlib.sha1(ast.dump(ast.parse(src).body[0]).encode()).hexdigest()
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+
+# Carried over from the rework branch: these cover behaviour that exists only
+# there -- the python_state snippet module, the bash-only backslash unescaping,
+# the one strip_redundant_code gate, and the kernel/client fingerprint match.
+class TestReworkOnlyTerminalBehaviour(unittest.TestCase):
+    @staticmethod
+    def _fn(src):
+        """Fingerprint of a function as the kernel computes it, from its source."""
+        import ast
+        import hashlib
+
+        return hashlib.sha1(ast.dump(ast.parse(src).body[0]).encode()).hexdigest()
+
+    def test_non_posix_shells_keep_backslashes_in_the_cd_target(self):
+        """Unescaping is bash-only: cmd and PowerShell use `\\` as a path separator.
+
+        `cd C:\\Users\\me` must compare as itself. Unescaping it everywhere
+        would turn it into `C:Usersme`, which matches nothing, and the
+        Windows shells would silently lose the stripping they have today.
+        """
+        self.assertFalse(_StubCwdShell().cd_unescape_backslashes)
+        cmd = _StubCwdShell(cd_option_prefixes=("/d",), cd_chain_operators=("&&", "&"))
+        target, after, ok = cmd._parse_cd(r"cd C:\Users\me && dir")
+        self.assertTrue(ok)
+        self.assertEqual(target, r"C:\Users\me")
+        self.assertEqual(after, "&& dir")
+
+
+    def test_import_toolbox_strip_respects_gate(self):
+        """strip_redundant_code=false leaves `import toolbox` in the block.
+
+        The gate covers every rewrite, including this one; the post-approval
+        guard still catches the import, which is what the user asked for by
+        turning the rewriting off.
+        """
+        from interpreter.core.respond import respond
+
+        class FakeInterpreter:
+            verbose = False
+            strip_redundant_code = False
+            toolbox = type("Toolbox", (), {"import_toolbox_api": True})()
+
+        interp = FakeInterpreter()
+        interp.messages = [
+            {"role": "user", "type": "message", "content": "hi"},
+            {
+                "role": "assistant",
+                "type": "code",
+                "format": "python",
+                "content": "import toolbox\nprint(toolbox)",
+            },
+        ]
+        interp.terminal = _FakeTerminal()
+        with patch("interpreter.core.respond.assemble_system_message", return_value=""):
+            for chunk in respond(interp):
+                if chunk.get("type") == "confirmation":
+                    self.assertIn("import toolbox", chunk["content"]["content"])
+                    self.assertIsNone(chunk["content"]["removed"])
+                    return
+        self.fail("respond() never yielded a confirmation chunk")
+
 
     def test_kernel_source_fingerprint_matches_client_node_fingerprint(self):
         """The kernel hashes a function's own source, the client hashes the def node inside a whole block; both must agree or nothing is ever stripped."""
@@ -1440,13 +1970,6 @@ class TestFingerprintNormalization(unittest.TestCase):
         cell = "def f(x):\n    return x * 2\nn = 5\nprint(f(n))"
         self.assertEqual(self._fn(kernel_src), _function_fingerprint(ast.parse(cell).body[0]))
 
-    def test_comments_and_formatting_ignored(self):
-        """Fingerprints come from the AST, so a comment or respacing still counts as identical."""
-        import ast
-
-        src = "def f(x):\n    # a comment\n    return x * 2\n"
-        cell = "def f( x ):\n    return x*2"
-        self.assertEqual(_function_fingerprint(ast.parse(src).body[0]), self._fn(cell))
 
 
 class TestPythonStateSnippet(unittest.TestCase):
@@ -1476,6 +1999,3 @@ class TestPythonStateSnippet(unittest.TestCase):
         src = "def f():\n    print('##active_line12##')\n    return 1"
         self.assertEqual(marker_regex.sub("", src), "def f():\n\n    return 1")
 
-
-if __name__ == "__main__":
-    unittest.main()

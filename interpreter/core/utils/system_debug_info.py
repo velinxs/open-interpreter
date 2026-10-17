@@ -17,7 +17,8 @@ def get_python_version():
 
 def get_pip_version():
     try:
-        pip_version = subprocess.check_output(["pip", "--version"]).decode().split()[1]
+        pip_version = subprocess.check_output(
+            ["pip", "--version"]).decode().split()[1]
     except Exception as e:
         pip_version = str(e)
     return pip_version
@@ -118,7 +119,8 @@ def interpreter_info(interpreter):
     try:
         if interpreter.offline and interpreter.llm.api_base:
             try:
-                curl = subprocess.check_output(f"curl {interpreter.llm.api_base}")
+                curl = subprocess.check_output(
+                    f"curl {interpreter.llm.api_base}")
             except Exception as e:
                 curl = str(e)
         else:

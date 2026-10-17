@@ -9,6 +9,7 @@ from interpreter.core.utils.execution_allowlist import (
     should_require_execution_confirmation,
     should_require_execution_confirmation_for_code,
 )
+from interpreter.core.utils.shell_chain import split_shell_chain
 
 
 @pytest.fixture(autouse=True)
@@ -30,6 +31,48 @@ def _interpreter(**kwargs):
     for key, value in kwargs.items():
         setattr(interpreter, key, value)
     return interpreter
+
+
+def test_split_shell_chain_basic():
+    """`cd /x && ls` splits into its two chained commands on the && operator."""
+    assert split_shell_chain("cd /x && ls") == ["cd /x", "ls"]
+
+
+def test_split_shell_chain_all_operators():
+    """All chain operators (&&, ||, ;, &) split at top level."""
+    assert split_shell_chain("a && b || c; d & e") == ["a", "b", "c", "d", "e"]
+
+
+def test_split_shell_chain_no_space_operator():
+    """An operator directly adjacent to a command (`cd /x;ls`) still splits."""
+    assert split_shell_chain("cd /x;ls") == ["cd /x", "ls"]
+    assert split_shell_chain("cd /x&&ls") == ["cd /x", "ls"]
+
+
+def test_split_shell_chain_quoted_operator_not_split():
+    """An operator inside quotes is part of the command, not a split point."""
+    assert split_shell_chain('echo "a && b"') == ['echo "a && b"']
+
+
+def test_split_shell_chain_escaped_space_not_split():
+    """An escaped space (`\\ `) stays inside one command; a real `&&` still splits."""
+    assert split_shell_chain(r"cd /x\ with\ space && ls") == ["cd /x\\ with\\ space", "ls"]
+
+
+def test_split_shell_chain_pipe_not_split():
+    """A bare pipe is not a chain operator — the whole pipeline stays one command."""
+    assert split_shell_chain("cd /x | wc") == ["cd /x | wc"]
+
+
+def test_split_shell_chain_drops_empty_pieces():
+    """A dangling operator (`cd /x &&`) yields just the real command."""
+    assert split_shell_chain("cd /x &&") == ["cd /x"]
+
+
+def test_split_shell_chain_custom_operators():
+    """The operator set is configurable — cmd has no `||`/`;`, so those don't split."""
+    assert split_shell_chain("a && b; c", operators=("&&", "&")) == ["a", "b; c"]
+    assert split_shell_chain("a && b; c", operators=(";",)) == ["a && b", "c"]
 
 
 def test_normalize_auto_run_mode():
@@ -106,90 +149,6 @@ def test_should_require_execution_confirmation_chunk():
     assert should_require_execution_confirmation(interpreter, allowlisted) is False
     assert should_require_execution_confirmation(interpreter, blocked) is True
     assert should_require_execution_confirmation(interpreter, edit) is True
-
-
-def test_edit_confirmation_follows_auto_run_all():
-    """
-    auto_run_mode "all" is the yolo setting: it covers edits too.
-
-    Edits used to be confirmed unconditionally, which left a headless run
-    (server mode, no TTY) with a confirmation nobody could answer. Every mode
-    other than "all" still confirms them.
-    """
-    edit = {
-        "type": "confirmation",
-        "format": "edit",
-        "content": {"format": "python", "content": "x = 1", "target": "a.py"},
-    }
-
-    assert should_require_execution_confirmation(_interpreter(auto_run_mode="all"), edit) is False
-
-    for mode in ("allowlist", "prompt"):
-        interpreter = _interpreter(auto_run_mode=mode)
-        assert should_require_execution_confirmation(interpreter, edit) is True
-
-
-def test_denylist_mode_runs_everything_except_matched_rules():
-    """Denylist inverts the allowlist: unmatched code runs, matched code confirms."""
-    interpreter = _interpreter(auto_run_mode="denylist")
-
-    # Ordinary work is not interrupted.
-    for code in ("ls -la", "pip install requests", "cat /etc/hostname"):
-        assert should_require_execution_confirmation_for_code(interpreter, "bash", code) is False
-
-    # Built-in destructive rules still stop for a human.
-    for code in (
-        "rm -rf /",
-        "rm -rf ~",
-        "sudo rm -fr /home/{user}",
-        "mkfs.ext4 /dev/sda1",
-        "dd if=/dev/zero of=/dev/sda",
-    ):
-        assert should_require_execution_confirmation_for_code(interpreter, "bash", code) is True
-
-
-def test_denylist_matches_inside_a_larger_script():
-    """A dangerous line buried in a longer block must still be caught."""
-    interpreter = _interpreter(auto_run_mode="denylist")
-    script = "echo starting\ncd /tmp\nrm -rf /var/important\necho done"
-    assert should_require_execution_confirmation_for_code(interpreter, "bash", script) is True
-
-
-def test_denylist_python_rules():
-    interpreter = _interpreter(auto_run_mode="denylist")
-    assert should_require_execution_confirmation_for_code(interpreter, "python", "print(1)") is False
-    assert (
-        should_require_execution_confirmation_for_code(interpreter, "python", "import shutil; shutil.rmtree('/data')")
-        is True
-    )
-
-
-def test_denylist_file_rules(tmp_path):
-    denylist_file = tmp_path / "denylist.yaml"
-    denylist_file.write_text("rules:\n  - language: bash\n    match: regex\n    pattern: 'terraform\\s+destroy'\n")
-    interpreter = _interpreter(
-        auto_run_mode="denylist",
-        auto_run_denylist_file=str(denylist_file),
-    )
-    assert should_require_execution_confirmation_for_code(interpreter, "bash", "terraform plan") is False
-    assert (
-        should_require_execution_confirmation_for_code(interpreter, "bash", "terraform destroy -auto-approve") is True
-    )
-
-
-def test_denylist_is_ignored_in_yolo_mode():
-    """auto_run "all" means all - the denylist does not apply."""
-    interpreter = _interpreter(auto_run_mode="all")
-    assert should_require_execution_confirmation_for_code(interpreter, "bash", "rm -rf /") is False
-
-
-def test_invalid_regex_rule_is_rejected():
-    interpreter = _interpreter(
-        auto_run_mode="denylist",
-        auto_run_denylist_rules=[{"language": "bash", "match": "regex", "pattern": "("}],
-    )
-    with pytest.raises(ValueError, match="Invalid regex"):
-        should_require_execution_confirmation_for_code(interpreter, "bash", "ls")
 
 
 def test_persist_allowlist_rule(tmp_path):

@@ -88,6 +88,8 @@ dev = [
     "websockets>=13.1",
     "pre-commit>=3.5",
     "pytest-cov>=7.1.0",
+    "hypothesis>=6",
+    "pytest-timeout>=2.3",
 ]
 
 [build-system]
@@ -116,4 +118,14 @@ ignore = [
     "E712",
     "E713",
     "E721",
+]
+
+[tool.pytest.ini_options]
+# Scope collection to the suite. Several `test_*.py` probe scripts sit at the
+# repo root -- manual one-off checks against live search backends, carrying no
+# test functions -- and pytest imports anything matching that name, so a bare
+# `pytest` ran their network calls at import time and hung.
+testpaths = ["tests"]
+markers = [
+    "integration: talks to a real model or service, and bills a real API key",
 ]

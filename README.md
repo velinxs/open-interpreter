@@ -82,11 +82,11 @@ Major changes vs the upstream branch (`classic/main`):
     <a href="docs/README_IN.md"><img src="https://img.shields.io/badge/Hindi-white.svg" alt="IN doc"/></a>
     <a href="LICENSE"><img src="https://img.shields.io/static/v1?label=license&message=AGPL&color=white&style=flat" alt="License"/></a>
     <br>
-    <br><a href="https://0ggfznkwh4j.typeform.com/to/G21i9lJ2">Get early access to the desktop app</a>‎ ‎ |‎ ‎ <a href="https://docs.openinterpreter.com/">Documentation</a><br>
+    <br><a href="https://www.openinterpreter.com/">Desktop App</a> | <a href="https://github.com/openinterpreter/openinterpreter">Open Interpreter (Rust)</a> | <a href="docs">Documentation</a><br>
 </p>
 <img alt="local_explorer" src="https://github.com/OpenInterpreter/open-interpreter/assets/63927363/d941c3b4-b5ad-4642-992c-40edf31e2e7a">
 
-**Open Interpreter** lets LLMs run code (Python, Javascript, Shell, and more) locally. You can chat with Open Interpreter through a ChatGPT-like interface in your terminal by running `$ interpreter` after installing.
+**Open Interpreter** lets LLMs run code and shell commands locally (Python, JavaScript, Bash, cmd, PowerShell, Ruby, R, Java, and more). You interact with Open Interpreter through a chatbot interface in your terminal by running `interpreter` after installing.
 
 This provides a natural-language interface to your computer's general-purpose capabilities:
 
@@ -95,7 +95,16 @@ This provides a natural-language interface to your computer's general-purpose ca
 - Plot, clean, and analyze large datasets
 - ...etc.
 
-**⚠️ Note: You'll be asked to approve code before it's run.**
+**⚠️ Note: By default, you'll be asked to approve code before it's run.**
+
+## Comparison with other tools
+
+Open Interpreter pre-dates many other AI coding tools, and has some similarities and differences:
+
+- While it can write code and execute shell commands, similar to coding agents like [Claude Code](https://claude.ai/code), [Cursor](https://cursor.sh), [Devin](https://www.devin.ai), and the like, Open Interpreter is less about maintaining a project codebase by patching source code files, and more about completing one-off tasks in a persistent, interactive REPL-like session (closer to a Jupyter notebook than an IDE).
+- Unlike [OpenClaw](https://openclaw.ai/), [Hermes Agent](https://hermes-agent.org/), etc. it is typically used interactively and not as an autonomous agent.
+- Rather than interacting with the world through MCP tools, like [Claude Desktop](https://claude.ai/download), it runs code snippets or [shell commands directly](https://ejholmes.github.io/2026/02/28/mcp-is-dead-long-live-the-cli.html).
+- It is similar to natural-language shell translators like [ShellGPT](https://github.com/ther1d/shell_gpt) or [cmd-ai](https://github.com/BrodaNoel/cmd-ai), but it is not limited to shell, and uses an interactive chatbot interface, so you can review, reject (`n`), or edit (`e`) commands before they run, and ask the model to revise.
 
 ## Demo
 
@@ -113,15 +122,15 @@ This provides a natural-language interface to your computer's general-purpose ca
 
 ### Install
 
-This repository is Endolith's fork of the classic Python Open Interpreter.
+This is the community-maintained Python version of Open Interpreter.
 
 This command will install **`main`** which is the default branch (stable base, CI, and merge target for ported changes):
 
 ```shell
-pip install git+https://github.com/OpenInterpreter/open-interpreter.git
+pip install git+https://github.com/endolith/open-interpreter.git
 ```
 
-> See our [setup guide](https://docs.openinterpreter.com/getting-started/setup) for optional dependencies.
+> See our [setup guide](docs/getting-started/setup.mdx) for optional dependencies.
 
 For day-to-day use, however, you probably want to install **`classic/develop`** instead — that's the unstable branch maintained and used daily, with many changes and features vs the main branch, such as support for reasoning models, OpenRouter/DeepSeek/Qwen, web search tools, etc.:
 
@@ -154,22 +163,19 @@ interpreter.chat() # Starts an interactive chat
 
 Press the <kbd>,</kbd> key on this repository's GitHub page to create a codespace. After a moment, you'll receive a cloud virtual machine environment pre-installed with open-interpreter. You can then start interacting with it directly and freely confirm its execution of system commands without worrying about damaging the system.
 
-## Comparison to ChatGPT's Code Interpreter
+## Comparison to hosted code interpreters
 
-OpenAI's release of [Code Interpreter](https://openai.com/blog/chatgpt-plugins#code-interpreter) with GPT-4 presents a fantastic opportunity to accomplish real-world tasks with ChatGPT.
+Hosted Code Interpreter features in web chatbots ([OpenAI](https://developers.openai.com/api/docs/guides/tools-code-interpreter), [Mistral](https://docs.mistral.ai/studio-api/agents/agent-tools/code_interpreter), [Grok](https://docs.x.ai/developers/tools/code-execution), [Gemini](https://ai.google.dev/gemini-api/docs/interactions/code-execution), etc.) run code in a remote, sandboxed environment that is closed-source and restricted compared to your local machine:
 
-However, OpenAI's service is hosted, closed-source, and heavily restricted:
-
-- No internet access.
-- [Limited set of pre-installed packages](https://wfhbrian.com/artificial-intelligence/mastering-chatgpts-code-interpreter-list-of-python-packages/).
-- 100 MB maximum upload, 120.0 second runtime limit.
-- State is cleared (along with any generated files or links) when the environment dies.
+- Sandboxed remote environment — files must be individually uploaded and downloaded
+- User code generally cannot access the internet or call arbitrary APIs
+- Limited set of pre-installed packages
+- Ephemeral sessions — containers expire after inactivity, losing state and output files
+- Upload and runtime limits
 
 ---
 
-Open Interpreter overcomes these limitations by running in your local environment. It has full access to the internet, isn't restricted by time or file size, and can utilize any package or library.
-
-This combines the power of GPT-4's Code Interpreter with the flexibility of your local development environment.
+Open Interpreter overcomes these limitations by running in your local environment. It has full access to the internet, isn't restricted by time or file size, and can use any package or library.
 
 ## Commands
 
@@ -336,11 +342,18 @@ In the interactive mode, you can use the below commands to enhance your experien
 
 **Available Commands:**
 
+- `%% [command]`: Run a command in your system shell (bypasses the LLM).
 - `%verbose [true/false]`: Toggle verbose mode. Without arguments or with `true` it
   enters verbose mode. With `false` it exits verbose mode.
+- `%auto_run [true/false]`: Toggle whether code runs without confirmation. Without arguments or with `true` it enters auto_run mode. With `false` it exits auto_run mode.
 - `%reset`: Resets the current session's conversation.
 - `%undo`: Removes the previous user message and the AI's response from the message history.
+- `%save_message [path]`: Saves messages to a specified JSON path. If no path is provided, it defaults to 'messages.json'.
+- `%load_message [path]`: Loads messages from a specified JSON path. If no path is provided, it defaults to 'messages.json'.
 - `%tokens [prompt]`: (_Experimental_) Calculate the tokens that will be sent with the next prompt as context and estimate their cost. Optionally calculate the tokens and estimated cost of a `prompt` if one is provided. Relies on [LiteLLM's `cost_per_token()` method](https://docs.litellm.ai/docs/completion/token_usage#2-cost_per_token) for estimated costs.
+- `%jupyter`: Export the conversation to a Jupyter notebook file.
+- `%markdown [path]`: Export the conversation to a specified Markdown path. If no path is provided, it will be saved to the Downloads folder with a generated conversation name.
+- `%info`: Show system and interpreter information.
 - `%help`: Show the help message.
 
 ### Configuration / Profiles
@@ -488,7 +501,7 @@ python_path: ~/projects/thing/.venv
 
 ## Sample FastAPI Server
 
-The generator update enables Open Interpreter to be controlled via HTTP REST endpoints:
+Open Interpreter can be controlled via HTTP REST endpoints:
 
 ```python
 # server.py
@@ -517,7 +530,7 @@ pip install fastapi uvicorn
 uvicorn server:app --reload
 ```
 
-You can also start a server identical to the one above by simply running `interpreter.server()`.
+You can also start a built-in server with WebSocket support and a web UI by running `interpreter --server` (requires the `[server]` extra).
 
 ## Android
 
@@ -535,19 +548,19 @@ You can run `interpreter -y` or set `interpreter.auto_run = True` to bypass this
 - Watch Open Interpreter like a self-driving car, and be prepared to end the process by closing your terminal.
 - Consider running Open Interpreter in a restricted environment like Google Colab or Replit. These environments are more isolated, reducing the risks of executing arbitrary code.
 
-When using a **remote API model**, message text (including code output) is sanitized with [bc-detect-secrets](https://github.com/bridgecrewio/detect-secrets) so API keys and passwords are redacted before being sent to the API. Use `--sanitize_secrets off` to disable, or `--sanitize_secrets on` to enable for local models too. See [All Settings — Sanitize secrets](https://docs.openinterpreter.com/settings/all-settings#sanitize-secrets-api-keys-passwords).
+When using a **remote API model**, message text (including code output) is sanitized with [bc-detect-secrets](https://github.com/bridgecrewio/detect-secrets) so API keys and passwords are redacted before being sent to the API. Use `--sanitize_secrets off` to disable, or `--sanitize_secrets on` to enable for local models too. See [All Settings — Sanitize secrets](docs/settings/all-settings.mdx#sanitize-secrets-api-keys-passwords).
 
-There is **experimental** support for a [safe mode](https://github.com/OpenInterpreter/open-interpreter/blob/main/docs/SAFE_MODE.md) to help mitigate some risks.  [Don't bother with this.  It uses `semgrep`, a static code analysis tool meant to protect against different threats than those in AI-generated code. It will happily allow the LLM to delete every file on your machine, but will block legitimate things like subprocess calls with variables, etc.]
+There is **experimental** support for a [safe mode](docs/SAFE_MODE.md) to help mitigate some risks.  [Don't bother with this.  It uses `semgrep`, a static code analysis tool meant to protect against different threats than those in AI-generated code. It will happily allow the LLM to delete every file on your machine, but will block legitimate things like subprocess calls with variables, etc.]
 
 ## How Does it Work?
 
-Open Interpreter equips a [function-calling language model](https://platform.openai.com/docs/guides/function-calling) with an `exec()` function, which accepts a `language` (like "Python" or "JavaScript") and `code` to run.
+Open Interpreter equips a [function-calling language model](https://platform.openai.com/docs/guides/function-calling) with an `execute` tool, which accepts a `language` (like "Python" or "JavaScript") and `code` to run. (Non-function-calling models are also supported via markdown code blocks.)
 
 We then stream the model's messages, code, and your system's outputs to the terminal as Markdown.
 
 ## Access Documentation Offline
 
-The full [documentation](https://docs.openinterpreter.com/) is accessible on-the-go without the need for an internet connection.
+The full [documentation](docs) is accessible on-the-go without the need for an internet connection.
 
 [Node](https://nodejs.org/en) is a pre-requisite:
 
@@ -577,11 +590,11 @@ A new browser window should open. The documentation will be available at [http:/
 
 Thank you for your interest in contributing! We welcome involvement from the community.
 
-Please see our [contributing guidelines](https://github.com/OpenInterpreter/open-interpreter/blob/main/docs/CONTRIBUTING.md) for more details on how to get involved.
+Please see our [contributing guidelines](docs/CONTRIBUTING.md) for more details on how to get involved.
 
 ## Roadmap
 
-Visit [our roadmap](https://github.com/OpenInterpreter/open-interpreter/blob/main/docs/ROADMAP.md) to preview the future of Open Interpreter.
+Visit [our roadmap](docs/ROADMAP.md) to preview the future of Open Interpreter.
 
 **Note**: This software is not affiliated with OpenAI.
 

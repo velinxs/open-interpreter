@@ -11,7 +11,7 @@
     <a href="../LICENSE"><img src="https://img.shields.io/static/v1?label=license&message=AGPL&color=white&style=flat" alt="License"/></a>
     <br>
     <br>
-    <br><a href="https://0ggfznkwh4j.typeform.com/to/G21i9lJ2">Obtenga acceso temprano a la aplicación de escritorio</a>‎ ‎ |‎ ‎ <a href="https://docs.openinterpreter.com/">Documentación</a><br>
+    <br><a href="https://www.openinterpreter.com/">Aplicación de Escritorio</a> | <a href="https://github.com/openinterpreter/openinterpreter">Open Interpreter (Rust)</a> | <a href=".">Documentación</a><br>
 </p>
 
 <br>
@@ -28,7 +28,7 @@
 pip install open-interpreter
 ```
 
-> ¿No funciona? Lea nuestra [guía de configuración](https://docs.openinterpreter.com/getting-started/setup).
+> ¿No funciona? Lea nuestra [guía de configuración](getting-started/setup.mdx).
 
 ```shell
 interpreter
@@ -270,7 +270,7 @@ $ interpreter
 ...
 > %verbose true <- Activa el modo detallado
 
-> %verbose false <- Desactiva el modo verbose
+> %verbose false <- Desactiva el modo detallado
 ```
 
 ### Comandos de Modo Interactivo
@@ -279,11 +279,18 @@ En el modo interactivo, puede utilizar los siguientes comandos para mejorar su e
 
 **Comandos Disponibles:**
 
+- `%% [command]`: Ejecuta un comando en el shell del sistema (sin pasar por el LLM).
 - `%verbose [true/false]`: Activa o desactiva el modo detallado. Sin parámetros o con `true` entra en modo detallado.
-  Con `false` sale del modo verbose.
+  Con `false` sale del modo detallado.
+- `%auto_run [true/false]`: Activa o desactiva la ejecución de código sin confirmación. Sin parámetros o con `true` entra en modo auto_run. Con `false` sale del modo auto_run.
 - `%reset`: Reinicia la sesión actual de conversación.
 - `%undo`: Elimina el mensaje de usuario previo y la respuesta del AI del historial de mensajes.
+- `%save_message [path]`: Guarda los mensajes en una ruta JSON especificada. Si no se proporciona ruta, el valor predeterminado es `messages.json`.
+- `%load_message [path]`: Carga mensajes desde una ruta JSON especificada. Si no se proporciona ruta, el valor predeterminado es `messages.json`.
 - `%tokens [prompt]`: (_Experimental_) Calcula los tokens que se enviarán con el próximo prompt como contexto y estima su costo. Opcionalmente, calcule los tokens y el costo estimado de un `prompt` si se proporciona. Depende de [LiteLLM's `cost_per_token()` method](https://docs.litellm.ai/docs/completion/token_usage#2-cost_per_token) para costos estimados.
+- `%jupyter`: Exporta la conversación a un archivo de cuaderno Jupyter.
+- `%markdown [path]`: Exporta la conversación a una ruta Markdown especificada. Si no se proporciona ruta, se guardará en la carpeta Downloads con un nombre de conversación generado.
+- `%info`: Muestra información del sistema y del intérprete.
 - `%help`: Muestra el mensaje de ayuda.
 
 ### Configuración / Perfiles
@@ -357,7 +364,7 @@ Puede ejecutar `interpreter -y` o establecer `interpreter.auto_run = True` para 
 - Vigile Intérprete Abierto como si fuera un coche autónomo y esté preparado para terminar el proceso cerrando su terminal.
 - Considere ejecutar Intérprete Abierto en un entorno restringido como Google Colab o Replit. Estos entornos son más aislados, reduciendo los riesgos de ejecutar código arbitrario.
 
-Hay soporte **experimental** para un [modo seguro](docs/SAFE_MODE.md) para ayudar a mitigar algunos riesgos.
+Hay soporte **experimental** para un [modo seguro](SAFE_MODE.md) para ayudar a mitigar algunos riesgos.
 
 ## ¿Cómo Funciona?
 
@@ -397,11 +404,11 @@ Una nueva ventana del navegador debería abrirse. La documentación estará disp
 
 ¡Gracias por su interés en contribuir! Damos la bienvenida a la implicación de la comunidad.
 
-Por favor, consulte nuestras [directrices de contribución](docs/CONTRIBUTING.md) para obtener más detalles sobre cómo involucrarse.
+Por favor, consulte nuestras [directrices de contribución](CONTRIBUTING.md) para obtener más detalles sobre cómo involucrarse.
 
 # Roadmap
 
-Visite [nuestro roadmap](https://github.com/OpenInterpreter/open-interpreter/blob/main/docs/ROADMAP.md) para ver el futuro de Intérprete Abierto.
+Visite [nuestro roadmap](ROADMAP.md) para ver el futuro de Intérprete Abierto.
 
 **Nota:** Este software no está afiliado con OpenAI.
 

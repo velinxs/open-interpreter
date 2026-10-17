@@ -2,6 +2,59 @@ from ..default_system_message import system_information
 from ..render_message import render_message
 
 
+def _environment_block(interpreter):
+    """One-off environment facts for the system message.
+
+    Shape follows the Codex runtime's system prompt, which reports the same
+    things in an ``<env>`` block:
+
+        Here is useful information about the environment you are running in:
+        <env>
+          Open Interpreter started in: /path
+          Open Interpreter started at: 2026-10-05 19:57
+        </env>
+
+    Both values are read from attributes captured at startup, never recomputed,
+    so this block is byte-identical on every turn and sits unchanged in the
+    cached prefix. Reporting the live cwd here instead would churn the cache on
+    every ``cd`` and could disagree with the per-command shell state line.
+
+    Deliberately separate from that state line: this is where the session
+    *started*, that is where the shell *is*. They agree until the first cd, and
+    keeping both gives the model the anchor as well as the live position.
+
+    Attributes are fetched defensively because the server, tests and embedders
+    all build partial interpreters.
+    """
+    cwd = getattr(interpreter, "_launch_cwd", None)
+    started = getattr(interpreter, "_launch_time", None)
+    if cwd is None and started is None:
+        return ""
+    lines = []
+    # Labelled as when Open Interpreter itself started, in the past tense, and
+    # naming Open Interpreter rather than the conversation. Both matter:
+
+    # - "Conversation started" would be false. These are captured in
+    #   OpenInterpreter.__init__, which runs once per process, so every
+    #   conversation in one session would report the same instant, and resuming
+    #   a conversation opened days ago would claim it began today.
+    # - It must not read as "now". Each message already carries its own
+    #   timestamp, so a session that spans days has messages far from this one,
+    #   and a current-sounding value here would contradict them.
+    if cwd is not None:
+        lines.append(f"  Open Interpreter started in: {cwd}")
+    if started is not None:
+        lines.append(
+            f"  Open Interpreter started at: {started.strftime('%Y-%m-%d %H:%M')}"
+        )
+    if not lines:
+        return ""
+    return (
+        "\n\nHere is useful information about the environment you are running in:\n"
+        "<env>\n" + "\n".join(lines) + "\n</env>"
+    )
+
+
 def assemble_system_message(interpreter):
     """Build the rendered system prompt before tool/text-mode appendices (matches respond.py)."""
     system_message = interpreter.system_message
@@ -21,8 +74,22 @@ def assemble_system_message(interpreter):
         if interpreter.toolbox.system_message not in system_message:
             system_message = system_message + "\n\n" + interpreter.toolbox.system_message
 
-    # Last, after the language notes and the toolbox listing, so a change of
-    # working directory costs the cache only these few lines.
-    system_message += "\n\n" + system_information(interpreter)
-
-    return render_message(interpreter, system_message)
+    # Both tails are appended after render_message, and in this order.
+    #
+    # After, because render_message interpolates {{...}} template variables and
+    # both tails carry a directory path: one literally containing braces would
+    # be substituted away, so "/tmp/{{x}}/dir" would reach the model as
+    # "/tmp/------------------". Rare, but silent and corrupting.
+    #
+    # Environment block first, system_information last, because that is the
+    # cache ordering. The environment block is fixed for the life of the
+    # process (where and when the session *started*), while
+    # system_information ends with the live `$PWD` — the one line that changes
+    # mid-session. Providers cache a prompt prefix, so the volatile line has to
+    # be the final thing in the message: put anything stable after it and a
+    # single `cd` invalidates that too.
+    #
+    # Keeping both is deliberate: the anchor the session started from, and the
+    # position the shell is at now. They agree until the first cd.
+    rendered = render_message(interpreter, system_message)
+    return rendered + _environment_block(interpreter) + "\n\n" + system_information(interpreter)

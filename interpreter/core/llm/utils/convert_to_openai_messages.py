@@ -128,21 +128,37 @@ def convert_to_openai_messages(
     vision=False,
     shrink_images=True,
     interpreter=None,
+    stored_offset=0,
+    resume_state=None,
+    end_state=None,
 ):
+    """Convert OI's message format to the OpenAI wire format.
+
+    ``resume_state`` / ``end_state`` let a caller convert a *suffix* of the
+    history and get the same result a full rebuild would give. Three variables
+    carry across the boundary -- a reasoning block awaiting its assistant
+    message, whether the previous message was reasoning, and which tool
+    produced the last code block -- so a suffix conversion that starts after any
+    of those is set would otherwise attribute output to the wrong tool or drop a
+    reasoning block. ``conversion_cache`` seeds the first from the previous
+    turn's ``end_state`` and keeps the pair in sync.
+
+    ``stored_offset`` is the absolute index ``messages[0]`` has in the stored
+    history. It is accepted for that caller's benefit and not needed here:
+    nothing in this conversion indexes the stored list.
     """
-    Converts LMC messages into OpenAI messages
-    """
+    _resume = resume_state or {}
     new_messages = []
-    pending_assistant_reasoning = None
+    pending_assistant_reasoning = _resume.get("pending_reasoning")
     # True when the most recently converted message was a reasoning block.  A
     # reasoning message only *continues* the pending reasoning when the message
     # immediately before it is also reasoning (one thought split across chunks);
     # anything in between — content, code, tool output — means this is a fresh
     # reasoning block from a new LLM call, which replaces the pending value.
-    prev_was_reasoning = False
+    prev_was_reasoning = _resume.get("prev_was_reasoning", False)
     # Track which tool produced the most recent code/edit block so that the
     # following console-output message is attributed to the right function name.
-    last_tool_name = "execute"
+    last_tool_name = _resume.get("last_tool_name", "execute")
 
     # if function_calling == False:
     #     prev_message = None
@@ -563,5 +579,14 @@ def convert_to_openai_messages(
             combined_messages.append(msg)
 
         new_messages = combined_messages
+
+    if end_state is not None:
+        end_state.update(
+            {
+                "pending_reasoning": pending_assistant_reasoning,
+                "prev_was_reasoning": prev_was_reasoning,
+                "last_tool_name": last_tool_name,
+            }
+        )
 
     return new_messages

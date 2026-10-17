@@ -23,6 +23,8 @@ from ...llm.session_env import kernel_env
 from ..base_language import BaseLanguage
 from .jupyter_display import display_chunk
 from .python_preprocess import (
+    _BLOCKING_INPUT_MESSAGE,
+    _blocking_input_call,
     add_active_line_prints,
     preprocess_python,
     string_to_python,
@@ -257,6 +259,18 @@ ip.display_formatter.active_types = ['text/markdown', 'text/plain', 'image/png',
             self._restarting = False
 
     def run(self, code):
+        # Refused before the kernel is touched: a cell blocking on stdin would
+        # otherwise hold the turn until the idle timeout fires, and the model
+        # would learn only that something stalled rather than what to do.
+        blocking = _blocking_input_call(code)
+        if blocking:
+            yield {
+                "type": "console",
+                "format": "output",
+                "content": _BLOCKING_INPUT_MESSAGE.format(name=blocking),
+            }
+            return
+
         # A block that calls exit()/sys.exit()/quit(), or one the OS kills, takes
         # the kernel with it. This used to spin here forever — the channels of a
         # dead kernel never come back alive — so the session was over with no

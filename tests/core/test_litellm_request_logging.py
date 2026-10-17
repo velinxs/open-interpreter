@@ -4,7 +4,10 @@ Ported from classic/develop. The dump lives in `interpreter.core.llm.completions
 here, not in `llm.py`, so the storage-path patch targets that module.
 """
 
+import inspect
 import json
+
+import pytest
 
 import interpreter.core.llm.completions as completions_mod
 from interpreter.core.core import OpenInterpreter
@@ -208,3 +211,52 @@ def test_logs_use_platform_config_dir_not_dot_config(monkeypatch, tmp_path):
     assert (storage / "logs" / "litellm_requests.jsonl").exists()
     assert (storage / "logs" / "litellm_responses.jsonl").exists()
     assert not (home / ".config" / "open-interpreter" / "logs").exists()
+
+
+def test_a_none_response_becomes_a_provider_error_not_a_typeerror(monkeypatch):
+    """litellm returning nothing must not surface as 'NoneType' is not iterable.
+
+    A None response used to be iterated straight away, raising TypeError from
+    inside the stream. Nothing classifies a TypeError as a provider fault, so it
+    unwound the whole session -- the traceback escaped conversation_navigator
+    and main(), killing the REPL with no prompt and no chance to retry. The
+    failure has to arrive as a provider error instead, which respond.py already
+    handles and offers a retry for.
+    """
+    litellm = completions_mod._litellm()
+    monkeypatch.setattr(litellm, "completion", lambda **params: None)
+
+    with pytest.raises(litellm.exceptions.APIConnectionError) as excinfo:
+        list(
+            completions_mod.fixed_litellm_completions(
+                model="deepseek/deepseek-v4-flash",
+                messages=[{"role": "user", "content": "do it"}],
+            )
+        )
+
+    assert "no response" in str(excinfo.value)
+
+
+def test_the_none_response_error_is_one_respond_actually_catches():
+    """The guard must raise a type respond()'s handler tuple lists explicitly.
+
+    APIConnectionError is not a subclass of APIError or OpenAIError, so being
+    "a litellm exception" is not enough: if respond() did not name it, the
+    guard would convert a TypeError that killed the session into an
+    APIConnectionError that also killed the session, and the retry panel would
+    still never appear.
+    """
+    import litellm as real_litellm
+
+    import interpreter.core.respond as respond_mod
+
+    error = real_litellm.exceptions.APIConnectionError(
+        message="litellm.completion returned no response",
+        llm_provider="litellm",
+        model="deepseek/deepseek-v4-flash",
+    )
+    assert not isinstance(error, real_litellm.exceptions.APIError)
+    assert not isinstance(error, real_litellm.exceptions.OpenAIError)
+
+    source = inspect.getsource(respond_mod.respond)
+    assert "APIConnectionError" in source

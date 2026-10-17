@@ -6,11 +6,30 @@ the user's whole history without them agreeing to it. These tests pin the
 answer to "when, exactly, does anything get sent".
 """
 
+import io
 import json
 
 import pytest
 
 import interpreter.terminal_interface.contributing_conversations as cc
+
+
+class _FakeStdin(io.StringIO):
+    def isatty(self):
+        return True
+
+
+@pytest.fixture(autouse=True)
+def _tty(monkeypatch):
+    """Give these tests a terminal to answer from.
+
+    The consent prompts go through prompt_choice, which refuses to answer
+    without a TTY rather than guessing. pytest has no terminal, so without this
+    the monkeypatched `input` is never reached and every prompt raises
+    NoInteractiveInput. The no-terminal behaviour itself is covered in
+    tests/core/test_prompt_choice.py.
+    """
+    monkeypatch.setattr("sys.stdin", _FakeStdin())
 
 
 @pytest.fixture(autouse=True)

@@ -71,8 +71,89 @@ def _html_error_to_renderable(error_str):
     return Markdown("\n" + md)
 
 
+def _is_bodiless_400(error):
+    """Whether this is a 400 that arrived with no explanation at all.
+
+    Some gateways answer a request they will not accept with a bare
+    "Error code: 400" and an empty body -- no message, no field list, nothing
+    to act on. Observed on the OpenCode Go relay for valid requests that then
+    succeed on an identical retry, which is why this is retried rather than
+    surfaced. A 400 that *does* carry a body is a real, deterministic complaint
+    (bad tool schema, unsupported field) and is left to the error panel, where
+    the user can act on it.
+    """
+    # Imported at point of use, like every other litellm reference in this
+    # module: core.py imports respond, so a module-level import would load
+    # litellm -- and tiktoken with it -- just to construct an OpenInterpreter.
+    import litellm
+
+    if not isinstance(error, litellm.exceptions.BadRequestError):
+        return False
+    message = str(error)
+    if "error code: 400" not in message.lower():
+        return False
+    # A body shows up as JSON in the message; if there is one, this is a genuine
+    # complaint and must not be treated as transient.
+    if "{" in message:
+        return False
+    # Prose after the status is also a real complaint (e.g. "unsupported
+    # parameter: 'reasoning_effort'"). Bodiless means the status is all there is:
+    # strip the exception/provider prefixes and require nothing meaningful left.
+    remainder = message
+    for noise in (
+        "litellm.BadRequestError:",
+        "BadRequestError:",
+        "OpenAIException -",
+        "OpenAIException:",
+        "Error code: 400",
+        "error code: 400",
+    ):
+        remainder = remainder.replace(noise, " ")
+    return not remainder.strip(" -:.,")
+
+
+# "unavailable" on its own is not evidence of a transient fault. A model that is
+# unavailable is unavailable permanently -- wrong or retired model name -- so
+# matching the bare word made a typo into an unkillable retry loop. Checked
+# first, and before the generic markers, because a message can contain both
+# ("Model is unavailable. Please try again later.") and the permanent
+# cause is the one that must stop the retrying.
+_PERMANENT_UNAVAILABLE_MARKERS = (
+    "model is unavailable",
+    "model unavailable",
+    "model not available",
+    "model not found",
+    "no such model",
+    "unknown model",
+)
+
+# Unavailability that genuinely clears on its own. These are matched as phrases
+# rather than as the single word "unavailable" so the classification says what
+# it means.
+_TEMPORARY_UNAVAILABLE_PHRASES = (
+    "temporarily unavailable",
+    "temporarily not available",
+    "service unavailable",
+    "service is unavailable",
+    "provider unavailable",
+)
+
+# Consecutive automatic retries allowed for one temporary upstream error. Rate
+# limits and overloads usually clear on a retry, so this allows more than the
+# bodiless-400 cap of 1, but it is still a cap: without one, a provider that
+# keeps rejecting the same request retries forever, and because the Live
+# display is left up the whole time, Ctrl-C arrives as a keystroke rather than
+# a signal and cannot break out. Past the cap the error is shown and the user
+# decides, which is what the retry loop is supposed to do.
+MAX_TEMPORARY_PROVIDER_RETRIES = 5
+
+
 def _is_temporary_provider_error(error):
     error_message = str(error).lower()
+    if any(marker in error_message for marker in _PERMANENT_UNAVAILABLE_MARKERS):
+        return False
+    if any(phrase in error_message for phrase in _TEMPORARY_UNAVAILABLE_PHRASES):
+        return True
     temporary_markers = (
         "temporarily",
         "temporary",
@@ -86,7 +167,7 @@ def _is_temporary_provider_error(error):
         "timeout",
         "timed out",
         "overloaded",
-        "unavailable",
+        # Bare "unavailable" is deliberately absent: see the phrase lists above.
     )
     return any(marker in error_message for marker in temporary_markers)
 
@@ -220,11 +301,27 @@ def respond(interpreter):
                     panel_border_style = "yellow" if is_temporary_error else "red"
                     panel_title = "Warning" if is_temporary_error else "Error"
                     temporary_error_signature = _temporary_error_signature(e) if is_temporary_error else None
-                    if is_temporary_error and temporary_error_signature == last_temporary_provider_error_signature:
+                    if (
+                        is_temporary_error
+                        and temporary_error_signature == last_temporary_provider_error_signature
+                        and temporary_provider_error_retries < MAX_TEMPORARY_PROVIDER_RETRIES
+                    ):
                         temporary_provider_error_retries += 1
                         _render_temporary_retry_status(temporary_provider_error_retries)
                         time.sleep(2)
                         continue
+                    # The retry status is written with a leading carriage return and
+                    # no trailing newline so repeats update in place; end that line
+                    # before the error panel draws, or the panel renders on the same
+                    # row with its border doubled and offset.
+                    #
+                    # The counter is deliberately NOT reset here. Resetting it once
+                    # the cap is reached re-arms the automatic retry below, which is
+                    # exactly the unbounded loop the cap exists to stop. It is reset
+                    # only after a call succeeds.
+                    if temporary_provider_error_retries:
+                        sys.stdout.write("\n")
+                        sys.stdout.flush()
                     # Format with Rich Panel with red border for errors
                     # Check if this is an error with JSON structure that can be parsed
                     if "{" in error_str and "}" in error_str:
@@ -297,8 +394,13 @@ def respond(interpreter):
                         print("")  # Add space after error
 
                     # Temporary provider errors (including upstream rate limits)
-                    # are retried automatically to avoid blocking on user input.
-                    if is_temporary_error:
+                    # are retried automatically to avoid blocking on user input --
+                    # but only up to the cap. The counter was previously
+                    # incremented, reset and drawn without ever being compared
+                    # against a limit, so a provider that kept returning the same
+                    # 429 was retried forever, and with the Live display up the
+                    # whole time Ctrl-C arrived as a keystroke rather than a signal.
+                    if is_temporary_error and temporary_provider_error_retries < MAX_TEMPORARY_PROVIDER_RETRIES:
                         last_temporary_provider_error_signature = temporary_error_signature
                         temporary_provider_error_retries += 1
                         _render_temporary_retry_status(temporary_provider_error_retries)

@@ -9,14 +9,15 @@ from unittest import mock
 from interpreter.core.tools.file_edit import (
     EDIT_LANGUAGES,
     _assert_mikefarah_yq,
-    _comby_rewritten_source,
+    _detect_newline_style,
+    _normalize_to_style,
     _poke_prepare_script,
-    _split_comby_templates,
+    _reject_wrong_os_path,
     _validate_target,
     _write_temp_script,
     _yq_eval_argv_candidates,
     dry_run_edit,
-    run_comby,
+    run_append,
     run_edit,
     run_gawk,
     run_jq,
@@ -30,12 +31,11 @@ from interpreter.core.tools.file_edit import (
 
 class TestEditLanguagesRegistry(unittest.TestCase):
     def test_expected_languages_registered(self):
-        self.assertIn("comby", EDIT_LANGUAGES)
+        self.assertNotIn("comby", EDIT_LANGUAGES)
+        self.assertIn("append", EDIT_LANGUAGES)
         self.assertIn("patch", EDIT_LANGUAGES)
         self.assertNotIn("perl", EDIT_LANGUAGES)
         self.assertNotIn("ed", EDIT_LANGUAGES)
-
-
 class TestValidateTarget(unittest.TestCase):
     def test_requires_absolute_path(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -57,42 +57,159 @@ class TestValidateTarget(unittest.TestCase):
             with self.assertRaises(FileNotFoundError):
                 _validate_target(target, must_exist=True)
 
+    def test_rejects_git_bash_drive_path_on_windows(self):
+        """A Git Bash style /c/... path must fail on Windows before it creates a literal 'c' folder."""
+        with mock.patch("platform.system", return_value="Windows"):
+            with self.assertRaises(ValueError) as ctx:
+                _validate_target("/c/Users/test/file.txt", must_exist=True)
+            self.assertIn("Git Bash", str(ctx.exception))
 
-class TestCombyJson(unittest.TestCase):
-    def test_rewritten_source_from_json_object(self):
-        payload = json.dumps({"rewritten_source": "value = 2\n"})
-        out = _comby_rewritten_source(payload.encode())
-        self.assertEqual(out, b"value = 2\n")
+    def test_rejects_drive_relative_path_on_windows(self):
+        """A rooted path with no drive letter resolves against the current drive, so reject it."""
+        with mock.patch("platform.system", return_value="Windows"):
+            with self.assertRaises(ValueError) as ctx:
+                _validate_target("/Users/test/file.txt", must_exist=True)
+            self.assertIn("drive letter", str(ctx.exception))
 
-    def test_rewritten_source_from_json_lines(self):
-        payload = json.dumps({"rewritten_source": "value = 2\n"})
-        out = _comby_rewritten_source((payload + "\n").encode())
-        self.assertEqual(out, b"value = 2\n")
+    def test_rejects_windows_path_on_posix(self):
+        """A C:/... path on Mac/Linux must fail with an OS-specific message, not the generic absolute-path one."""
+        with mock.patch("platform.system", return_value="Linux"):
+            with self.assertRaises(ValueError) as ctx:
+                _validate_target("C:/Users/test/file.txt", must_exist=True)
+            self.assertIn("not Windows", str(ctx.exception))
+
+    def test_accepts_well_formed_paths_for_each_os(self):
+        """Well-formed paths must pass the OS-shape check on their own OS."""
+        with mock.patch("platform.system", return_value="Windows"):
+            _reject_wrong_os_path("C:/Users/test/file.txt")
+            _reject_wrong_os_path("C:\\Users\\test\\file.txt")
+            _reject_wrong_os_path("\\\\server\\share\\file.txt")
+        with mock.patch("platform.system", return_value="Linux"):
+            _reject_wrong_os_path("/home/test/file.txt")
 
 
-class TestCombyHelpers(unittest.TestCase):
-    def test_split_comby_multiline_separator(self):
-        match, rewrite = _split_comby_templates(":[x] = 1\n---\n:[x] = 2")
-        self.assertEqual(match, ":[x] = 1")
-        self.assertEqual(rewrite, ":[x] = 2")
+class TestNewlineStyle(unittest.TestCase):
+    def test_detect_crlf_lf_and_none(self):
+        """CRLF detection drives preservation; empty files have no style to keep."""
+        self.assertEqual(_detect_newline_style(b"a\r\nb\r\n"), b"\r\n")
+        self.assertEqual(_detect_newline_style(b"a\nb\n"), b"\n")
+        self.assertIsNone(_detect_newline_style(b""))
+        self.assertIsNone(_detect_newline_style(b"no-newline"))
 
-    def test_split_comby_two_lines(self):
-        match, rewrite = _split_comby_templates("foo\nbar")
-        self.assertEqual(match, "foo")
-        self.assertEqual(rewrite, "bar")
+    def test_mixed_file_treated_as_crlf(self):
+        """Mixed endings converge to CRLF rather than flipping each edit."""
+        self.assertEqual(_detect_newline_style(b"a\r\nb\n"), b"\r\n")
 
-    def test_split_comby_requires_two_parts(self):
-        with self.assertRaises(ValueError):
-            _split_comby_templates("only_one_line")
+    def test_normalize_to_style_does_not_double_crlf(self):
+        """Normalizing via LF first avoids turning CRLF into CRCRLF."""
+        self.assertEqual(
+            _normalize_to_style(b"a\r\nb\n", b"\r\n"), b"a\r\nb\r\n"
+        )
+        self.assertEqual(
+            _normalize_to_style(b"a\r\nb\r\n", b"\n"), b"a\nb\n"
+        )
+
+    def test_normalize_leaves_lone_cr_alone(self):
+        """A lone CR is data, not a line break, on either style.
+
+        Only real line breaks translate; promoting a bare CR to a full
+        break corrupts output that re-emits it (e.g. gawk print $1, whose
+        field carries the CR on CRLF files).
+        """
+        self.assertEqual(_normalize_to_style(b"a\rb\n", b"\r\n"), b"a\rb\r\n")
+        self.assertEqual(_normalize_to_style(b"a\rb\r\n", b"\n"), b"a\rb\n")
+
+
+class TestCrlfPreservation(unittest.TestCase):
+    def test_write_replacement_keeps_crlf(self):
+        """Rewriting a CRLF file (e.g. .bat) with LF text must not convert it."""
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "script.bat")
+            Path(target).write_bytes(b"@echo off\r\necho hi\r\n")
+            run_write(target, "@echo off\necho bye\n")
+            self.assertEqual(
+                Path(target).read_bytes(), b"@echo off\r\necho bye\r\n"
+            )
+
+    def test_write_new_file_keeps_given_endings(self):
+        """New files have no style to preserve, so they are written as given."""
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "new.txt")
+            run_write(target, "a\r\nb\r\n")
+            self.assertEqual(Path(target).read_bytes(), b"a\r\nb\r\n")
+
+    @unittest.skipUnless(shutil.which("sed"), "sed not installed")
+    def test_sed_keeps_crlf(self):
+        """sed emits LF; the wrapper must restore CRLF afterwards."""
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "script.bat")
+            Path(target).write_bytes(b"echo hi\r\necho bye\r\n")
+            run_sed(target, "s/hi/hello/")
+            data = Path(target).read_bytes()
+            self.assertIn(b"hello", data)
+            self.assertNotIn(b"\n", data.replace(b"\r\n", b""))
+            self.assertIn(b"\r\n", data)
+
+    @unittest.skipUnless(shutil.which("sed"), "sed not installed")
+    def test_sed_literal_cr_in_replacement_survives_both_styles(self):
+        """s/charlie/x\\ry/ inserts a literal CR, not a line break.
+
+        Regression: the normalizer promoted the replacement's CR to a full
+        break (x\\r\\ny on CRLF files, x\\ny on LF ones) instead of writing
+        the CR byte like real sed does.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            crlf_target = os.path.join(tmp, "crlf.txt")
+            Path(crlf_target).write_bytes(b"charlie\r\n")
+            run_sed(crlf_target, r"s/charlie/x\ry/")
+            self.assertEqual(Path(crlf_target).read_bytes(), b"x\ry\r\n")
+            lf_target = os.path.join(tmp, "lf.txt")
+            Path(lf_target).write_bytes(b"charlie\n")
+            run_sed(lf_target, r"s/charlie/x\ry/")
+            self.assertEqual(Path(lf_target).read_bytes(), b"x\ry\n")
 
 
 class TestRunWrite(unittest.TestCase):
-    def test_write_then_refuse_overwrite(self):
+    def test_write_then_replace(self):
+        """write creates, and replaces an existing file verbatim.
+
+        Overwriting used to be refused, which taught models a worse habit:
+        write, get blocked, delete the file, write again. A replacement now
+        previews as a diff first, so by the time this runs the user has
+        confirmed it.
+        """
         with tempfile.TemporaryDirectory() as tmp:
             target = os.path.join(tmp, "new.txt")
             self.assertTrue(run_write(target, "alpha\n").startswith("Wrote"))
-            with self.assertRaises(FileExistsError):
-                run_write(target, "beta\n")
+            self.assertTrue(run_write(target, "beta\n").startswith("Wrote"))
+            self.assertEqual(open(target, encoding="utf-8").read(), "beta\n")
+
+
+class TestDryRunWrite(unittest.TestCase):
+    def test_write_overwrite_previews_a_diff(self):
+        """A write that would replace a file previews the resulting diff."""
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "demo.txt")
+            run_write(target, "old line\n")
+            preview = dry_run_edit("write", "new line\n", target)
+            self.assertTrue(preview["ok"])
+            self.assertIn("-old line", preview["output"])
+            self.assertIn("+new line", preview["output"])
+
+    def test_write_new_file_has_no_preview(self):
+        """A brand-new file has nothing to diff against: no preview."""
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "missing.txt")
+            self.assertIsNone(dry_run_edit("write", "hello\n", target))
+
+    def test_write_identical_content_reports_no_changes(self):
+        """Rewriting byte-identical content is reported, not diffed."""
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "demo.txt")
+            run_write(target, "same\n")
+            preview = dry_run_edit("write", "same\n", target)
+            self.assertTrue(preview["ok"])
+            self.assertIn("no changes", preview["output"])
 
 
 @unittest.skipUnless(shutil.which("sed"), "sed not installed")
@@ -116,14 +233,40 @@ class TestRunSed(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             target = os.path.join(tmp, "demo.txt")
             run_write(target, "foo\n")
-            with mock.patch("interpreter.core.tools.file_edit.subprocess.run") as run_mock:
+            with mock.patch(
+                "interpreter.core.tools.file_edit.subprocess.run"
+            ) as run_mock:
                 completed = mock.Mock(returncode=0, stdout=b"bar\n", stderr=b"")
                 run_mock.return_value = completed
-                with mock.patch("interpreter.core.tools.file_edit._atomic_replace_from_stdout") as replace_mock:
+                with mock.patch(
+                    "interpreter.core.tools.file_edit._atomic_replace_from_stdout"
+                ) as replace_mock:
                     run_sed(target, "s/foo/bar/")
             args = run_mock.call_args[0][0]
             self.assertNotIn("-i", args)
             replace_mock.assert_called_once_with(target, b"bar\n")
+
+    def test_run_sed_no_match_warns_and_leaves_file_untouched(self):
+        """A non-matching sed pattern must warn instead of reporting plain OK."""
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "demo.txt")
+            run_write(target, "foo\n")
+            before_mtime = os.path.getmtime(target)
+            result = run_sed(target, "s/does_not_match/xxx/")
+            self.assertIn("no changes", result)
+            self.assertEqual(open(target, encoding="utf-8").read(), "foo\n")
+            self.assertEqual(os.path.getmtime(target), before_mtime)
+
+    def test_run_sed_preserves_executable_bit(self):
+        """Editing a script must not clear its executable bit."""
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "demo.sh")
+            run_write(target, "foo\n")
+            os.chmod(target, 0o755)
+            run_sed(target, "s/foo/bar/")
+            self.assertEqual(open(target, encoding="utf-8").read(), "bar\n")
+            self.assertTrue(os.access(target, os.X_OK))
+            self.assertEqual(oct(os.stat(target).st_mode & 0o777), "0o755")
 
 
 @unittest.skipUnless(shutil.which("jq"), "jq not installed")
@@ -168,35 +311,85 @@ class TestRunJq(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             target = os.path.join(tmp, "data.json")
             run_write(target, '{"a":1}\n')
-            with mock.patch("interpreter.core.tools.file_edit.subprocess.run") as run_mock:
-                run_mock.return_value = mock.Mock(returncode=0, stdout=b'{"a":2}\n', stderr=b"")
-                with mock.patch("interpreter.core.tools.file_edit._atomic_replace_from_stdout") as replace_mock:
+            with mock.patch(
+                "interpreter.core.tools.file_edit.subprocess.run"
+            ) as run_mock:
+                run_mock.return_value = mock.Mock(
+                    returncode=0, stdout=b'{"a":2}\n', stderr=b""
+                )
+                with mock.patch(
+                    "interpreter.core.tools.file_edit._atomic_replace_from_stdout"
+                ) as replace_mock:
                     run_jq(target, ".a = 2")
             replace_mock.assert_called_once_with(target, b'{"a":2}\n')
 
 
 @unittest.skipUnless(shutil.which("gawk"), "gawk not installed")
 class TestRunGawk(unittest.TestCase):
+    def test_reemitted_field_keeps_cr_on_crlf_file(self):
+        """A field carrying CR (print $1 on CRLF) must not split the output line.
+
+        Regression: the normalizer promoted the CR inside $1 to a full line
+        break, pushing the rest of the printed line (e.g. a closing bracket)
+        onto the next line. Real gawk keeps the CR in the field.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "data.txt")
+            Path(target).write_bytes(b"alpha\r\nbravo\r\n")
+            run_gawk(target, '{ print "[" $1 "]" }')
+            self.assertEqual(
+                Path(target).read_bytes(), b"[alpha\r]\r\n[bravo\r]\r\n"
+            )
+
     def test_run_gawk_multiline_program(self):
+        """A per-line gawk program must rewrite the file with its stdout."""
         with tempfile.TemporaryDirectory() as tmp:
             target = os.path.join(tmp, "lines.txt")
             run_write(target, "hello world\n")
             run_gawk(
                 target,
-                '{\n  gsub(/world/, "earth")\n  print\n}\n',
+                "{\n  gsub(/world/, \"earth\")\n  print\n}\n",
             )
             self.assertEqual(open(target, encoding="utf-8").read(), "hello earth\n")
 
-    def test_run_gawk_inplace_uses_target_parent_cwd(self):
+    def test_run_gawk_does_not_use_inplace_flag(self):
+        """Stdout+atomic replace is deterministic; -i inplace wiped END-only files."""
         with tempfile.TemporaryDirectory() as tmp:
             target = os.path.join(tmp, "lines.txt")
             run_write(target, "hello\n")
-            with mock.patch("interpreter.core.tools.file_edit.subprocess.run") as run_mock:
-                run_mock.return_value = mock.Mock(returncode=0, stdout="", stderr="")
-                run_gawk(target, "{ print }")
-            _, kwargs = run_mock.call_args
-            self.assertEqual(kwargs["cwd"], str(Path(target).parent))
-            self.assertEqual(run_mock.call_args[0][0][-1], Path(target).name)
+            with mock.patch(
+                "interpreter.core.tools.file_edit.subprocess.run"
+            ) as run_mock:
+                run_mock.return_value = mock.Mock(
+                    returncode=0, stdout=b"hello\n", stderr=b""
+                )
+                with mock.patch(
+                    "interpreter.core.tools.file_edit._atomic_replace_from_stdout"
+                ):
+                    run_gawk(target, "{ print }")
+            args = run_mock.call_args[0][0]
+            self.assertNotIn("-i", args)
+            self.assertNotIn("inplace", args)
+            self.assertIn(target, args)
+
+    def test_run_gawk_empty_output_does_not_wipe_file(self):
+        """Empty gawk output for a non-empty file must abort instead of truncating."""
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "lines.txt")
+            run_write(target, "a\nb\nc\n")
+            with self.assertRaises(RuntimeError) as ctx:
+                run_gawk(target, "END { print \"\" }")
+            self.assertIn("no output", str(ctx.exception))
+            self.assertEqual(open(target, encoding="utf-8").read(), "a\nb\nc\n")
+
+    def test_run_gawk_no_changes_reports_notice(self):
+        """Identical gawk output must report no-changes instead of plain OK."""
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "lines.txt")
+            run_write(target, "hello\n")
+            result = run_gawk(target, "{ print }")
+            self.assertIn("no changes", result)
+            self.assertEqual(open(target, encoding="utf-8").read(), "hello\n")
 
 
 @unittest.skipUnless(shutil.which("yq"), "yq not installed")
@@ -266,9 +459,15 @@ class TestRunYq(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             target = os.path.join(tmp, "config.yaml")
             run_write(target, "port: 8080\n")
-            with mock.patch("interpreter.core.tools.file_edit._run_yq_eval") as eval_mock:
-                eval_mock.return_value = mock.Mock(returncode=0, stdout=b"port: 9090\n", stderr=b"")
-                with mock.patch("interpreter.core.tools.file_edit._atomic_replace_from_stdout") as replace_mock:
+            with mock.patch(
+                "interpreter.core.tools.file_edit._run_yq_eval"
+            ) as eval_mock:
+                eval_mock.return_value = mock.Mock(
+                    returncode=0, stdout=b"port: 9090\n", stderr=b""
+                )
+                with mock.patch(
+                    "interpreter.core.tools.file_edit._atomic_replace_from_stdout"
+                ) as replace_mock:
                     run_yq(target, ".port = 9090")
             replace_mock.assert_called_once_with(target, b"port: 9090\n")
 
@@ -280,7 +479,12 @@ class TestRunPatch(unittest.TestCase):
             target = os.path.join(tmp, "demo.txt")
             run_write(target, "foo\nbar\n")
             diff = (
-                f"--- {os.path.basename(target)}\n+++ {os.path.basename(target)}\n@@ -1,2 +1,2 @@\n-foo\n+baz\n bar\n"
+                f"--- {os.path.basename(target)}\n"
+                f"+++ {os.path.basename(target)}\n"
+                "@@ -1,2 +1,2 @@\n"
+                "-foo\n"
+                "+baz\n"
+                " bar\n"
             )
             run_patch(target, diff)
             self.assertEqual(open(target, encoding="utf-8").read(), "baz\nbar\n")
@@ -289,23 +493,554 @@ class TestRunPatch(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             target = os.path.join(tmp, "demo.txt")
             run_write(target, "foo\n")
-            with mock.patch("interpreter.core.tools.file_edit.subprocess.run") as run_mock:
-                run_mock.return_value = mock.Mock(returncode=0, stdout=b"", stderr=b"")
+            with mock.patch(
+                "interpreter.core.tools.file_edit.subprocess.run"
+            ) as run_mock:
+                run_mock.return_value = mock.Mock(
+                    returncode=0, stdout=b"", stderr=b""
+                )
                 run_patch(
                     target,
                     f"--- {Path(target).name}\n+++ {Path(target).name}\n",
                 )
-            self.assertEqual(run_mock.call_args.kwargs["cwd"], str(Path(target).parent))
+            self.assertEqual(
+                run_mock.call_args.kwargs["cwd"], str(Path(target).parent)
+            )
 
 
-@unittest.skipUnless(shutil.which("comby"), "comby not installed")
-class TestRunComby(unittest.TestCase):
-    def test_run_comby_stdin_replace(self):
+@unittest.skipUnless(shutil.which("patch"), "patch not installed")
+class TestPatchFailureDiagnostics(unittest.TestCase):
+    """Failures must name the mistake, not just report that patch said no.
+
+    Every case here is something a model actually submitted. GNU patch's own
+    diagnostics ("malformed patch at line 11", "Only garbage was found") name
+    the symptom rather than the cause, so the same diff gets re-submitted
+    corrected in the wrong direction -- in one logged case the hunk header was
+    "fixed" to match a number patch had itself invented.
+    """
+
+    def _target(self, tmp, body="import os\nimport sys\nimport json\n\n\ndef helper():\n    return 1\n"):
+        target = os.path.join(tmp, "mod.py")
+        run_write(target, body)
+        return target
+
+    def test_begin_patch_envelope_is_explained(self):
+        """A '*** Begin Patch' envelope gets a message naming the envelope.
+
+        This is another tool's patch format. patch cannot parse it and says only
+        "Only garbage was found in the patch input", which reads as a corrupt
+        diff rather than a wrapped one, so the model re-sends the same envelope.
+        """
         with tempfile.TemporaryDirectory() as tmp:
-            target = os.path.join(tmp, "code.py")
-            run_write(target, "value = 1\n")
-            run_comby(target, "value = 1\n---\nvalue = 2\n")
-            self.assertEqual(open(target, encoding="utf-8").read(), "value = 2\n")
+            target = self._target(tmp)
+            diff = (
+                "*** Begin Patch\n"
+                f"*** Update File: {os.path.basename(target)}\n"
+                "@@ 4,2 +4,3 @@\n"
+                " def helper():\n"
+                "     return 1\n"
+                "+    pass\n"
+                "*** End Patch\n"
+            )
+            with self.assertRaises(RuntimeError) as caught:
+                run_patch(target, diff)
+            message = str(caught.exception)
+            self.assertIn("Begin Patch", message)
+            self.assertIn("bare unified diff", message)
+
+    def test_hunk_without_trailing_context_is_explained(self):
+        """A hunk ending in '+' mid-file is explained with the trailing-context rule.
+
+        Verified against patch 2.8: a hunk whose final body line is an addition
+        is rejected mid-file at any amount of leading context, and accepted once
+        one unchanged context line follows it. patch reports only "malformed
+        patch at line N", leaving the model nothing to act on.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            target = self._target(tmp)
+            # Insert after "import json" (line 3) with no trailing context,
+            # while the file clearly continues past line 3.
+            diff = (
+                f"--- {os.path.basename(target)}\n"
+                f"+++ {os.path.basename(target)}\n"
+                "@@ -1,3 +1,4 @@\n"
+                " import os\n"
+                " import sys\n"
+                " import json\n"
+                "+import re\n"
+            )
+            with self.assertRaises(RuntimeError) as caught:
+                run_patch(target, diff)
+            message = str(caught.exception)
+            self.assertIn("fewer than two unchanged", message)
+            self.assertIn("end-of-file", message)
+
+    def test_wrong_context_does_not_get_the_trailing_context_hint(self):
+        """A hunk aimed at the wrong text is told that, not blamed on context depth.
+
+        The trailing-context hint is only correct when the context really is in
+        the file. Given a hunk whose context matches nothing, naming context
+        depth sends the caller off padding a hunk that can never apply -- a
+        confident wrong answer is worse than none, because it gets acted on.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            target = self._target(tmp)
+            diff = (
+                f"--- {os.path.basename(target)}\n"
+                f"+++ {os.path.basename(target)}\n"
+                "@@ -1,4 +1,5 @@\n"
+                " totally wrong line\n"
+                " nothing like this\n"
+                " nor this one\n"
+                " \n"
+                "+added line\n"
+                "\n\n"
+            )
+            with self.assertRaises(RuntimeError) as caught:
+                run_patch(target, diff)
+            message = str(caught.exception)
+            self.assertNotIn("fewer than two unchanged", message)
+            self.assertIn("did not match the file", message)
+
+    def test_failure_message_does_not_point_at_a_deleted_rej_file(self):
+        """The message must not name a .rej file, because the file is removed.
+
+        patch always reports 'saving rejects to file X.rej', and the artifact is
+        cleaned up immediately afterwards. Passed through unmodified, the message
+        points the user at a file that does not exist -- and at the same time
+        discards the reject, which is the only side-by-side of the hunk against
+        the file's real lines.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            target = self._target(tmp)
+            diff = (
+                f"--- {os.path.basename(target)}\n"
+                f"+++ {os.path.basename(target)}\n"
+                "@@ -1,4 +1,5 @@\n"
+                " totally wrong line\n"
+                " nothing like this\n"
+                " nor this one\n"
+                " \n"
+                "+added line\n"
+                "\n\n"
+            )
+            with self.assertRaises(RuntimeError) as caught:
+                run_patch(target, diff)
+            message = str(caught.exception)
+            self.assertNotIn("saving rejects to file", message)
+            self.assertFalse(
+                (Path(tmp) / (os.path.basename(target) + ".rej")).exists()
+            )
+            # The reject's content is preserved in the message instead.
+            self.assertIn("totally wrong line", message)
+
+
+    def test_same_hunk_with_two_trailing_context_lines_applies(self):
+        """Adding two trailing context lines makes the identical hunk apply.
+
+        The counterpart to the diagnostic above: it proves the rule the message
+        states is the real one, so the advice given to the model is correct
+        rather than merely plausible. Measured on patch 2.8: 0 trailing context
+        lines fails, 1 fails, 2 applies, 3 applies.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            target = self._target(tmp)
+            diff = (
+                f"--- {os.path.basename(target)}\n"
+                f"+++ {os.path.basename(target)}\n"
+                "@@ -1,5 +1,6 @@\n"
+                " import os\n"
+                " import sys\n"
+                " import json\n"
+                "+import re\n"
+                " \n"
+                " \n"
+            )
+            run_patch(target, diff)
+            self.assertIn("import re", open(target, encoding="utf-8").read())
+
+    def test_failure_leaves_no_orig_or_rej_beside_the_target(self):
+        """A failed patch must not litter the user's directory with .orig/.rej.
+
+        patch writes both as a debugging aid whenever a hunk fails. They land
+        next to the file the user asked to edit, and a stale .rej reads as an
+        unresolved edit on the next visit. A logged session had to delete both
+        by hand.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            target = self._target(tmp)
+            diff = (
+                f"--- {os.path.basename(target)}\n"
+                f"+++ {os.path.basename(target)}\n"
+                "@@ -1,3 +1,4 @@\n"
+                " totally different\n"
+                " nothing like the file\n"
+                " nor this third line\n"
+                "+added\n"
+            )
+            with self.assertRaises(RuntimeError):
+                run_patch(target, diff)
+            leftovers = sorted(p.name for p in Path(tmp).iterdir())
+            self.assertEqual(leftovers, ["mod.py"], f"unexpected leftovers: {leftovers}")
+
+    def test_successful_patch_leaves_no_artifacts(self):
+        """Success must be clean too -- no .orig in the user's directory."""
+        with tempfile.TemporaryDirectory() as tmp:
+            target = self._target(tmp)
+            diff = (
+                f"--- {os.path.basename(target)}\n"
+                f"+++ {os.path.basename(target)}\n"
+                "@@ -1,5 +1,6 @@\n"
+                " import os\n"
+                " import sys\n"
+                " import json\n"
+                "+import re\n"
+                " \n"
+                " \n"
+            )
+            run_patch(target, diff)
+            leftovers = sorted(p.name for p in Path(tmp).iterdir())
+            self.assertEqual(leftovers, ["mod.py"], f"unexpected leftovers: {leftovers}")
+
+
+@unittest.skipUnless(shutil.which("sed"), "sed not installed")
+class TestDryRunPreviewIsADiff(unittest.TestCase):
+    """A dry run must show the change as a diff, not the whole rewritten file.
+
+    Every language here except `patch` is dry-run *without* its in-place flag,
+    so what the tool prints is the entire edited file. Re-reading a 4000-line
+    file to find the one line that changed is the cost, and it grows with the
+    file. These tests pin the diff shape, the context depth, and the two cases
+    that must not be mistaken for a change: an edit that changes nothing, and a
+    target whose bytes are not text.
+    """
+
+    def _file(self, tmp, name="mod.py", lines=40):
+        target = os.path.join(tmp, name)
+        run_write(target, "".join(f"line {i}\n" for i in range(1, lines + 1)))
+        return target
+
+    def test_preview_is_a_unified_diff_not_the_whole_file(self):
+        """A one-line edit in a long file previews as a short diff.
+
+        The size is the point: the preview must not scale with the file, or it
+        still costs the reader the same scan it was meant to save.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            target = self._file(tmp, lines=4000)
+            out = dry_run_edit("sed", "s/line 2000$/CHANGED/", target)["output"]
+            self.assertTrue(out.startswith("--- mod.py"), out[:80])
+            self.assertIn("@@ ", out)
+            self.assertIn("-line 2000", out)
+            self.assertIn("+CHANGED", out)
+            self.assertLess(out.count("\n"), 25, f"preview should stay short, got {out.count(chr(10))} lines")
+
+    def test_preview_shows_three_lines_of_context_each_side(self):
+        """Enough surrounding context to locate the change, not the whole file.
+
+        Three lines is the unified-diff convention and is what makes the hunk
+        readable in isolation; one line would not show what the edit is
+        operating on.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            target = self._file(tmp, lines=40)
+            out = dry_run_edit("sed", "s/line 20$/CHANGED/", target)["output"]
+            before = out.index("-line 20")
+            for n in (19, 18, 17):
+                self.assertIn(f" line {n}", out[:before], f"missing leading context line {n}")
+            after = out.index("+CHANGED")
+            for n in (21, 22, 23):
+                self.assertIn(f" line {n}", out[after:], f"missing trailing context line {n}")
+
+    def test_unchanged_trailing_line_is_not_reported_as_modified(self):
+        """The final line must not show as -/+ when the edit did not touch it.
+
+        Regression: the preview was built from stripped stdout, so the file's
+        trailing newline was dropped and the last line came out as a
+        changed-then-identical pair on every single edit.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            target = self._file(tmp, lines=12)
+            out = dry_run_edit("sed", "s/line 5$/CHANGED/", target)["output"]
+            self.assertNotIn("-line 12", out)
+            self.assertNotIn("+line 12", out)
+
+    def test_edit_that_changes_nothing_says_so_instead_of_dumping_the_file(self):
+        """A no-op edit previews as one line, not the entire unchanged file.
+
+        Falling back to raw output here would be the worst case of the old
+        behaviour: the reader gets thousands of lines and no signal that nothing
+        happened.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            target = self._file(tmp, lines=2000)
+            out = dry_run_edit("sed", "s/no-such-text/other/", target)["output"]
+            self.assertIn("no changes", out)
+            self.assertLess(out.count("\n"), 3)
+
+    def test_crlf_file_with_nonmatching_pattern_previews_no_changes(self):
+        """A CRLF file must not preview as a full-file diff when nothing changed.
+
+        Regression: the preview diffed the universal-newline file read (LF)
+        against the tool's raw stdout (CRLF preserved by sed), so every line
+        read as removed-and-identical and the user approved a change that did
+        not exist. Anchors like ^charlie$ miss on CRLF files because the
+        pattern space holds charlie\\r.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "crlf_sed.txt")
+            Path(target).write_bytes(b"alpha\r\nBRAVO\r\ncharlie\r\n")
+            out = dry_run_edit("sed", "s/^charlie$/CHARLIE/", target)["output"]
+            self.assertIn("no changes", out)
+            self.assertNotIn("@@ ", out)
+
+    def test_crlf_file_preview_shows_only_the_changed_line(self):
+        """A matching edit on a CRLF file previews a minimal diff.
+
+        The style difference itself must not appear: context lines stay
+        unprefixed, only the edited line shows as -/+.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "crlf_sed.txt")
+            Path(target).write_bytes(b"alpha\r\nBRAVO\r\ncharlie\r\n")
+            out = dry_run_edit("sed", "s/charlie/CHARLIE/", target)["output"]
+            self.assertIn("@@ ", out)
+            self.assertIn("-charlie", out)
+            self.assertIn("+CHARLIE", out)
+            self.assertNotIn("-alpha", out)
+            self.assertNotIn("-BRAVO", out)
+
+    def test_append_preview_on_crlf_file_shows_only_appended_lines(self):
+        """Appending to a CRLF file must not preview existing lines as changed.
+
+        Same cause as the sed preview: the combined text keeps CRLF while the
+        file read does not, so every existing line read as changed.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "notes.bat")
+            Path(target).write_bytes(b"alpha\r\nbravo\r\n")
+            out = dry_run_edit("append", "\n\ncharlie\n", target)["output"]
+            self.assertIn("@@ ", out)
+            self.assertIn("+charlie", out)
+            self.assertNotIn("-alpha", out)
+            self.assertNotIn("-bravo", out)
+
+    def test_write_preview_identical_crlf_content_reports_no_changes(self):
+        """Rewriting a CRLF file with identical CRLF content is a no-op preview."""
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "same.bat")
+            Path(target).write_bytes(b"a\r\nb\r\n")
+            preview = dry_run_edit("write", "a\r\nb\r\n", target)
+            self.assertIn("no changes", preview["output"])
+
+    def test_undecodable_target_reports_that_no_preview_is_available(self):
+        """A non-text target must not produce a fabricated diff.
+
+        difflib over replacement characters would report changes the tool never
+        made, and the raw output would decode with U+FFFD, which reads as
+        corruption rather than as a preview. Neither is useful, so the preview
+        says it is unavailable. The edit itself is unaffected.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "blob.bin")
+            with open(target, "wb") as f:
+                f.write(b"\xff\xfe\x00\x01not text")
+            result = dry_run_edit("sed", "s/not/text/", target)
+            self.assertNotIn("@@ ", result["output"])
+            self.assertNotIn("\ufffd", result["output"])
+            self.assertIn("preview unavailable", result["output"])
+
+    def test_diff_language_is_used_when_the_preview_is_a_diff(self):
+        """The fence language must follow the content, not the edit language.
+
+        Highlighting a diff as Python or YAML paints every +/- line as ordinary
+        code, discarding the only cue that says which lines changed.
+        """
+        from interpreter.terminal_interface.terminal_interface import (
+            _looks_like_unified_diff,
+        )
+
+        self.assertTrue(
+            _looks_like_unified_diff("--- a.py\n+++ a.py\n@@ -1 +1 @@\n-x\n+y\n")
+        )
+        # A plain file body must not be mistaken for a diff.
+        self.assertFalse(_looks_like_unified_diff("x = 1\ny = 2\n"))
+        # An error message must not be mistaken for a diff either.
+        self.assertFalse(_looks_like_unified_diff("sed: can't read f.txt\n"))
+
+
+class TestRunAppend(unittest.TestCase):
+    def test_append_verbatim_without_separator(self):
+        """Append adds no separator: without a leading newline the text joins the last line."""
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "notes.md")
+            run_write(target, "# Title\n")
+            run_append(target, "body line\n")
+            self.assertEqual(
+                open(target, encoding="utf-8").read(), "# Title\nbody line\n"
+            )
+
+    def test_append_requires_leading_newline_for_spacing(self):
+        """Spacing (e.g. before a markdown header) needs an explicit leading newline."""
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "notes.md")
+            run_write(target, "# Title\n")
+            run_append(target, "\n## Section\n")
+            self.assertEqual(
+                open(target, encoding="utf-8").read(), "# Title\n\n## Section\n"
+            )
+
+    def test_append_converts_lf_to_crlf(self):
+        """Appending LF text to a CRLF file keeps the file CRLF-only."""
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "script.bat")
+            Path(target).write_bytes(b"@echo off\r\n")
+            run_append(target, "echo hi\n")
+            data = Path(target).read_bytes()
+            self.assertEqual(data, b"@echo off\r\necho hi\r\n")
+
+    def test_append_requires_existing_file(self):
+        """Append targets an existing file; it never creates one."""
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "missing.txt")
+            with self.assertRaises(FileNotFoundError):
+                run_append(target, "text\n")
+
+    def test_append_rejects_empty_block(self):
+        """An empty block is a caller error, not a no-op."""
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "notes.md")
+            run_write(target, "hi\n")
+            with self.assertRaises(ValueError):
+                run_append(target, "")
+
+    def test_append_dry_run_shows_diff(self):
+        """Dry-run previews the appended result as a unified diff."""
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "notes.md")
+            run_write(target, "a\n")
+            preview = dry_run_edit("append", "b\n", target)
+            self.assertIsNotNone(preview)
+            self.assertIn("+b", preview["output"])
+
+    def test_append_via_dispatch(self):
+        """run_edit routes append to the append runner."""
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "notes.md")
+            run_write(target, "a\n")
+            self.assertTrue(run_edit("append", "b\n", target).startswith("Appended"))
+
+
+class TestEolConversionNotes(unittest.TestCase):
+    def test_write_notes_conversion_only_when_changed(self):
+        """The model must see that its block's newlines were altered — but only then.
+
+        Same-style rewrites keep the plain result so existing prompts and tests
+        that match on it never see the note.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            crlf_target = os.path.join(tmp, "f.bat")
+            Path(crlf_target).write_bytes(b"a\r\n")
+            out = run_write(crlf_target, "a\nb\n")
+            self.assertIn("note:", out)
+            self.assertIn("CRLF", out)
+            lf_target = os.path.join(tmp, "g.txt")
+            Path(lf_target).write_bytes(b"a\n")
+            self.assertNotIn("note:", run_write(lf_target, "a\nb\n"))
+
+    def test_append_notes_conversion_only_when_changed(self):
+        """Appending LF text to a CRLF file converts the block; the result says so."""
+        with tempfile.TemporaryDirectory() as tmp:
+            crlf_target = os.path.join(tmp, "f.bat")
+            Path(crlf_target).write_bytes(b"a\r\n")
+            self.assertIn("note:", run_append(crlf_target, "b\n"))
+            lf_target = os.path.join(tmp, "g.txt")
+            Path(lf_target).write_bytes(b"a\n")
+            self.assertNotIn("note:", run_append(lf_target, "b\n"))
+
+    @unittest.skipUnless(shutil.which("sed"), "sed not installed")
+    def test_sed_notes_conversion_only_when_changed(self):
+        """sed output needing conversion for a CRLF target is reported, not silent.
+
+        sed preserves existing CRLF pairs, so a plain substitution converts
+        nothing (no note); a script introducing bare-LF breaks does convert.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            crlf_target = os.path.join(tmp, "f.bat")
+            Path(crlf_target).write_bytes(b"echo hi\r\n")
+            self.assertNotIn("note:", run_sed(crlf_target, "s/hi/bye/"))
+            Path(crlf_target).write_bytes(b"echo hi\r\n")
+            out = run_sed(crlf_target, r"s/hi/bye\nsecond/")
+            self.assertIn("note:", out)
+            self.assertEqual(
+                Path(crlf_target).read_bytes(), b"echo bye\r\nsecond\r\n"
+            )
+            lf_target = os.path.join(tmp, "g.txt")
+            Path(lf_target).write_bytes(b"echo hi\n")
+            self.assertNotIn("note:", run_sed(lf_target, "s/hi/bye/"))
+
+    @unittest.skipUnless(shutil.which("sed"), "sed not installed")
+    def test_sed_preview_warns_of_pending_conversion(self):
+        """The human preview warns that applying will convert newlines."""
+        with tempfile.TemporaryDirectory() as tmp:
+            crlf_target = os.path.join(tmp, "f.bat")
+            Path(crlf_target).write_bytes(b"echo hi\r\necho bye\r\n")
+            out = dry_run_edit("sed", r"s/hi/HI\nEXTRA/", crlf_target)["output"]
+            self.assertIn("@@ ", out)
+            self.assertIn("Note:", out)
+            self.assertIn("CRLF", out)
+            lf_target = os.path.join(tmp, "g.txt")
+            Path(lf_target).write_bytes(b"echo hi\necho bye\n")
+            out = dry_run_edit("sed", "s/hi/HI/", lf_target)["output"]
+            self.assertIn("@@ ", out)
+            self.assertNotIn("Note:", out)
+
+    def test_append_preview_warns_of_pending_conversion(self):
+        """The append preview warns when the block will be converted on apply."""
+        with tempfile.TemporaryDirectory() as tmp:
+            crlf_target = os.path.join(tmp, "f.bat")
+            Path(crlf_target).write_bytes(b"a\r\n")
+            out = dry_run_edit("append", "b\n", crlf_target)["output"]
+            self.assertIn("@@ ", out)
+            self.assertIn("Note:", out)
+
+    @unittest.skipUnless(shutil.which("patch"), "patch not installed")
+    def test_patch_notes_crlf_round_trip(self):
+        """A patch applied via the LF round-trip reports the conversion."""
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "f.bat")
+            Path(target).write_bytes(b"a\r\nb\r\n")
+            diff = (
+                "--- f.bat\n+++ f.bat\n"
+                "@@ -1,2 +1,2 @@\n"
+                " a\n"
+                "-b\n"
+                "+B\n"
+            )
+            self.assertIn("note:", run_patch(target, diff))
+            self.assertEqual(Path(target).read_bytes(), b"a\r\nB\r\n")
+
+
+@unittest.skipUnless(shutil.which("patch"), "patch not installed")
+class TestRunPatchCrlf(unittest.TestCase):
+    def test_patch_crlf_file_keeps_crlf(self):
+        """A patch with LF context applies to a CRLF file without converting it."""
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "script.bat")
+            Path(target).write_bytes(b"@echo off\r\necho hi\r\necho bye\r\necho end\r\n")
+            diff = (
+                "--- script.bat\n+++ script.bat\n"
+                "@@ -1,4 +1,4 @@\n"
+                " @echo off\n"
+                "-echo hi\n"
+                "+echo hello\n"
+                " echo bye\n"
+                " echo end\n"
+            )
+            run_patch(target, diff)
+            data = Path(target).read_bytes()
+            self.assertIn(b"echo hello\r\n", data)
+            self.assertNotIn(b"\n", data.replace(b"\r\n", b""))
 
 
 class TestPokeScript(unittest.TestCase):
@@ -320,12 +1055,48 @@ class TestPokeScript(unittest.TestCase):
         self.assertEqual(script.count(".file"), 1)
         self.assertIn("other.bin", script)
 
+    def test_prepare_script_does_not_quote_a_path_with_spaces(self):
+        """poke's .file takes the rest of the line literally.
+
+        Quoting the path made the quotes part of the filename, so any target
+        containing a space failed with 'error: opening "\"/tmp/a b/f.bin\""'.
+        """
+        script = _poke_prepare_script("uint8 @ 0#B = 0x58", "/tmp/a b/f.bin")
+        self.assertIn(".file /tmp/a b/f.bin\n", script)
+        self.assertNotIn('"', script.splitlines()[0])
+
 
 @unittest.skipUnless(shutil.which("poke"), "poke not installed")
 class TestRunPokeEdit(unittest.TestCase):
     def test_run_poke_script_includes_quit_and_completes(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = os.path.join(tmp, "demo.bin")
+            Path(target).write_bytes(b"AAAA")
+            run_poke(target, "uint8 @ 0#B = 0x58")
+            self.assertEqual(Path(target).read_bytes()[0], ord("X"))
+
+    def test_run_poke_edits_a_path_containing_spaces(self):
+        """A spaced target must actually be patched, not just quoted.
+
+        The .file line is the only place the path reaches poke, so this covers
+        the whole path end to end: temp script, .file line, resulting bytes.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = os.path.join(tmp, "a dir", "nested")
+            os.makedirs(directory)
+            target = os.path.join(directory, "demo file.bin")
+            Path(target).write_bytes(b"AAAA")
+            run_poke(target, "uint8 @ 0#B = 0x58")
+            self.assertEqual(Path(target).read_bytes(), b"XAAA")
+
+    def test_run_poke_edits_a_path_containing_a_quote(self):
+        """Quotes and backslashes in the name stay literal.
+
+        Nothing goes through a shell and poke reads .file verbatim, so a name
+        like this has to round-trip untouched.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, 'we"ird \\ name.bin')
             Path(target).write_bytes(b"AAAA")
             run_poke(target, "uint8 @ 0#B = 0x58")
             self.assertEqual(Path(target).read_bytes()[0], ord("X"))

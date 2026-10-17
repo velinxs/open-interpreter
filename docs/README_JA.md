@@ -13,7 +13,7 @@
     <br>
     <b>自然言語で指示するだけでコードを書いて実行までしてくれる。</b><br>
     ローカルに実装したOpenAI Code Interpreterのオープンソース版。<br>
-    <br><a href="https://openinterpreter.com">デスクトップアプリへの早期アクセス</a>‎ ‎ |‎ ‎ <a href="https://docs.openinterpreter.com/">ドキュメント</a><br>
+    <br><a href="https://www.openinterpreter.com/">デスクトップアプリ</a> | <a href="https://github.com/openinterpreter/openinterpreter">Open Interpreter (Rust)</a> | <a href=".">ドキュメント</a><br>
 </p>
 
 <br>
@@ -22,7 +22,7 @@
 
 <br>
 
-**Update:** ● 0.1.12 アップデートで `interpreter --vision` 機能が導入されました。([ドキュメント](https://docs.openinterpreter.com/usage/terminal/vision))
+**Update:** ● 0.1.12 アップデートで `interpreter --vision` 機能が導入されました。([ドキュメント](usage/terminal/vision.mdx))
 
 <br>
 
@@ -258,12 +258,17 @@ $ interpreter
 
 **利用可能なコマンド:**
 
-- `%verbose [true/false]`: デバッグモードを切り替えます。引数なしまたは `true` でデバッグモードに入ります。`false` でデバッグモードを終了します。
+- `%% [command]`: システムシェルでコマンドを実行します（LLM を経由しません）。
+- `%verbose [true/false]`: 詳細モードを切り替えます。引数なしまたは `true` で詳細モードに入ります。`false` で詳細モードを終了します。
+- `%auto_run [true/false]`: 確認なしでコードを実行するかどうかを切り替えます。引数なしまたは `true` で auto_run モードに入ります。`false` で終了します。
 - `%reset`: 現在のセッションの会話をリセットします。
 - `%undo`: メッセージ履歴から前のユーザーメッセージと AI の応答を削除します。
 - `%save_message [path]`: メッセージを指定した JSON パスに保存します。パスが指定されていない場合、デフォルトは `messages.json` になります。
 - `%load_message [path]`: 指定した JSON パスからメッセージを読み込みます。パスが指定されていない場合、デフォルトは `messages.json` になります。
 - `%tokens [prompt]`: (_実験的_) 次のプロンプトのコンテキストとして送信されるトークンを計算し、そのコストを見積もります。オプションで、`prompt` が提供された場合のトークンと見積もりコストを計算します。見積もりコストは [LiteLLM の `cost_per_token()` メソッド](https://docs.litellm.ai/docs/completion/token_usage#2-cost_per_token)に依存します。
+- `%jupyter`: 会話を Jupyter ノートブックファイルにエクスポートします。
+- `%markdown [path]`: 会話を指定した Markdown パスにエクスポートします。パスが指定されていない場合、生成された会話名で Downloads フォルダに保存されます。
+- `%info`: システムとインタープリタの情報を表示します。
 - `%help`: ヘルプメッセージを表示します。
 
 ### 設定
@@ -372,7 +377,7 @@ uvicorn server:app --reload
 - Open Interpreter を自動運転車のように監視し、ターミナルを閉じてプロセスを終了できるように準備しておいてください。
 - Google Colab や Replit のような制限された環境で Open Interpreter を実行することを検討してください。これらの環境はより隔離されており、任意のコードの実行に関連するリスクを軽減します。
 
-一部のリスクを軽減するための[セーフモード](docs/SAFE_MODE.md)と呼ばれる **実験的な** サポートがあります。
+一部のリスクを軽減するための[セーフモード](SAFE_MODE.md)と呼ばれる **実験的な** サポートがあります。
 
 ## Open Interpreter はどのように機能するのか？
 
@@ -388,7 +393,7 @@ Open Interpreter は、[関数が呼び出せる言語モデル](https://platfor
 
 # ロードマップ
 
-Open Interpreter の未来を一足先に見るために、[私たちのロードマップ](https://github.com/OpenInterpreter/open-interpreter/blob/main/docs/ROADMAP.md)をご覧ください。
+Open Interpreter の未来を一足先に見るために、[私たちのロードマップ](ROADMAP.md)をご覧ください。
 
 **注意**: このソフトウェアは OpenAI とは関連していません。
 

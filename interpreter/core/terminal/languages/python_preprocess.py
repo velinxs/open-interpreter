@@ -275,6 +275,50 @@ def _value_fingerprint(value):
     return hashlib.sha1(repr(value).encode()).hexdigest()
 
 
+def _blocking_input_call(code):
+    """Name of the stdin-blocking builtin called in `code`, or None.
+
+    input() in a kernel cell blocks on a read that nothing will ever satisfy:
+    there is no terminal attached. The cell never returns, the end-of-execution
+    marker is never emitted, and the turn hangs with the reader thread alive and
+    waiting -- so Ctrl-C cannot break that either.
+
+    The kernel's idle timeout would eventually kill such a cell, but that costs
+    the user the whole timeout and tells the model only that something stalled.
+    Refusing up front is instant and says what to do instead.
+
+    Detected on the AST rather than by text match, so `input` used as a variable
+    name, inside a comment, or as `.input()` on some other object is left alone.
+    Code that does not parse passes through untouched: the kernel reports the
+    syntax error itself, and adding a second complaint about it helps nobody.
+    """
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return None
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if isinstance(func, ast.Name) and func.id in ("input", "raw_input"):
+            return func.id
+        if (
+            isinstance(func, ast.Attribute)
+            and func.attr == "input"
+            and isinstance(func.value, ast.Name)
+            and func.value.id == "builtins"
+        ):
+            return "builtins.input"
+    return None
+
+
+_BLOCKING_INPUT_MESSAGE = (
+    "This code calls {name}(), which reads from stdin. The kernel has no terminal "
+    "attached, so the call blocks and this turn would never end.\n\n"
+    "Ask the user in your reply instead, then wait for their next message."
+)
+
+
 def preprocess_python(code):
     """
     Add active line markers
@@ -298,13 +342,60 @@ def preprocess_python(code):
     # Wrap in a try except (DISABLED)
     # code = wrap_in_try_except(code)
 
-    # Remove any whitespace lines, as this will break indented blocks
-    # (are we sure about this? test this)
-    code_lines = code.split("\n")
-    code_lines = [c for c in code_lines if c.strip() != ""]
-    code = "\n".join(code_lines)
+    code = _drop_blank_lines_outside_strings(code)
 
     return code
+
+
+def _lines_inside_multiline_strings(code):
+    """1-based line numbers that fall inside a multi-line string literal.
+
+    Uses the tokenizer rather than tracking triple quotes by hand, because a
+    hand-rolled scan cannot tell a real delimiter from one inside a string
+    (`"he said \"\"\""`) or from a `#` comment mentioning quotes.
+    """
+    import io
+    import tokenize
+
+    protected = set()
+    try:
+        for token in tokenize.generate_tokens(io.StringIO(code).readline):
+            if token.type in (tokenize.STRING, getattr(tokenize, "FSTRING_START", -1)):
+                if token.end[0] > token.start[0]:
+                    protected.update(range(token.start[0], token.end[0] + 1))
+    except (tokenize.TokenError, IndentationError, SyntaxError, ValueError):
+        # Unparseable code: fall back to the caller's naive handling rather than
+        # guessing. It is about to fail in the kernel anyway.
+        return None
+    return protected
+
+
+def _drop_blank_lines_outside_strings(code):
+    """Remove blank lines, except where they are part of a string literal.
+
+    Blank lines have to go: a blank line inside an indented block ends the
+    block, so a cell like `class C:` followed by an empty line silently loses
+    every method after it. But dropping *every* whitespace-only line also
+    deletes blank lines inside triple-quoted strings, which silently rewrites
+    the string's value -- a Python cell holding a file body, a SQL script or a
+    text template produces different content than it was given, which is the
+    same damage as a file being edited with its blank lines stripped.
+
+    Only the lines the tokenizer reports as being inside a multi-line string
+    are kept. Lines inside a single-line string cannot be blank, so they need no
+    special handling.
+    """
+    protected = _lines_inside_multiline_strings(code)
+    if protected is None:
+        code_lines = code.split("\n")
+        return "\n".join(c for c in code_lines if c.strip() != "")
+
+    out = []
+    for index, line in enumerate(code.split("\n"), start=1):
+        if line.strip() == "" and index not in protected:
+            continue
+        out.append(line)
+    return "\n".join(out)
 
 
 def add_active_line_prints(code, line_offset=0):

@@ -8,6 +8,7 @@ import os
 import tempfile
 import threading
 import time
+import uuid
 from datetime import datetime
 
 from ..terminal_interface.terminal_interface import terminal_interface
@@ -34,6 +35,16 @@ from .utils.execution_allowlist import (
 from .utils.prompt_choice import prompt_choice
 from .utils.telemetry import send_telemetry
 from .utils.truncate_output import truncate_output
+
+
+def _launch_context():
+    """(cwd, started_at) for this run, read once at construction.
+
+    A module-level function rather than inline in __init__, because __init__
+    takes a parameter named ``os`` (offline mode) which shadows the module for
+    the whole body.
+    """
+    return os.getcwd(), datetime.now()
 
 # After this many user messages, run one extra completion to rename the JSON once
 # (isolated `llm.run` message list — same pattern as `toolbox.ai.chat`, leaves `interpreter.messages` unchanged).
@@ -99,11 +110,23 @@ class OpenInterpreter:
         multi_line=True,
         contribute_conversation=False,
         plain_text_display=False,
+        web_timeout=30.0,
+        web_answer_timeout=120.0,
     ):
         # State
         self.messages = [] if messages is None else messages
         self.responding = False
         self.last_messages_count = 0
+        # Where and when this run started, for the system message's environment
+        # block. Read once here so a later `cd` does not rewrite history.
+        self._launch_cwd, self._launch_time = _launch_context()
+        # Identifies one conversation for as long as it lasts. OI has no session
+        # store, so this is minted per process and re-minted by reset(). The `i`
+        # model sends it in the request body; providers that key prompt caching or
+        # routing on a per-conversation id (e.g. OpenCode Go's x-opencode-session)
+        # read it as a header. Minted unconditionally: Llm.load() used to do it
+        # only for model == "i", so every other provider got none.
+        self.conversation_id = str(uuid.uuid4())
 
         # Settings
         self.offline = offline
@@ -135,6 +158,8 @@ class OpenInterpreter:
         # Byte offset where the current block's body ends and its footer starts.
         # None until the block first overflows and gets a header.
         self._spill_body_end = None
+        self.web_timeout = web_timeout
+        self.web_answer_timeout = web_answer_timeout
         self.safe_mode = safe_mode
         # One switch gates ALL boilerplate stripping (redundant cd, redundant
         # imports, `import toolbox`). A profile can turn the whole lot off with
@@ -430,6 +455,11 @@ class OpenInterpreter:
         self.messages = []
         self.last_messages_count = 0
         self.llm.last_completion_usage = None
+        # A new conversation is a new id: anything keying prompt caching or
+        # routing on it (the hosted `i` body field, OpenCode Go's
+        # x-opencode-session header) must not see the cleared history under the
+        # id that carried the old one.
+        self.conversation_id = str(uuid.uuid4())
 
     def display_message(self, markdown):
         # This is just handy for start_script in profiles.
