@@ -667,6 +667,20 @@ class TestProfileEnvironmentVariables:
 
         assert obj.custom_instructions == text
 
+    def test_a_variable_followed_by_a_newline_is_left_alone(self, monkeypatch):
+        """A YAML block scalar ending in a newline is prose, not a reference.
+
+        Regex `$` also matches just before a trailing newline, so an anchored
+        `match()` would read "$OLLAMA_PASS\\n" as a whole-value reference and
+        silently drop the newline.
+        """
+        monkeypatch.setenv("OLLAMA_PASS", "sk-from-the-environment")
+        obj = SimpleNamespace(custom_instructions=None)
+
+        profiles.apply_profile_to_object(obj, {"custom_instructions": "$OLLAMA_PASS\n"})
+
+        assert obj.custom_instructions == "$OLLAMA_PASS\n"
+
     def test_command_substitution_is_not_evaluated(self, monkeypatch):
         """`$(...)` stays literal — a profile is data, never a shell script."""
         monkeypatch.setenv("OLLAMA_PASS", "sk-from-the-environment")
