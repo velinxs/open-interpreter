@@ -172,15 +172,25 @@ def test_a_python_block_that_blocks_forever_is_interrupted(monkeypatch):
 
     oi = OpenInterpreter()
     try:
+        # Boot the kernel on a trivial block first, and start the clock after.
+        # The first run of a session pays for start_kernel, the channel
+        # handshake and the matplotlib warm-up, and timing from before that
+        # measures startup as well as the timeout. On a loaded machine running
+        # the whole suite, startup is the larger half: this assertion has been
+        # seen to read 97s against a 3s timeout that had fired correctly.
+        list(oi.toolbox.run("python", "1"))
+
         started = time.monotonic()
         chunks = list(oi.toolbox.run("python", "import time\ntime.sleep(120)"))
+        elapsed = time.monotonic() - started
     finally:
         oi.toolbox.terminate()
 
-    elapsed = time.monotonic() - started
     text = "".join(c.get("content", "") for c in chunks if c.get("format") == "output")
-    assert elapsed < 60, f"the block ran for {elapsed:.0f}s; the idle timeout did not fire"
+    # The message is the proof that the timeout is *why* the block ended; the
+    # bound is the proof that it ended early rather than sleeping its full 120s.
     assert "Interrupted: no output for" in text, text[:200]
+    assert elapsed < 30, f"the block ran for {elapsed:.0f}s against a 3s idle timeout"
 
 
 def test_an_interrupted_block_does_not_leak_its_output_into_the_next_one(monkeypatch):
