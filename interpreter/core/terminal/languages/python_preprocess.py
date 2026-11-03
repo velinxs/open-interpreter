@@ -360,7 +360,17 @@ def _lines_inside_multiline_strings(code):
     protected = set()
     try:
         for token in tokenize.generate_tokens(io.StringIO(code).readline):
-            if token.type in (tokenize.STRING, getattr(tokenize, "FSTRING_START", -1)):
+            if token.type in (
+                tokenize.STRING,
+                getattr(tokenize, "FSTRING_START", -1),
+                # Python 3.12+ tokenizes an f-string in pieces, and
+                # FSTRING_START covers only the opening delimiter — the body,
+                # which is where the blank lines are, arrives as
+                # FSTRING_MIDDLE. Without this a blank line inside a
+                # multi-line f-string is dropped and the string's value
+                # silently changes, which is the whole bug this guards.
+                getattr(tokenize, "FSTRING_MIDDLE", -1),
+            ):
                 if token.end[0] > token.start[0]:
                     protected.update(range(token.start[0], token.end[0] + 1))
     except (tokenize.TokenError, IndentationError, SyntaxError, ValueError):

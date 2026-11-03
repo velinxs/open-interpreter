@@ -116,6 +116,33 @@ class TestBlankLinesInsideStringsArePreserved(unittest.TestCase):
         out = self._preprocess(source, active_line_detection="false")
         self.assertEqual(_string_values(out)[-1], "A\n\nB")
 
+    def test_blank_line_in_a_multiline_fstring_survives(self):
+        """A blank line inside a multi-line f-string stays in the string.
+
+        Python 3.12+ tokenizes an f-string in pieces: FSTRING_START covers only
+        the opening delimiter, and the body -- where the blank lines are --
+        arrives as FSTRING_MIDDLE. Protecting only STRING and FSTRING_START
+        therefore leaves f-strings exposed to exactly the bug the rest of this
+        class guards against, and an f-string is the likely shape for the
+        templates and file bodies that motivated it.
+        """
+        for detection in ("True", "False"):
+            with self.subTest(active_line_detection=detection):
+                out = self._preprocess(
+                    'name = "x"\ns = f"""A\n\n{name}"""\n',
+                    active_line_detection=detection,
+                )
+                # An f-string is a JoinedStr, not a Constant, so read its
+                # literal pieces rather than going through _string_values.
+                joined = [
+                    node.value
+                    for node in ast.parse(out).body
+                    if isinstance(node, ast.Assign) and isinstance(node.value, ast.JoinedStr)
+                ]
+                self.assertEqual(len(joined), 1, "the f-string assignment survived")
+                literals = "".join(part.value for part in joined[0].values if isinstance(part, ast.Constant))
+                self.assertEqual(literals, "A\n\n")
+
 
 class TestBlankLinesOutsideStringsAreStillRemoved(unittest.TestCase):
     """The strip the string fix protects must keep doing its actual job.
