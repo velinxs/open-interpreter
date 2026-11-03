@@ -24,7 +24,7 @@ reads one would become a code-execution path the moment it ran a shell.
 import os
 import re
 
-_WHOLE_VALUE = re.compile(r"^\$([A-Za-z_][A-Za-z0-9_]*)$")
+_WHOLE_VALUE = re.compile(r"\$([A-Za-z_][A-Za-z0-9_]*)")
 _BRACED = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
 
@@ -51,7 +51,7 @@ def expand_env(value, key):
     if not isinstance(value, str):
         return value
 
-    whole = _WHOLE_VALUE.match(value)
+    whole = _WHOLE_VALUE.fullmatch(value)
     if whole:
         return _resolve(whole.group(1), key)
 
